@@ -1,0 +1,26 @@
+[project]
+name = "tabs"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "chex>=0.1.89",
+    "jax[cuda12]>=0.6.1",
+    "flax>=0.10.6",
+    "optax>=0.2.5",
+    "tensorflow-probability==0.24.0",
+    "pygame>=2.5.2",
+    "uv>=0.6.6",
+    "wandb>=0.20.1",
+]
+
+[project.scripts]
+tabs = "TABS:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
