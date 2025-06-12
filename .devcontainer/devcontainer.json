@@ -1,5 +1,5 @@
 {
-	"name": "UED_MARL",
+	"name": "TABS",
 	"build": {
 		"context": ".",
 		"dockerfile": "dev.Dockerfile"
