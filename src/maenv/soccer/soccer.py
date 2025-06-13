@@ -323,7 +323,7 @@ class Soccer(BaseMAEnv):
             ),
         )
 
-        gmae_manager = GameManager(
+        game_manager = GameManager(
             reward={
                 "agent_0": jnp.array([0.0]),
                 "agent_1": jnp.array([0.0]),
@@ -343,7 +343,7 @@ class Soccer(BaseMAEnv):
             "bottom_wall": bottom_wall,
             "left_goal_post": left_goal_post,
             "right_goal_post": right_goal_post,
-            "game_manager": gmae_manager,
+            "game_manager": game_manager,
             "left_top_wall": left_top_wall,
             "left_bottom_wall": left_bottom_wall,
             "right_top_wall": right_top_wall,
