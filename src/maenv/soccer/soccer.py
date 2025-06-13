@@ -3,6 +3,8 @@ import os
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 import jax
 import jax.numpy as jnp
+from easydict import EasyDict
+from typing import Dict
 from collections import namedtuple
 from src.maenv.physics import (
     physics_step,
@@ -75,8 +77,14 @@ class GameManager(namedtuple("GameManager", ["reward", "done", "timestep"])):
 
 
 class Soccer(BaseMAEnv):
-    def __init__(self, config):
-        self.config = config
+    def __init__(
+        self,
+        num_agents: int = 4,
+        physics_config: Dict[str, float] = EasyDict(
+            {"dt": 0.2, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
+        ),
+    ):
+        super().__init__(num_agents, physics_config)
 
     def get_obs(self, state):
         """
@@ -141,7 +149,7 @@ class Soccer(BaseMAEnv):
             "agent_3": agent_3_obs,
         }
 
-    def reset(self, key, env_params=None):
+    def reset(self, key):
         ball_init_distribution = tfd.Uniform(
             low=jnp.array([-6.5, -3.5]), high=jnp.array([6.5, 3.5])
         )
@@ -350,7 +358,7 @@ class Soccer(BaseMAEnv):
     def step(self, key, state, action):
         for sprite in state.keys():
             if hasattr(state[sprite], "update"):
-                state[sprite] = state[sprite].update(self.config)
+                state[sprite] = state[sprite].update(self.physics_config)
 
         collider_filter = {
             "ball": [
@@ -417,7 +425,7 @@ class Soccer(BaseMAEnv):
             ],
         }
 
-        state = physics_step(self.config, state, list(state.keys()), collider_filter)
+        state = physics_step(self.physics_config, state, list(state.keys()), collider_filter)
         for sprite in ["agent_0", "agent_1", "agent_2", "agent_3"]:
             state[sprite] = state[sprite].act(action[sprite])
         reward = state["game_manager"].reward

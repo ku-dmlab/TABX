@@ -3,12 +3,14 @@ import chex
 
 
 class BaseMAEnv:
-    def __init__(self, config):
-        self.config = config
+    def __init__(self, num_agents: int, physics_config: Dict[str, float]) -> None:
+        self.num_agents = num_agents
+        self.physics_config = physics_config
 
-    def reset(
-        self, key: chex.PRNGKey, env_params: Dict[str, chex.Array | float] = None
-    ) -> Tuple[Dict[str, chex.Array], Dict[str, Any]]:
+    def get_obs(self, state: Dict[str, Any]) -> Dict[str, chex.Array]:
+        raise NotImplementedError
+
+    def reset(self, key: chex.PRNGKey) -> Tuple[Dict[str, chex.Array], Dict[str, Any]]:
         raise NotImplementedError
 
     def step(

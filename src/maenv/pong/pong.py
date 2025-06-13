@@ -3,6 +3,8 @@ import os
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 import jax
 import jax.numpy as jnp
+from easydict import EasyDict
+from typing import Dict
 from collections import namedtuple
 from src.maenv.physics import physics_step, RigidBody, BoxCollider, CircleCollider
 from src.maenv.base_maenv import BaseMAEnv
@@ -81,8 +83,14 @@ class Pong(BaseMAEnv):
     - Right team: agent_2 (left paddle) and agent_3 (right paddle)
     """
 
-    def __init__(self, config):
-        self.config = config
+    def __init__(
+        self,
+        num_agents: int = 4,
+        physics_config: Dict[str, float] = EasyDict(
+            {"dt": 0.05, "percent": 0.2, "slop": 0.01, "restitution": 1.0}
+        ),
+    ):
+        super().__init__(num_agents, physics_config)
 
     def get_obs(self, state):
         """
@@ -128,7 +136,7 @@ class Pong(BaseMAEnv):
             "agent_3": right_team_obs,
         }
 
-    def reset(self, key, env_params=None):
+    def reset(self, key):
         ball_init_velocity = jax.random.normal(key, (2,))
         ball_init_velocity /= jnp.sqrt(jnp.square(ball_init_velocity).sum())
         ball = Ball(
