@@ -10,22 +10,22 @@ non_target_balance = 0.5
 
 @struct.dataclass
 class Unit:
-    unit_type_id: chex.Array[int]
-    price: chex.Array[int]
-    health: chex.Array[int]
-    body_radius: chex.Array[float]
-    body_weight: chex.Array[float]
-    velocity: chex.Array[float]
-    attack_damage: chex.Array[int]
-    attack_range: chex.Array[float]  # WM
-    attack_cooldown: chex.Array[float]  # sec
-    sight_angle: chex.Array[float]
-    sight_radius: chex.Array[float]
-    alive: chex.Array[int]
-    team: chex.Array[int]  # 1: alley, 0: enemy
+    unit_type_id: chex.Array
+    price: chex.Array
+    health: chex.Array
+    body_radius: chex.Array
+    body_weight: chex.Array
+    velocity: chex.Array
+    attack_damage: chex.Array
+    attack_range: chex.Array  # WM
+    attack_cooldown: chex.Array  # sec
+    sight_angle: chex.Array
+    sight_radius: chex.Array
+    alive: chex.Array
+    team: chex.Array  # 1: alley, 0: enemy
 
 
-class UnitID(Enum):
+class UnitID:
     Farmer = 0
     Archer = 1
     TheKing = 2
