@@ -7,7 +7,7 @@ class BaseMAEnv:
         self.num_agents = num_agents
         self.physics_config = physics_config
 
-    def get_obs(self, state: Dict[str, Any]) -> Dict[str, chex.Array]:
+    def get_obs(self, state: Dict[str, Any]) -> chex.Array:
         raise NotImplementedError
 
     def reset(self, key: chex.PRNGKey) -> Tuple[Dict[str, chex.Array], Dict[str, Any]]:
