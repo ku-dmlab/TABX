@@ -7,7 +7,7 @@ from easydict import EasyDict
 from typing import Dict
 from collections import namedtuple
 from src.maenv.physics import physics_step, RigidBody, BoxCollider, CircleCollider
-from src.maenv.base_maenv import BaseMAEnv
+from src.maenv.environments.base_maenv import BaseMAEnv
 from src.maenv.pong.env_objects import Paddle, Ball, StaticBox, GoalLine
 from src.maenv.util import notify
 
