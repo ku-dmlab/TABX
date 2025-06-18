@@ -6,15 +6,15 @@ import jax.numpy as jnp
 @struct.dataclass
 class Scenario:
     budget: int
-    enemy_type_comp: chex.Array
+    enemy_unit_comp: chex.Array
 
 
 MAP_NAME_TO_SCENARIO = {
-    "20farmers": Scenario(budget=1600, enemy_type_comp=jnp.array([20, 0, 0, 0, 0, 0, 0])),
-    "1theking": Scenario(budget=1600, enemy_type_comp=jnp.array([0, 0, 1, 0, 0, 0, 0])),
+    "20farmers": Scenario(budget=1600, enemy_unit_comp=jnp.array([20, 0, 0, 0, 0, 0, 0])),
+    "1theking": Scenario(budget=1600, enemy_unit_comp=jnp.array([0, 0, 1, 0, 0, 0, 0])),
     "4archer_1mammoth": Scenario(
         budget=2000,
-        enemy_type_comp=jnp.array([0, 4, 0, 0, 1, 0, 0]),
+        enemy_unit_comp=jnp.array([0, 4, 0, 0, 1, 0, 0]),
     ),
 }
 
