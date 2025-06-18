@@ -1,23 +1,20 @@
 import chex
 from flax import struct
 import jax.numpy as jnp
-from src.maenv.tabs.units import UnitID
 
 
 @struct.dataclass
 class Scenario:
     budget: int
-    enemy_unit_types: chex.Array
+    enemy_type_comp: chex.Array
 
 
 MAP_NAME_TO_SCENARIO = {
-    "20farmers": Scenario(budget=1600, enemy_unit_types=jnp.zeros((20,))),
-    "1theking": Scenario(budget=1600, enemy_unit_types=jnp.array([UnitID.TheKing])),
-    "1mammoth_4archer": Scenario(
+    "20farmers": Scenario(budget=1600, enemy_type_comp=jnp.array([20, 0, 0, 0, 0, 0, 0])),
+    "1theking": Scenario(budget=1600, enemy_type_comp=jnp.array([0, 0, 1, 0, 0, 0, 0])),
+    "4archer_1mammoth": Scenario(
         budget=2000,
-        enemy_unit_types=jnp.array(
-            [UnitID.Mammoth, UnitID.Archer, UnitID.Archer, UnitID.Archer, UnitID.Archer]
-        ),
+        enemy_type_comp=jnp.array([0, 4, 0, 0, 1, 0, 0]),
     ),
 }
 
