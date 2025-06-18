@@ -1,4 +1,5 @@
-from enum import Enum
+from typing import Dict, List
+
 import chex
 from flax import struct
 import jax.numpy as jnp
@@ -23,6 +24,63 @@ class Unit:
     sight_radius: chex.Array
     alive: chex.Array
     team: chex.Array  # 1: alley, 0: enemy
+
+
+def get_all_unit_names() -> List:
+    return ["farmer", "archer", "theking", "bombthrower", "mammoth", "deadeye", "healer"]
+
+
+def get_unit_spec(unit: Unit) -> Dict[str, chex.Array]:
+    return {
+        "price": unit.price,
+        "health": unit.health,
+        "body_radius": unit.body_radius,
+        "body_weight": unit.body_weight,
+        "velocity": unit.velocity,
+        "attack_damage": unit.attack_damage,
+        "attack_range": unit.attack_range,
+        "attack_cooldown": unit.attack_cooldown,
+        "sight_angle": unit.sight_angle,
+        "sight_radius": unit.sight_radius,
+    }
+
+
+def get_all_unit_spec_dict() -> Dict[str, Dict[str, chex.Array]]:
+    all_units = [Farmer, Archer, TheKing, BombThrower, Mammoth, Deadeye, Healer]
+    all_unit_names = get_all_unit_names()
+    spec = {}
+    for idx, unit in enumerate(all_units):
+        spec[all_unit_names[idx]] = get_unit_spec(unit)
+
+    return spec
+
+
+def get_all_unit_spec() -> chex.Array:
+    all_units = [Farmer, Archer, TheKing, BombThrower, Mammoth, Deadeye, Healer]
+
+    prices = jnp.array([unit.price for unit in all_units]).flatten()
+    healths = jnp.array([unit.health for unit in all_units]).flatten()
+    body_radiuses = jnp.array([unit.body_radius for unit in all_units]).flatten()
+    body_weights = jnp.array([unit.body_weight for unit in all_units]).flatten()
+    velocities = jnp.array([unit.velocity for unit in all_units]).flatten()
+    attack_damages = jnp.array([unit.attack_damage for unit in all_units]).flatten()
+    attack_cooldown = jnp.array([unit.attack_cooldown for unit in all_units]).flatten()
+    sight_angles = jnp.array([unit.sight_angle for unit in all_units]).flatten()
+    sight_radiuses = jnp.array([unit.sight_radius for unit in all_units]).flatten()
+
+    return jnp.vstack(
+        (
+            prices,
+            healths,
+            body_radiuses,
+            body_weights,
+            velocities,
+            attack_damages,
+            attack_cooldown,
+            sight_angles,
+            sight_radiuses,
+        )
+    )
 
 
 class UnitID:
@@ -143,7 +201,7 @@ class Healer(Unit):
     price = jnp.array([180])
     health = jnp.array([25])
     body_radius = jnp.array([1.0])
-    body_weight = jnp.array([])
+    body_weight = jnp.array([1.0])
     velocity = jnp.array([1.0])
     attack_damage = jnp.array([35])
     attack_range = jnp.array([10.0])
