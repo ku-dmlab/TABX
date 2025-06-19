@@ -1,0 +1,225 @@
+from collections import namedtuple
+import chex
+from src.maenv.util import notify
+import jax
+import jax.numpy as jnp
+from src.maenv.physics import Transform, RigidBody, CircleCollider
+
+
+class UnitStatus(
+    namedtuple(
+        "UnitStatus",
+        [
+            "id",
+            "health",
+            "attack_damage",
+            "attack_range",
+            "attack_cooldown",
+            "cooldown",
+            "sight_angle",
+            "sight_radius",
+        ],
+    )
+):
+    id: chex.Array  # Unique identifier for the unit
+    health: chex.Array  # Current health points of the unit
+    attack_damage: chex.Array  # Damage dealt by the unit's attacks
+    attack_range: chex.Array  # Maximum distance the unit can attack
+    attack_cooldown: chex.Array  # Required cooldown time between attacks
+    cooldown: chex.Array  # Time elapsed since the most recent attack
+    sight_angle: chex.Array  # Field of view angle in radians
+    sight_radius: chex.Array  # Maximum sight distance
+
+
+move_table = jnp.array(
+    [
+        [0, 1.0],
+        [0, -1.0],
+        [-1.0, 0],
+        [1.0, 0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+    ]
+)
+
+
+class UnitAction:
+    UP = 0
+    DOWN = 1
+    LEFT = 2
+    RIGHT = 3
+    ATTACK = 4
+    IDLE = 5
+
+
+class DefaultUnit(
+    namedtuple(
+        "DefaultUnit",
+        ["transform", "rigidbody", "collider", "team", "pos_limit", "status", "attacking"],
+    )
+):
+    transform: (
+        Transform  # The spatial transform (position, rotation) of the unit in the environment
+    )
+    rigidbody: RigidBody  # The physical properties of the unit for physics simulation (e.g., velocity, mass)
+    collider: CircleCollider  # The collision shape and parameters for detecting overlaps with other objects
+    team: chex.Array  # The team identifier to distinguish between different groups of units
+    pos_limit: chex.Array  # The positional boundaries or limits within which the unit can move
+    status: UnitStatus  # The current status of the unit, including health, attack stats, and other attributes
+    attacking: chex.Array  # Boolean showing whether the unit is currently performing an attack
+
+    def __new__(cls, transform, rigidbody, collider, team, pos_limit, status, attacking):
+        return super().__new__(
+            cls, transform, rigidbody, collider, team, pos_limit, status, attacking
+        )
+
+    def update(self, **kwargs):
+        config = kwargs["config"]
+        next_cooldown = jnp.where(self.attacking, 0.0, self.status.cooldown + config["dt"])
+        return self._replace(status=self.status._replace(cooldown=next_cooldown))
+
+    def act(self, objects, action, **kwargs):
+        # action : [rotate_angle, discrete action]
+        is_attack = UnitAction.ATTACK == action[1]
+        game_manager: GameManager = objects["game_manager"]
+        target = game_manager.target[self.status.id]
+        can_attack = self.status.cooldown > self.status.attack_cooldown
+        return notify(objects, "hit", (self, is_attack, target, can_attack))
+
+    def on_hit(self, objects, info):
+        attacker: DefaultUnit
+        attacker, is_attack, target, can_attack = info
+        is_target = (
+            (is_attack | (target == self.status.id)) & can_attack & (attacker.status.health > 0)
+        )
+
+        # need to calculate cooldown of attacker
+        is_attack_by_self = attacker.status.id == self.status.id
+
+        damaged_status = self.on_damage(attacker.status.attack_damage)
+        new_status = jax.tree.map(
+            lambda x, y: jnp.where(is_target, y, x), self.status, damaged_status
+        )
+        return self._replace(status=new_status, attacking=is_attack_by_self)
+
+    def on_damage(self, damage) -> UnitStatus:
+        return self.status._replace(health=self.status.health - damage)
+
+
+class GameManager(namedtuple("GameManager", ["reward", "done", "timestep", "target"])):
+    reward: chex.Array
+    done: chex.Array
+    timestep: chex.Array
+    target: chex.Array
+
+    def get_units_in_attack_range(
+        self,
+        position_diff,
+        unit_rotation_vector,
+        unit_body_radius_vector,
+        unit_attack_range_vector,
+        attack_range_angle=jnp.pi / 4,
+    ):
+        """
+        Compute a boolean matrix indicating which units are within each unit's rectangular attack range.
+
+        This function calculates a rectangular attack zone in front of each unit based on their
+        rotation direction and attack parameters. The attack zone is defined by the unit's attack range
+        and a specified angle width.
+
+        Args:
+            position_diff (jnp.ndarray): [N, N, 2] Position differences between all pairs of units.
+                                    position_diff[i][j] = position_j - position_i
+            unit_rotation_vector (jnp.ndarray): [N, 1] Rotation angle of each unit in radians
+            unit_body_radius_vector (jnp.ndarray): [N, 1] Body radius of each unit
+            unit_attack_range_vector (jnp.ndarray): [N, 1] Attack range distance of each unit
+            attack_range_angle (float): Half-width of the attack cone in radians (default: pi/4)
+
+        Returns:
+            jnp.ndarray: [N, N] Boolean matrix where result[i][j] is True if unit i can attack/detect unit j
+                        within its rectangular attack range, False otherwise.
+
+        Note:
+            The attack zone is shaped like a rectangle extending forward from each unit's position,
+            with width determined by the attack_range_angle and length by the unit's attack_range.
+        """
+
+        p1 = (
+            jnp.concatenate([jnp.cos(unit_rotation_vector), jnp.sin(unit_rotation_vector)], axis=1)
+            * unit_body_radius_vector
+        )  # local coordinate of each unit
+        p2 = (
+            jnp.concatenate(
+                [
+                    jnp.cos(unit_rotation_vector + attack_range_angle),
+                    jnp.sin(unit_rotation_vector + attack_range_angle),
+                ],
+                axis=1,
+            )
+            * unit_body_radius_vector
+        )
+
+        vec1 = p1 - p2  # vector from p2 to p1
+        normal_vec = jnp.flip(vec1, axis=-1) * jnp.array([1, -1])  # normal vector
+
+        normal_norm = jnp.linalg.norm(normal_vec, axis=-1, keepdims=True)
+        vec2 = (
+            unit_attack_range_vector
+            * normal_vec
+            * jnp.where(normal_norm > 1e-6, 1 / normal_norm, 0)
+        )
+
+        local_p = position_diff - p2
+
+        vec1_matrix = (local_p * vec1).sum(axis=-1)
+        vec2_matrix = (local_p * vec2).sum(axis=-1)
+
+        condition1 = (vec1_matrix > 0) & (vec1_matrix < (vec1**2).sum(axis=-1))
+        condition2 = (vec2_matrix > 0) & (vec2_matrix < (vec2**2).sum(axis=-1))
+
+        return (
+            condition1 & condition2 & (~jnp.identity(position_diff.shape[0], dtype=jnp.bool))
+        )  # exclude self
+
+    def update_distance_matrix(self, objects):
+        unit_position_vector = jnp.stack(
+            [unit.transform.position for (key, unit) in objects.items() if "unit" in key]
+        )
+        unit_rotation_vector = jnp.stack(
+            [unit.transform.rotation for (key, unit) in objects.items() if "unit" in key]
+        )
+        unit_body_radius_vector = jnp.stack(
+            [unit.collider.radius for (key, unit) in objects.items() if "unit" in key]
+        )
+        unit_attack_range_vector = jnp.stack(
+            [unit.status.attack_range for (key, unit) in objects.items() if "unit" in key]
+        )
+
+        unit_team_vector = jnp.stack(
+            [unit.team for (key, unit) in objects.items() if "unit" in key]
+        )
+
+        position_diff = (
+            unit_position_vector[None] - unit_position_vector[:, None]
+        )  # position_diff[i][j] = j'th unit's position - i'th unit's position
+        distance_matrix = (position_diff**2).sum(axis=-1)
+        is_team = unit_team_vector[None] == unit_team_vector[:, None]
+        in_attack_range = self.get_units_in_attack_range(
+            position_diff, unit_rotation_vector, unit_body_radius_vector, unit_attack_range_vector
+        )
+        is_there_no_target = ~in_attack_range.any(axis=-1, keepdims=True)
+        target = distance_matrix + ((~in_attack_range) | is_team) * 1e6  # TODO : heal?
+        target = (
+            target.argmin(axis=-1, keepdims=True) * (1 - is_there_no_target)
+            + is_there_no_target * -1
+        )  # TODO : consider death of unit
+
+        return self._replace(target=target)
+
+    def update(self, **kwargs):
+        return self._replace(
+            reward=jnp.array([0.0]),
+            done=jnp.array([False]),
+            timestep=self.timestep + 1,
+            distance=jnp.array([0.0]),
+        )
