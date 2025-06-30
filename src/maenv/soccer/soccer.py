@@ -13,7 +13,7 @@ from src.maenv.physics import (
     BoxCollider,
     CircleCollider,
 )
-from src.maenv.base_maenv import BaseMAEnv
+from src.maenv.environments.base_maenv import BaseMAEnv
 from src.maenv.soccer.env_objects import Player, GoalPost, StaticBox, StaticCircle, Ball
 from src.maenv.render import Texture
 import tensorflow_probability.substrates.jax as tfp
