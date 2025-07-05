@@ -84,13 +84,13 @@ def get_all_unit_spec() -> chex.Array:
 
 
 class UnitID:
-    Farmer = 0
-    Archer = 1
-    TheKing = 2
-    BombThrower = 3
-    Mammoth = 4
-    Deadeye = 5
-    Healer = 6
+    Farmer = 1
+    Archer = 2
+    TheKing = 3
+    BombThrower = 4
+    Mammoth = 5
+    Deadeye = 6
+    Healer = 7
 
 
 @struct.dataclass
