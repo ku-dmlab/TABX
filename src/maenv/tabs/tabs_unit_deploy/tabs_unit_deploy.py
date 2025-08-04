@@ -41,16 +41,27 @@ class TABSUnitDeploy(BaseMAEnv):
         self.action_space = Discrete(num_categories=self.field_height * self.field_width)
         # No need to define observation space
 
+        self._n_units = len(get_all_unit_spec()[0])
+
         self._step = 0
 
-    def get_obs(self, state):
+    def _convert_unit_layer(self, field: chex.Array) -> chex.Array:
+        return jax.vmap(lambda x, i: jnp.where(x == i + 1, 1, 0), (None, 0))(
+            field, jnp.arange(self._n_units)
+        )
+
+    def get_obs(self, state: State) -> chex.Array:
         """
         Return observation includes:
             - The unit id to be deploy next.
             - The list of units still available for deployment, including the next unit id.
             - The current state of the deployed units on the battlefield.
         """
-        battle_field = jnp.vstack((state.enemy_battle_field, state.battle_field))
+
+        enemy_battle_field = self._convert_unit_layer(state.enemy_battle_field)
+        ally_battle_field = self._convert_unit_layer(state.battle_field)
+
+        battle_field = jnp.vstack((enemy_battle_field, ally_battle_field))
         obs = jnp.concatenate((state.next_unit, state.remaining_units, battle_field.flatten()))
 
         return obs
