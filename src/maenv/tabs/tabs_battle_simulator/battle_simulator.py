@@ -111,6 +111,7 @@ class DefaultUnit(
         new_status = jax.tree.map(
             lambda x, y: jnp.where(is_target, y, x), self.status, damaged_status
         )
+
         return self._replace(status=new_status, attacking=is_attack_by_self)
 
     def on_damage(self, damage) -> UnitStatus:
