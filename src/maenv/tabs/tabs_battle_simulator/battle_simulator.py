@@ -3,7 +3,7 @@ import chex
 from src.maenv.util import notify
 import jax
 import jax.numpy as jnp
-from src.maenv.physics import Transform, RigidBody, CircleCollider
+from src.maenv.physics import Transform, RigidBody, CircleCollider, physics_update
 
 
 class UnitStatus(
@@ -76,15 +76,26 @@ class DefaultUnit(
     def update(self, **kwargs):
         config = kwargs["config"]
         next_cooldown = jnp.where(self.attacking, 0.0, self.status.cooldown + config["dt"])
-        return self._replace(status=self.status._replace(cooldown=next_cooldown))
+        updated_object = physics_update(config, self)
+        return updated_object._replace(status=self.status._replace(cooldown=next_cooldown))
 
     def act(self, objects, action, **kwargs):
         # action : [rotate_angle, discrete action]
-        is_attack = UnitAction.ATTACK == action[1]
+
+        discrete_action = action[1].astype(int)
+        is_attack = UnitAction.ATTACK == discrete_action
         game_manager: GameManager = objects["game_manager"]
         target = game_manager.target[self.status.id]
         can_attack = self.status.cooldown > self.status.attack_cooldown
-        return notify(objects, "hit", (self, is_attack, target, can_attack))
+
+        notify(objects, "hit", (self, is_attack, target, can_attack))
+
+        move_action = move_table[discrete_action]
+
+        return self._replace(
+            rigidbody=self.rigidbody._replace(velocity=move_action),
+            transform=self.transform._replace(rotation=self.transform.rotation + action[0]),
+        )
 
     def on_hit(self, objects, info):
         attacker: DefaultUnit
@@ -218,5 +229,4 @@ class GameManager(namedtuple("GameManager", ["reward", "done", "timestep", "targ
             reward=jnp.array([0.0]),
             done=jnp.array([False]),
             timestep=self.timestep + 1,
-            distance=jnp.array([0.0]),
         )

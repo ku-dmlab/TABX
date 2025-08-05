@@ -154,7 +154,7 @@ def resolve_collision_pure_concise(config, object_a, object_b):
 
     def select_rb(no_coll, sep, coll):
         result = jnp.where(is_separating, sep, coll)
-        return jnp.where(is_collision[0], result, no_coll)
+        return jnp.where(is_collision, result, no_coll)
 
     final_object_a = jax.tree.map(
         select_rb, object_a_no_collision, object_a_separating, object_a_collision
@@ -164,10 +164,10 @@ def resolve_collision_pure_concise(config, object_a, object_b):
     )
 
     final_object_a = jax.tree.map(
-        lambda x, y: jnp.where(object_a.rigidbody.is_kinematic[0], y, x), final_object_a, object_a
+        lambda x, y: jnp.where(object_a.rigidbody.is_kinematic, y, x), final_object_a, object_a
     )
     final_object_b = jax.tree.map(
-        lambda x, y: jnp.where(object_b.rigidbody.is_kinematic[0], y, x), final_object_b, object_b
+        lambda x, y: jnp.where(object_b.rigidbody.is_kinematic, y, x), final_object_b, object_b
     )
     return final_object_a, final_object_b, is_collision
 
