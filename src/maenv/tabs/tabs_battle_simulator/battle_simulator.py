@@ -144,42 +144,39 @@ class GameManager(namedtuple("GameManager", ["reward", "done", "timestep", "targ
             with width determined by the attack_range_angle and length by the unit's attack_range.
         """
 
-        p1 = (
-            jnp.concatenate([jnp.cos(unit_rotation_vector), jnp.sin(unit_rotation_vector)], axis=1)
-            * unit_body_radius_vector
-        )  # local coordinate of each unit
-        p2 = (
-            jnp.concatenate(
-                [
-                    jnp.cos(unit_rotation_vector + attack_range_angle),
-                    jnp.sin(unit_rotation_vector + attack_range_angle),
-                ],
-                axis=1,
-            )
-            * unit_body_radius_vector
+        cos_attack_range_half_angle = jnp.cos(attack_range_angle / 2)
+        sin_attack_range_half_angle = jnp.sin(attack_range_angle / 2)
+
+        local_unit_p2 = jnp.array([[cos_attack_range_half_angle, sin_attack_range_half_angle]])
+        local_unit_p1 = jnp.array([[cos_attack_range_half_angle, -sin_attack_range_half_angle]])
+
+        local_height = (local_unit_p1 - local_unit_p2) * unit_body_radius_vector
+
+        height = jnp.linalg.norm(local_height, axis=-1, keepdims=True)[None]
+        width = unit_attack_range_vector[None]
+
+        unit_cosine_vector = jnp.cos(unit_rotation_vector)[None]
+        unit_sine_vector = jnp.sin(unit_rotation_vector)[None]
+
+        relative_unit_x = position_diff[:, :, 0:1]
+        relative_unit_y = position_diff[:, :, 1:2]
+        local_unit_x = (
+            relative_unit_x * unit_cosine_vector + relative_unit_y * unit_sine_vector
+        )  # rotate -theta to get local coordinate
+        local_unit_y = -relative_unit_x * unit_sine_vector + relative_unit_y * unit_cosine_vector
+
+        condition1 = (local_unit_x + unit_body_radius_vector[None] < 0) | (
+            local_unit_x - unit_body_radius_vector[None] > width
+        )
+        condition2 = (local_unit_y + unit_body_radius_vector[None] < 0) | (
+            local_unit_y - unit_body_radius_vector[None] > height
         )
 
-        vec1 = p1 - p2  # vector from p2 to p1
-        normal_vec = jnp.flip(vec1, axis=-1) * jnp.array([1, -1])  # normal vector
-
-        normal_norm = jnp.linalg.norm(normal_vec, axis=-1, keepdims=True)
-        vec2 = (
-            unit_attack_range_vector
-            * normal_vec
-            * jnp.where(normal_norm > 1e-6, 1 / normal_norm, 0)
-        )
-
-        local_p = position_diff - p2
-
-        vec1_matrix = (local_p * vec1).sum(axis=-1)
-        vec2_matrix = (local_p * vec2).sum(axis=-1)
-
-        condition1 = (vec1_matrix > 0) & (vec1_matrix < (vec1**2).sum(axis=-1))
-        condition2 = (vec2_matrix > 0) & (vec2_matrix < (vec2**2).sum(axis=-1))
-
-        return (
-            condition1 & condition2 & (~jnp.identity(position_diff.shape[0], dtype=jnp.bool))
+        available_target = ~(condition1 | condition2).squeeze(-1) & (
+            ~jnp.identity(position_diff.shape[0], dtype=jnp.bool)
         )  # exclude self
+
+        return available_target
 
     def update_distance_matrix(self, objects):
         unit_position_vector = jnp.stack(
@@ -200,8 +197,8 @@ class GameManager(namedtuple("GameManager", ["reward", "done", "timestep", "targ
         )
 
         position_diff = (
-            unit_position_vector[None] - unit_position_vector[:, None]
-        )  # position_diff[i][j] = j'th unit's position - i'th unit's position
+            unit_position_vector[:, None] - unit_position_vector[None]
+        )  # position_diff[i][j] = i'th unit's position - j'th unit's position
         distance_matrix = (position_diff**2).sum(axis=-1)
         is_team = unit_team_vector[None] == unit_team_vector[:, None]
         in_attack_range = self.get_units_in_attack_range(
