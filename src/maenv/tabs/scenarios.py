@@ -37,7 +37,7 @@ MAP_NAME_TO_SCENARIO = {
         enemy_unit_comp=jnp.array([0, 4, 0, 0, 1, 0, 0]),
         ally_unit_comp=jnp.array([0, 4, 0, 0, 1, 0, 0]),
         enemy_battle_field=jnp.array(
-            [[0, 0, 5, 0, 0], [0, 2, 0, 2, 0], [2, 0, 0, 0, 2], [0, 0, 0, 0, 0]], dtype=jnp.float32
+            [[0, 0, 5, 0, 0], [0, 2, 0, 0, 2], [2, 0, 0, 0, 2], [0, 0, 0, 0, 0]], dtype=jnp.float32
         ),
         field_height=4,
         field_width=5,

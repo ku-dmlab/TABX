@@ -22,6 +22,7 @@ class Unit:
     attack_cooldown: chex.Array  # sec
     sight_angle: chex.Array
     sight_radius: chex.Array
+    space_occupied: chex.Array  # area of rectangle shape
     alive: chex.Array
     team: chex.Array  # 1: alley, 0: enemy
 
@@ -42,6 +43,7 @@ def get_unit_spec(unit: Unit) -> Dict[str, chex.Array]:
         "attack_cooldown": unit.attack_cooldown,
         "sight_angle": unit.sight_angle,
         "sight_radius": unit.sight_radius,
+        "space_occupied": unit.space_occupied,
     }
 
 
@@ -67,6 +69,7 @@ def get_all_unit_spec() -> chex.Array:
     attack_cooldown = jnp.array([unit.attack_cooldown for unit in all_units]).flatten()
     sight_angles = jnp.array([unit.sight_angle for unit in all_units]).flatten()
     sight_radiuses = jnp.array([unit.sight_radius for unit in all_units]).flatten()
+    space_occupied = jnp.array([unit.space_occupied for unit in all_units]).flatten()
 
     return jnp.vstack(
         (
@@ -79,6 +82,7 @@ def get_all_unit_spec() -> chex.Array:
             attack_cooldown,
             sight_angles,
             sight_radiuses,
+            space_occupied,
         )
     )
 
@@ -106,6 +110,7 @@ class Farmer(Unit):
     attack_cooldown = jnp.array([2.5])
     sight_angle = jnp.array([sight_angle])
     sight_radius = jnp.array([sight_radius])
+    space_occupied = jnp.array([1])
     alive = jnp.array([1])
     team = jnp.array([1])
 
@@ -123,6 +128,7 @@ class Archer(Unit):
     attack_cooldown = jnp.array([8])
     sight_angle = jnp.array([sight_angle])
     sight_radius = jnp.array([sight_radius])
+    space_occupied = jnp.array([1])
     alive = jnp.array([1])
     team = jnp.array([1])
 
@@ -140,6 +146,7 @@ class TheKing(Unit):
     attack_cooldown = jnp.array([2.5])
     sight_angle = jnp.array([sight_angle])
     sight_radius = jnp.array([sight_radius])
+    space_occupied = jnp.array([1])
     alive = jnp.array([1])
     team = jnp.array([1])
 
@@ -157,6 +164,7 @@ class BombThrower(Unit):
     attack_cooldown = jnp.array([10.0])
     sight_angle = jnp.array([sight_angle])
     sight_radius = jnp.array([sight_radius])
+    space_occupied = jnp.array([1])
     alive = jnp.array([1])
     team = jnp.array([1])
 
@@ -174,6 +182,7 @@ class Mammoth(Unit):
     attack_cooldown = jnp.array([4.0])
     sight_angle = jnp.array([sight_angle])
     sight_radius = jnp.array([sight_radius])
+    space_occupied = jnp.array([4])
     alive = jnp.array([1])
     team = jnp.array([1])
 
@@ -191,6 +200,7 @@ class Deadeye(Unit):
     attack_cooldown = jnp.array([5.0])
     sight_angle = jnp.array([sight_angle])
     sight_radius = jnp.array([sight_radius])
+    space_occupied = jnp.array([1])
     alive = jnp.array([1])
     team = jnp.array([1])
 
@@ -208,5 +218,6 @@ class Healer(Unit):
     attack_cooldown = jnp.array([1])
     sight_angle = jnp.array([sight_angle])
     sight_radius = jnp.array([sight_radius + 1])
+    space_occupied = jnp.array([1])
     alive = jnp.array([1])
     team = jnp.array([1])
