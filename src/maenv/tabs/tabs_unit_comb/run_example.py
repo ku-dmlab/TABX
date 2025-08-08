@@ -1,7 +1,7 @@
 import jax
 from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
 from src.maenv.tabs.scenarios import MAP_NAME_TO_SCENARIO
-from src.maenv.util import Transition
+from src.maenv.utils import Transition
 
 if __name__ == "__main__":
     n_envs = 5
@@ -31,7 +31,14 @@ if __name__ == "__main__":
             jax.random.split(_rng, n_envs), env_state, actions
         )
 
-        transition = Transition(done=dones, action=actions, reward=rewards, obs=obs, info=infos)
+        transition = Transition(
+            done=dones,
+            action=actions,
+            reward=rewards,
+            obs=obs,
+            info=infos,
+            avail_action=env_state.avail_action,
+        )
 
         return (next_obs, next_state, rng), transition
 
