@@ -18,6 +18,7 @@ class State:
     all_unit_spec: Dict[str, Dict[str, chex.Array]]
     current_unit_list: chex.Array
     enemy_unit_comp: chex.Array
+    action_mask: chex.Array
     scenario: Scenario
 
 
@@ -59,6 +60,7 @@ class TABSUnitComb(BaseMAEnv):
             all_unit_spec=get_all_unit_spec(),
             current_unit_list=jnp.zeros(self.num_units, dtype=jnp.int32),
             enemy_unit_comp=scenario.enemy_unit_comp,
+            action_mask=jnp.where(scenario.budget >= get_all_unit_spec()[0], True, False),
             scenario=scenario,
         )
         return self.get_obs(state), state
@@ -75,11 +77,15 @@ class TABSUnitComb(BaseMAEnv):
             purchase_valid, state.current_unit_list + 1, state.current_unit_list
         )
         new_budget = jnp.where(purchase_valid, state.budget - state.all_unit_spec[0], state.budget)
+        budget = new_budget[action].astype(jnp.int32)
+
+        action_mask = jnp.where(budget >= get_all_unit_spec()[0], True, False)
 
         # Update state
         state = state.replace(
-            budget=new_budget[action].astype(jnp.int32),
+            budget=budget,
             current_unit_list=new_unit_list.astype(jnp.int32),
+            action_mask=action_mask,
         )
 
         # NOTE: Reward would be computed by the result of battle with this unit combination.
