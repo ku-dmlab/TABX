@@ -219,9 +219,9 @@ class GameManager(
         rx = local_unit_p2[:, 0:1]
         ry = local_unit_p2[:, 1:2]
 
-        closest_x = jnp.clip(local_unit_x, rx, rx + width)
+        closest_x = jnp.clip(local_unit_x, rx[:, None], rx[:, None] + width)
         # closest_y = jnp.clip(local_unit_y, ry - height, ry + height)
-        closest_y = jnp.clip(local_unit_y, -ry, ry)
+        closest_y = jnp.clip(local_unit_y, -ry[:, None], ry[:, None])
 
         dx = local_unit_x - closest_x
         dy = local_unit_y - closest_y
