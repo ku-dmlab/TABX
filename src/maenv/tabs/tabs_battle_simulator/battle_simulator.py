@@ -17,7 +17,6 @@ class UnitStatus(
             "attack_cooldown",
             "cooldown",
             "sight_angle",
-            "sight_radius",
         ],
     )
 ):
@@ -28,7 +27,6 @@ class UnitStatus(
     attack_cooldown: chex.Array  # Required cooldown time between attacks
     cooldown: chex.Array  # Time elapsed since the most recent attack
     sight_angle: chex.Array  # Field of view angle in radians
-    sight_radius: chex.Array  # Maximum sight distance
 
 
 move_table = jnp.array(
@@ -82,26 +80,45 @@ class DefaultUnit(
     def act(self, objects, action, **kwargs):
         # action : [rotate_angle, discrete action]
 
-        discrete_action = action[1].astype(int)
+        discrete_action = action[1].astype(int).reshape()
         is_attack = UnitAction.ATTACK == discrete_action
         game_manager: GameManager = objects["game_manager"]
-        target = game_manager.target[self.status.id]
+        target = game_manager.target[self.status.id.reshape()]
         can_attack = self.status.cooldown > self.status.attack_cooldown
 
         notify(objects, "hit", (self, is_attack, target, can_attack))
 
         move_action = move_table[discrete_action]
 
+        cooldown = is_attack & can_attack
+
         return self._replace(
             rigidbody=self.rigidbody._replace(velocity=move_action),
-            transform=self.transform._replace(rotation=self.transform.rotation + action[0]),
+            transform=self.transform._replace(
+                rotation=(self.transform.rotation + action[0].reshape()) % (2 * jnp.pi)
+            ),
+            status=self.status._replace(
+                cooldown=jnp.clip(
+                    0.0 * cooldown
+                    + self.status.cooldown * (1 - cooldown),  # TODO: normalize between 0 and 1?
+                    0.0,
+                    self.status.attack_cooldown,
+                )
+            ),
         )
 
     def on_hit(self, objects, info):
         attacker: DefaultUnit
         attacker, is_attack, target, can_attack = info
+
+        print(is_attack, target, can_attack)
+
+        # print(target.shape)
+
         is_target = (
-            (is_attack | (target == self.status.id)) & can_attack & (attacker.status.health > 0)
+            (is_attack & (target[self.status.id.reshape()].reshape()))
+            & can_attack
+            & (attacker.status.health > 0)
         )
 
         # need to calculate cooldown of attacker
@@ -118,11 +135,17 @@ class DefaultUnit(
         return self.status._replace(health=self.status.health - damage)
 
 
-class GameManager(namedtuple("GameManager", ["reward", "done", "timestep", "target"])):
+class GameManager(
+    namedtuple(
+        "GameManager", ["reward", "done", "timestep", "target", "visible_matrix", "distance_matrix"]
+    )
+):
     reward: chex.Array
     done: chex.Array
     timestep: chex.Array
     target: chex.Array
+    visible_matrix: chex.Array
+    distance_matrix: chex.Array
 
     def get_units_in_attack_range(
         self,
@@ -159,16 +182,22 @@ class GameManager(namedtuple("GameManager", ["reward", "done", "timestep", "targ
         cos_attack_range_half_angle = jnp.cos(attack_range_angle / 2)
         sin_attack_range_half_angle = jnp.sin(attack_range_angle / 2)
 
-        local_unit_p2 = jnp.array([[cos_attack_range_half_angle, sin_attack_range_half_angle]])
-        local_unit_p1 = jnp.array([[cos_attack_range_half_angle, -sin_attack_range_half_angle]])
+        local_unit_p2 = (
+            jnp.array([[cos_attack_range_half_angle, sin_attack_range_half_angle]])
+            * unit_body_radius_vector
+        )
+        local_unit_p1 = (
+            jnp.array([[cos_attack_range_half_angle, -sin_attack_range_half_angle]])
+            * unit_body_radius_vector
+        )
 
-        local_height = (local_unit_p1 - local_unit_p2) * unit_body_radius_vector
+        local_height = local_unit_p1 - local_unit_p2
 
         height = jnp.linalg.norm(local_height, axis=-1, keepdims=True)[None]
         width = unit_attack_range_vector[None]
 
-        unit_cosine_vector = jnp.cos(unit_rotation_vector)[None]
-        unit_sine_vector = jnp.sin(unit_rotation_vector)[None]
+        unit_cosine_vector = jnp.cos(unit_rotation_vector)[:, None]
+        unit_sine_vector = jnp.sin(unit_rotation_vector)[:, None]
 
         relative_unit_x = position_diff[:, :, 0:1]
         relative_unit_y = position_diff[:, :, 1:2]
@@ -177,14 +206,29 @@ class GameManager(namedtuple("GameManager", ["reward", "done", "timestep", "targ
         )  # rotate -theta to get local coordinate
         local_unit_y = -relative_unit_x * unit_sine_vector + relative_unit_y * unit_cosine_vector
 
-        condition1 = (local_unit_x + unit_body_radius_vector[None] < 0) | (
-            local_unit_x - unit_body_radius_vector[None] > width
-        )
-        condition2 = (local_unit_y + unit_body_radius_vector[None] < 0) | (
-            local_unit_y - unit_body_radius_vector[None] > height
-        )
+        # half_w = height * 0.5  # height = ‖p2-p1‖
+        # cond_side = jnp.abs(local_unit_y) - unit_body_radius_vector[None] > half_w
+        # cond_front = (local_unit_x < -unit_body_radius_vector[None]) | (
+        #     local_unit_x - unit_body_radius_vector[None] > width
+        # )
 
-        available_target = ~(condition1 | condition2).squeeze(-1) & (
+        # available_target = ~(cond_side | cond_front).squeeze(-1) & (
+        #     ~jnp.identity(position_diff.shape[0], dtype=bool)
+        # )
+
+        rx = local_unit_p2[:, 0:1]
+        ry = local_unit_p2[:, 1:2]
+
+        closest_x = jnp.clip(local_unit_x, rx, rx + width)
+        # closest_y = jnp.clip(local_unit_y, ry - height, ry + height)
+        closest_y = jnp.clip(local_unit_y, -ry, ry)
+
+        dx = local_unit_x - closest_x
+        dy = local_unit_y - closest_y
+
+        collision = dx**2 + dy**2 < unit_body_radius_vector**2
+
+        available_target = (collision).squeeze(-1) & (
             ~jnp.identity(position_diff.shape[0], dtype=jnp.bool)
         )  # exclude self
 
@@ -207,23 +251,75 @@ class GameManager(namedtuple("GameManager", ["reward", "done", "timestep", "targ
         unit_team_vector = jnp.stack(
             [unit.team for (key, unit) in objects.items() if "unit" in key]
         )
+        unit_sight_angle_vector = jnp.stack(
+            [unit.status.sight_angle for (key, unit) in objects.items() if "unit" in key]
+        )
 
         position_diff = (
-            unit_position_vector[:, None] - unit_position_vector[None]
+            unit_position_vector[None] - unit_position_vector[:, None]
         )  # position_diff[i][j] = i'th unit's position - j'th unit's position
-        distance_matrix = (position_diff**2).sum(axis=-1)
         is_team = unit_team_vector[None] == unit_team_vector[:, None]
         in_attack_range = self.get_units_in_attack_range(
             position_diff, unit_rotation_vector, unit_body_radius_vector, unit_attack_range_vector
         )
-        is_there_no_target = ~in_attack_range.any(axis=-1, keepdims=True)
-        target = distance_matrix + ((~in_attack_range) | is_team) * 1e6  # TODO : heal?
-        target = (
-            target.argmin(axis=-1, keepdims=True) * (1 - is_there_no_target)
-            + is_there_no_target * -1
-        )  # TODO : consider death of unit
 
-        return self._replace(target=target)
+        u1_x = jnp.cos(unit_rotation_vector + unit_sight_angle_vector / 2)
+        u2_x = jnp.cos(unit_rotation_vector - unit_sight_angle_vector / 2)
+        u1_y = jnp.sin(unit_rotation_vector + unit_sight_angle_vector / 2)
+        u2_y = jnp.sin(unit_rotation_vector - unit_sight_angle_vector / 2)
+
+        n_u1_x = -u1_y
+        n_u1_y = u1_x
+        n_u2_x = -u2_y
+        n_u2_y = u2_x
+
+        rel_x = position_diff[:, :, 0:1]
+        rel_y = position_diff[:, :, 1:2]
+
+        cross = lambda a_x, a_y, b_x, b_y: a_x * b_y - a_y * b_x
+        cond_lower = (
+            n_u1_x[None] * rel_x + n_u1_y[None] * rel_y + unit_body_radius_vector[:, None] >= 0
+        )
+        cond_upper = (
+            -(n_u2_x[None] * rel_x + n_u2_y[None] * rel_y) + unit_body_radius_vector[:, None] >= 0
+        )
+        # cond_upper = (
+        #     -n_u1_x[None] * rel_x + -n_u1_y[None] * rel_y + unit_body_radius_vector[None] >= 0
+        # )
+        sight_inside = cond_lower & cond_upper
+        # & (
+        #     cross(rel_x + n_u2_x, rel_y + n_u2_y, u2_x[None], u2_y[None]) >= 0
+        # )
+
+        # u1_x = jnp.cos(unit_rotation_vector + unit_sight_angle_vector / 2)
+        # u2_x = jnp.cos(unit_rotation_vector - unit_sight_angle_vector / 2)
+        # u1_y = jnp.sin(unit_rotation_vector + unit_sight_angle_vector / 2)
+        # u2_y = jnp.sin(unit_rotation_vector - unit_sight_angle_vector / 2)
+
+        # cross = lambda a_x, a_y, b_x, b_y: a_x * b_y - a_y * b_x
+
+        # sight_inside = (
+        #     cross(u1_x[None], u1_y[None], position_diff[:, :, 0:1], position_diff[:, :, 1:2]) >= 0
+        # ) & (cross(position_diff[:, :, 0:1], position_diff[:, :, 1:2], u2_x[None], u2_y[None]) >= 0)
+
+        # d1 = jnp.abs(
+        #     cross(u1_x[None], u1_y[None], position_diff[:, :, 0:1], position_diff[:, :, 1:2])
+        # )
+        # d2 = jnp.abs(
+        #     cross(u2_x[None], u2_y[None], position_diff[:, :, 0:1], position_diff[:, :, 1:2])
+        # )
+        # t1 = u1_x[None] * position_diff[:, :, 0:1] + u1_y[None] * position_diff[:, :, 1:2]
+        # t2 = u2_x[None] * position_diff[:, :, 0:1] + u2_y[None] * position_diff[:, :, 1:2]
+
+        # boundary_condition = ((d1 <= unit_body_radius_vector[None]) & (t1 >= 0)) & (
+        #     (d2 <= unit_body_radius_vector[None]) & (t2 >= 0)
+        # )
+
+        return self._replace(
+            target=(in_attack_range & ~is_team.squeeze()),
+            visible_matrix=(sight_inside).squeeze().T,
+            distance_matrix=position_diff,
+        )
 
     def update(self, **kwargs):
         return self._replace(
