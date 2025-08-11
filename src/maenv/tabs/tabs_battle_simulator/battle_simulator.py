@@ -1,9 +1,9 @@
 from collections import namedtuple
 import chex
-from src.maenv.util import notify
 import jax
 import jax.numpy as jnp
 from src.maenv.physics import Transform, RigidBody, CircleCollider, physics_update
+from src.maenv.utils import notify
 
 
 class UnitStatus(

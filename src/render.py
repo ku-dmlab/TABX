@@ -1,4 +1,4 @@
-from src.maenv.base_maenv import BaseMAEnv
+from src.maenv.environments.base_maenv import BaseMAEnv
 from src.maenv.tabs.tabs_battle_simulator.battle_simulator import (
     DefaultUnit,
     UnitStatus,
