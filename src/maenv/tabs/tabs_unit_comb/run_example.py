@@ -37,10 +37,11 @@ if __name__ == "__main__":
             reward=rewards,
             obs=obs,
             info=infos,
-            avail_action=env_state.avail_action,
+            avail_action=env_state.action_mask,
         )
 
         return (next_obs, next_state, rng), transition
 
     rng, _rng = jax.random.split(rng)
+    _run((init_obs, init_state, _rng), None)
     carry, trajs = jax.lax.scan(_run, (init_obs, init_state, _rng), None, num_steps)
