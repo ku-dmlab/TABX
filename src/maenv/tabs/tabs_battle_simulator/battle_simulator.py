@@ -83,7 +83,7 @@ class DefaultUnit(
         discrete_action = action[1].astype(int).reshape()
         is_attack = UnitAction.ATTACK == discrete_action
         game_manager: GameManager = objects["game_manager"]
-        target = game_manager.target[self.status.id.reshape()]
+        target = game_manager.attack_target[self.status.id.reshape()]
         can_attack = self.status.cooldown > self.status.attack_cooldown
 
         notify(objects, "hit", (self, is_attack, target, can_attack))
@@ -137,13 +137,14 @@ class DefaultUnit(
 
 class GameManager(
     namedtuple(
-        "GameManager", ["reward", "done", "timestep", "target", "visible_matrix", "distance_matrix"]
+        "GameManager",
+        ["reward", "done", "timestep", "attack_target", "visible_matrix", "distance_matrix"],
     )
 ):
     reward: chex.Array
     done: chex.Array
     timestep: chex.Array
-    target: chex.Array
+    attack_target: chex.Array
     visible_matrix: chex.Array
     distance_matrix: chex.Array
 
@@ -194,7 +195,7 @@ class GameManager(
         local_height = local_unit_p1 - local_unit_p2
 
         height = jnp.linalg.norm(local_height, axis=-1, keepdims=True)[None]
-        width = unit_attack_range_vector[None]
+        width = unit_attack_range_vector[:, None]
 
         unit_cosine_vector = jnp.cos(unit_rotation_vector)[:, None]
         unit_sine_vector = jnp.sin(unit_rotation_vector)[:, None]
@@ -206,21 +207,10 @@ class GameManager(
         )  # rotate -theta to get local coordinate
         local_unit_y = -relative_unit_x * unit_sine_vector + relative_unit_y * unit_cosine_vector
 
-        # half_w = height * 0.5  # height = ‖p2-p1‖
-        # cond_side = jnp.abs(local_unit_y) - unit_body_radius_vector[None] > half_w
-        # cond_front = (local_unit_x < -unit_body_radius_vector[None]) | (
-        #     local_unit_x - unit_body_radius_vector[None] > width
-        # )
-
-        # available_target = ~(cond_side | cond_front).squeeze(-1) & (
-        #     ~jnp.identity(position_diff.shape[0], dtype=bool)
-        # )
-
         rx = local_unit_p2[:, 0:1]
         ry = local_unit_p2[:, 1:2]
 
         closest_x = jnp.clip(local_unit_x, rx[:, None], rx[:, None] + width)
-        # closest_y = jnp.clip(local_unit_y, ry - height, ry + height)
         closest_y = jnp.clip(local_unit_y, -ry[:, None], ry[:, None])
 
         dx = local_unit_x - closest_x
@@ -276,47 +266,17 @@ class GameManager(
         rel_x = position_diff[:, :, 0:1]
         rel_y = position_diff[:, :, 1:2]
 
-        cross = lambda a_x, a_y, b_x, b_y: a_x * b_y - a_y * b_x
         cond_lower = (
             n_u1_x[None] * rel_x + n_u1_y[None] * rel_y + unit_body_radius_vector[:, None] >= 0
         )
         cond_upper = (
             -(n_u2_x[None] * rel_x + n_u2_y[None] * rel_y) + unit_body_radius_vector[:, None] >= 0
         )
-        # cond_upper = (
-        #     -n_u1_x[None] * rel_x + -n_u1_y[None] * rel_y + unit_body_radius_vector[None] >= 0
-        # )
+
         sight_inside = cond_lower & cond_upper
-        # & (
-        #     cross(rel_x + n_u2_x, rel_y + n_u2_y, u2_x[None], u2_y[None]) >= 0
-        # )
-
-        # u1_x = jnp.cos(unit_rotation_vector + unit_sight_angle_vector / 2)
-        # u2_x = jnp.cos(unit_rotation_vector - unit_sight_angle_vector / 2)
-        # u1_y = jnp.sin(unit_rotation_vector + unit_sight_angle_vector / 2)
-        # u2_y = jnp.sin(unit_rotation_vector - unit_sight_angle_vector / 2)
-
-        # cross = lambda a_x, a_y, b_x, b_y: a_x * b_y - a_y * b_x
-
-        # sight_inside = (
-        #     cross(u1_x[None], u1_y[None], position_diff[:, :, 0:1], position_diff[:, :, 1:2]) >= 0
-        # ) & (cross(position_diff[:, :, 0:1], position_diff[:, :, 1:2], u2_x[None], u2_y[None]) >= 0)
-
-        # d1 = jnp.abs(
-        #     cross(u1_x[None], u1_y[None], position_diff[:, :, 0:1], position_diff[:, :, 1:2])
-        # )
-        # d2 = jnp.abs(
-        #     cross(u2_x[None], u2_y[None], position_diff[:, :, 0:1], position_diff[:, :, 1:2])
-        # )
-        # t1 = u1_x[None] * position_diff[:, :, 0:1] + u1_y[None] * position_diff[:, :, 1:2]
-        # t2 = u2_x[None] * position_diff[:, :, 0:1] + u2_y[None] * position_diff[:, :, 1:2]
-
-        # boundary_condition = ((d1 <= unit_body_radius_vector[None]) & (t1 >= 0)) & (
-        #     (d2 <= unit_body_radius_vector[None]) & (t2 >= 0)
-        # )
 
         return self._replace(
-            target=(in_attack_range & ~is_team.squeeze()),
+            attack_target=(in_attack_range & ~is_team.squeeze()),
             visible_matrix=(sight_inside).squeeze().T,
             distance_matrix=position_diff,
         )
