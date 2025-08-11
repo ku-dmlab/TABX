@@ -164,7 +164,7 @@ class GameManager(
         unit_rotation_vector,
         unit_body_radius_vector,
         unit_attack_range_vector,
-        attack_range_angle=jnp.pi / 4,
+        unit_sight_angle_vector,
     ):
         """
         Compute a boolean matrix indicating which units are within each unit's rectangular attack range.
@@ -190,21 +190,21 @@ class GameManager(
             with width determined by the attack_range_angle and length by the unit's attack_range.
         """
 
-        cos_attack_range_half_angle = jnp.cos(attack_range_angle / 2)
-        sin_attack_range_half_angle = jnp.sin(attack_range_angle / 2)
+        cos_attack_range_half_angle = jnp.cos(unit_sight_angle_vector / 2) * unit_body_radius_vector
+        sin_attack_range_half_angle = jnp.sin(unit_sight_angle_vector / 2) * unit_body_radius_vector
 
-        local_unit_p2 = (
-            jnp.array([[cos_attack_range_half_angle, sin_attack_range_half_angle]])
-            * unit_body_radius_vector
-        )
-        local_unit_p1 = (
-            jnp.array([[cos_attack_range_half_angle, -sin_attack_range_half_angle]])
-            * unit_body_radius_vector
-        )
+        # local_unit_p2 = (
+        #     jnp.array([[cos_attack_range_half_angle, sin_attack_range_half_angle]])
+        #     * unit_body_radius_vector
+        # )
+        # local_unit_p1 = (
+        #     jnp.array([[cos_attack_range_half_angle, -sin_attack_range_half_angle]])
+        #     * unit_body_radius_vector
+        # )
 
-        local_height = local_unit_p1 - local_unit_p2
+        local_height = 2 * sin_attack_range_half_angle
 
-        height = jnp.linalg.norm(local_height, axis=-1, keepdims=True)[None]
+        height = jnp.abs(local_height)[None]
         width = unit_attack_range_vector[:, None]
 
         unit_cosine_vector = jnp.cos(unit_rotation_vector)[:, None]
@@ -217,8 +217,8 @@ class GameManager(
         )  # rotate -theta to get local coordinate
         local_unit_y = -relative_unit_x * unit_sine_vector + relative_unit_y * unit_cosine_vector
 
-        rx = local_unit_p2[:, 0:1]
-        ry = local_unit_p2[:, 1:2]
+        rx = cos_attack_range_half_angle
+        ry = sin_attack_range_half_angle
 
         closest_x = jnp.clip(local_unit_x, rx[:, None], rx[:, None] + width)
         closest_y = jnp.clip(local_unit_y, -ry[:, None], ry[:, None])
@@ -260,7 +260,11 @@ class GameManager(
         )  # position_diff[i][j] = i'th unit's position - j'th unit's position
         is_team = unit_team_vector[None] == unit_team_vector[:, None]
         in_attack_range = self.get_units_in_attack_range(
-            position_diff, unit_rotation_vector, unit_body_radius_vector, unit_attack_range_vector
+            position_diff,
+            unit_rotation_vector,
+            unit_body_radius_vector,
+            unit_attack_range_vector,
+            unit_sight_angle_vector,
         )
 
         u1_x = jnp.cos(unit_rotation_vector + unit_sight_angle_vector / 2)

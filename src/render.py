@@ -40,8 +40,8 @@ class TABS(BaseMAEnv):
                 health=jnp.array([100.0]),
                 attack_damage=jnp.array([1.0]),
                 attack_range=jnp.array([2]),
-                attack_cooldown=jnp.array([1000.0]),
-                cooldown=jnp.array([1000.0]),
+                attack_cooldown=jnp.array([4.0]),
+                cooldown=jnp.array([4.0]),
                 sight_angle=jnp.array([jnp.pi / 2]),
             ),
             attacking=jnp.array([False]),
@@ -553,11 +553,11 @@ class PygameRenderer:
                 # 공격 범위 (직사각형) - TABS 스타일
                 if isinstance(show_ranges, dict) and show_ranges.get("attack", True):
                     self.draw_rectangular_attack_range(
-                        screen_pos, rotation, attack_range, radius, range_alpha
+                        screen_pos, rotation, attack_range, radius, range_alpha, sight_angle
                     )
                 elif show_ranges is True:  # 이전 버전과의 호환성
                     self.draw_rectangular_attack_range(
-                        screen_pos, rotation, attack_range, radius, range_alpha
+                        screen_pos, rotation, attack_range, radius, range_alpha, sight_angle
                     )
 
             # 선택된 유닛 표시
