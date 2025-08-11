@@ -3,6 +3,7 @@ from src.maenv.tabs.tabs_battle_simulator.battle_simulator import (
     DefaultUnit,
     UnitStatus,
     GameManager,
+    AttackType,
 )
 from src.maenv.physics import Transform, RigidBody, CircleCollider, physics_step
 from easydict import EasyDict
@@ -38,11 +39,14 @@ class TABS(BaseMAEnv):
             status=UnitStatus(
                 id=jnp.array([0]),
                 health=jnp.array([100.0]),
-                attack_damage=jnp.array([1.0]),
+                attack_damage=jnp.array([100.0]),
                 attack_range=jnp.array([2]),
                 attack_cooldown=jnp.array([4.0]),
                 cooldown=jnp.array([4.0]),
                 sight_angle=jnp.array([jnp.pi / 2]),
+                is_alive=jnp.array([True]),
+                attack_type=jnp.array([AttackType.DEFAULT]),
+                max_health=jnp.array([2526.0]),
             ),
             attacking=jnp.array([False]),
         )
@@ -68,6 +72,9 @@ class TABS(BaseMAEnv):
                 attack_cooldown=jnp.array([1.5]),
                 cooldown=jnp.array([10.0]),
                 sight_angle=jnp.array([jnp.pi / 2]),
+                is_alive=jnp.array([True]),
+                attack_type=jnp.array([AttackType.DEFAULT]),
+                max_health=jnp.array([100.0]),
             ),
             attacking=jnp.array([True]),
         )
@@ -90,6 +97,9 @@ class TABS(BaseMAEnv):
                 attack_cooldown=jnp.array([1.5]),
                 cooldown=jnp.array([3.0]),
                 sight_angle=jnp.array([jnp.pi / 2]),
+                is_alive=jnp.array([True]),
+                attack_type=jnp.array([AttackType.DEFAULT]),
+                max_health=jnp.array([100.0]),
             ),
             attacking=jnp.array([True]),
         )
@@ -112,6 +122,9 @@ class TABS(BaseMAEnv):
                 attack_cooldown=jnp.array([1.5]),
                 cooldown=jnp.array([3.0]),
                 sight_angle=jnp.array([jnp.pi / 2]),
+                is_alive=jnp.array([True]),
+                attack_type=jnp.array([AttackType.HEALING]),
+                max_health=jnp.array([100.0]),
             ),
             attacking=jnp.array([True]),
         )
@@ -160,8 +173,17 @@ class TABS(BaseMAEnv):
         }
 
         state = physics_step(self.physics_config, state, list(state.keys()), collider_filter)
-        for sprite in ["unit1", "unit2", "unit3", "unit4"]:
+        # action processing
+        units = [key for key in state if "unit" in key]
+
+        for sprite in units:
             state[sprite] = state[sprite].act(state, action[sprite])
+
+        # alive processing after action step, for independent unit sequence
+        for sprite in units:
+            state[sprite] = state[sprite]._replace(
+                status=state[sprite].status._replace(is_alive=(state[sprite].status.health > 0))
+            )
 
         return self.get_obs(state), state, 0.0, False, {"timestep": 0}
 
@@ -1160,6 +1182,14 @@ class PygameRenderer:
                 else:
                     attacking = bool(unit.attacking)
 
+            # 생존 상태 확인
+            is_alive = True  # 기본값
+            if hasattr(unit.status, "is_alive"):
+                if hasattr(unit.status.is_alive, "__array__"):
+                    is_alive = bool(np.array(unit.status.is_alive))
+                else:
+                    is_alive = bool(unit.status.is_alive)
+
             # 정보 텍스트 생성
             info_lines = [
                 f"Unit: {self.selected_unit}",
@@ -1167,6 +1197,7 @@ class PygameRenderer:
                 f"Rotation: {rotation_deg:.1f}°",
                 f"Team: {team}",
                 f"Health: {health:.1f}",
+                f"Is Alive: {'Yes' if is_alive else 'No'}",
                 f"Attack Damage: {attack_damage:.1f}",
                 f"Attack Range: {attack_range:.1f}",
                 f"Cooldown: {cooldown:.1f}/{attack_cooldown:.1f}",

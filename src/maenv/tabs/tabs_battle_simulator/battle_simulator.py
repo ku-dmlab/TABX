@@ -12,11 +12,14 @@ class UnitStatus(
         [
             "id",
             "health",
+            "max_health",
             "attack_damage",
             "attack_range",
             "attack_cooldown",
             "cooldown",
             "sight_angle",
+            "is_alive",
+            "attack_type",
         ],
     )
 ):
@@ -27,6 +30,8 @@ class UnitStatus(
     attack_cooldown: chex.Array  # Required cooldown time between attacks
     cooldown: chex.Array  # Time elapsed since the most recent attack
     sight_angle: chex.Array  # Field of view angle in radians
+    is_alive: chex.Array  # Boolean showing whether the unit is alive
+    attack_type: chex.Array  # Type of attack the unit performs
 
 
 move_table = jnp.array(
@@ -39,6 +44,11 @@ move_table = jnp.array(
         [0.0, 0.0],
     ]
 )
+
+
+class AttackType:
+    DEFAULT = 0
+    HEALING = 1
 
 
 class UnitAction:
@@ -64,7 +74,9 @@ class DefaultUnit(
     team: chex.Array  # The team identifier to distinguish between different groups of units
     pos_limit: chex.Array  # The positional boundaries or limits within which the unit can move
     status: UnitStatus  # The current status of the unit, including health, attack stats, and other attributes
-    attacking: chex.Array  # Boolean showing whether the unit is currently performing an attack
+    attacking: (
+        chex.Array
+    )  # Boolean showing whether the unit is currently performing an attack TODO : is it needed?
 
     def __new__(cls, transform, rigidbody, collider, team, pos_limit, status, attacking):
         return super().__new__(
@@ -85,18 +97,23 @@ class DefaultUnit(
         game_manager: GameManager = objects["game_manager"]
         target_id = game_manager.attack_target[self.status.id.reshape()]
         target_attackable = game_manager.attackable_matrix[self.status.id.reshape()]
-        can_attack = self.status.cooldown > self.status.attack_cooldown
+        can_attack = (
+            self.status.cooldown > self.status.attack_cooldown
+        ) & self.status.is_alive  # if unit is dead, do not attack
 
         notify(objects, "hit", (self, is_attack, target_id, target_attackable, can_attack))
 
-        move_action = move_table[discrete_action]
+        move_action = (
+            move_table[discrete_action] * self.status.is_alive
+        )  # if unit is dead, do not move
 
         cooldown = is_attack & can_attack
 
         return self._replace(
             rigidbody=self.rigidbody._replace(velocity=move_action),
             transform=self.transform._replace(
-                rotation=(self.transform.rotation + action[0].reshape()) % (2 * jnp.pi)
+                rotation=(self.transform.rotation + action[0].reshape() * self.status.is_alive)
+                % (2 * jnp.pi)
             ),
             status=self.status._replace(
                 cooldown=jnp.clip(
@@ -112,10 +129,6 @@ class DefaultUnit(
         attacker: DefaultUnit
         attacker, is_attack, target_id, target_attackable, can_attack = info
 
-        # print(is_attack, target_id, target_attackable, can_attack)
-
-        # print(target.shape)
-
         is_target = (
             (is_attack & (target_id == self.status.id))
             & can_attack
@@ -125,7 +138,11 @@ class DefaultUnit(
         # need to calculate cooldown of attacker
         is_attack_by_self = attacker.status.id == self.status.id
 
-        damaged_status = self.on_damage(attacker.status.attack_damage)
+        damage = attacker.status.attack_damage * (
+            attacker.status.attack_type == AttackType.DEFAULT
+        ) - attacker.status.attack_damage * (attacker.status.attack_type == AttackType.HEALING)
+
+        damaged_status = self.on_damage(damage)
         new_status = jax.tree.map(
             lambda x, y: jnp.where(is_target, y, x), self.status, damaged_status
         )
@@ -133,7 +150,9 @@ class DefaultUnit(
         return self._replace(status=new_status, attacking=is_attack_by_self)
 
     def on_damage(self, damage) -> UnitStatus:
-        return self.status._replace(health=self.status.health - damage)
+        return self.status._replace(
+            health=jnp.clip(self.status.health - damage, 0.0, self.status.max_health)
+        )
 
 
 class GameManager(
@@ -193,18 +212,6 @@ class GameManager(
         cos_attack_range_half_angle = jnp.cos(unit_sight_angle_vector / 2) * unit_body_radius_vector
         sin_attack_range_half_angle = jnp.sin(unit_sight_angle_vector / 2) * unit_body_radius_vector
 
-        # local_unit_p2 = (
-        #     jnp.array([[cos_attack_range_half_angle, sin_attack_range_half_angle]])
-        #     * unit_body_radius_vector
-        # )
-        # local_unit_p1 = (
-        #     jnp.array([[cos_attack_range_half_angle, -sin_attack_range_half_angle]])
-        #     * unit_body_radius_vector
-        # )
-
-        local_height = 2 * sin_attack_range_half_angle
-
-        height = jnp.abs(local_height)[None]
         width = unit_attack_range_vector[:, None]
 
         unit_cosine_vector = jnp.cos(unit_rotation_vector)[:, None]
@@ -254,6 +261,12 @@ class GameManager(
         unit_sight_angle_vector = jnp.stack(
             [unit.status.sight_angle for (key, unit) in objects.items() if "unit" in key]
         )
+        unit_alive_vector = jnp.stack(
+            [unit.status.is_alive for (key, unit) in objects.items() if "unit" in key]
+        )
+        unit_attack_type_vector = jnp.stack(
+            [unit.status.attack_type for (key, unit) in objects.items() if "unit" in key]
+        )
 
         position_diff = (
             unit_position_vector[None] - unit_position_vector[:, None]
@@ -266,6 +279,8 @@ class GameManager(
             unit_attack_range_vector,
             unit_sight_angle_vector,
         )
+
+        # unit sight processing
 
         u1_x = jnp.cos(unit_rotation_vector + unit_sight_angle_vector / 2)
         u2_x = jnp.cos(unit_rotation_vector - unit_sight_angle_vector / 2)
@@ -291,7 +306,14 @@ class GameManager(
         cond_front = (fwd_x[None] * rel_x + fwd_y[None] * rel_y) + unit_body_radius_vector[None] < 0
 
         sight_inside = cond_lower & cond_upper & cond_front
-        attackable_matrix = in_attack_range & ~is_team.squeeze()
+        attackable_matrix = (
+            in_attack_range
+            & (
+                (~is_team.squeeze() & (unit_attack_type_vector == AttackType.DEFAULT))
+                | (is_team.squeeze() & (unit_attack_type_vector == AttackType.HEALING))
+            )
+            & unit_alive_vector.T
+        )
         maksed_relative_distnace = (
             jnp.square(position_diff).sum(axis=-1)
             + 1e6 * jnp.identity(position_diff.shape[0])
