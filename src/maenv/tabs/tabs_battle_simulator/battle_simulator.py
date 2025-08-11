@@ -83,10 +83,11 @@ class DefaultUnit(
         discrete_action = action[1].astype(int).reshape()
         is_attack = UnitAction.ATTACK == discrete_action
         game_manager: GameManager = objects["game_manager"]
-        target = game_manager.attack_target[self.status.id.reshape()]
+        target_id = game_manager.attack_target[self.status.id.reshape()]
+        target_attackable = game_manager.attackable_matrix[self.status.id.reshape()]
         can_attack = self.status.cooldown > self.status.attack_cooldown
 
-        notify(objects, "hit", (self, is_attack, target, can_attack))
+        notify(objects, "hit", (self, is_attack, target_id, target_attackable, can_attack))
 
         move_action = move_table[discrete_action]
 
@@ -109,16 +110,16 @@ class DefaultUnit(
 
     def on_hit(self, objects, info):
         attacker: DefaultUnit
-        attacker, is_attack, target, can_attack = info
+        attacker, is_attack, target_id, target_attackable, can_attack = info
 
-        print(is_attack, target, can_attack)
+        # print(is_attack, target_id, target_attackable, can_attack)
 
         # print(target.shape)
 
         is_target = (
-            (is_attack & (target[self.status.id.reshape()].reshape()))
+            (is_attack & (target_id == self.status.id))
             & can_attack
-            & (attacker.status.health > 0)
+            & (target_attackable[self.status.id.reshape()])
         )
 
         # need to calculate cooldown of attacker
@@ -138,13 +139,22 @@ class DefaultUnit(
 class GameManager(
     namedtuple(
         "GameManager",
-        ["reward", "done", "timestep", "attack_target", "visible_matrix", "distance_matrix"],
+        [
+            "reward",
+            "done",
+            "timestep",
+            "attack_target",
+            "attackable_matrix",
+            "visible_matrix",
+            "distance_matrix",
+        ],
     )
 ):
     reward: chex.Array
     done: chex.Array
     timestep: chex.Array
     attack_target: chex.Array
+    attackable_matrix: chex.Array
     visible_matrix: chex.Array
     distance_matrix: chex.Array
 
@@ -267,16 +277,26 @@ class GameManager(
         rel_y = position_diff[:, :, 1:2]
 
         cond_lower = (
-            n_u1_x[None] * rel_x + n_u1_y[None] * rel_y + unit_body_radius_vector[:, None] >= 0
+            n_u1_x[None] * rel_x + n_u1_y[None] * rel_y + unit_body_radius_vector[:, None] > 0
         )
         cond_upper = (
-            -(n_u2_x[None] * rel_x + n_u2_y[None] * rel_y) + unit_body_radius_vector[:, None] >= 0
+            -(n_u2_x[None] * rel_x + n_u2_y[None] * rel_y) + unit_body_radius_vector[:, None] > 0
+        )
+        fwd_x = jnp.cos(unit_rotation_vector)
+        fwd_y = jnp.sin(unit_rotation_vector)
+        cond_front = (fwd_x[None] * rel_x + fwd_y[None] * rel_y) + unit_body_radius_vector[None] < 0
+
+        sight_inside = cond_lower & cond_upper & cond_front
+        attackable_matrix = in_attack_range & ~is_team.squeeze()
+        maksed_relative_distnace = (
+            jnp.square(position_diff).sum(axis=-1)
+            + 1e6 * jnp.identity(position_diff.shape[0])
+            + 1e6 * (~attackable_matrix)
         )
 
-        sight_inside = cond_lower & cond_upper
-
         return self._replace(
-            attack_target=(in_attack_range & ~is_team.squeeze()),
+            attack_target=maksed_relative_distnace.argmin(axis=1),
+            attackable_matrix=attackable_matrix,
             visible_matrix=(sight_inside).squeeze().T,
             distance_matrix=position_diff,
         )

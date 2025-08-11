@@ -39,10 +39,10 @@ class TABS(BaseMAEnv):
                 id=jnp.array([0]),
                 health=jnp.array([100.0]),
                 attack_damage=jnp.array([1.0]),
-                attack_range=jnp.array([3]),
+                attack_range=jnp.array([2]),
                 attack_cooldown=jnp.array([1000.0]),
                 cooldown=jnp.array([1000.0]),
-                sight_angle=jnp.array([jnp.pi / 8]),
+                sight_angle=jnp.array([jnp.pi / 2]),
             ),
             attacking=jnp.array([False]),
         )
@@ -64,10 +64,10 @@ class TABS(BaseMAEnv):
                 id=jnp.array([1]),
                 health=jnp.array([80.0]),
                 attack_damage=jnp.array([1.5]),
-                attack_range=jnp.array([10.0]),
+                attack_range=jnp.array([10]),
                 attack_cooldown=jnp.array([1.5]),
                 cooldown=jnp.array([10.0]),
-                sight_angle=jnp.array([jnp.pi / 8]),
+                sight_angle=jnp.array([jnp.pi / 2]),
             ),
             attacking=jnp.array([True]),
         )
@@ -89,7 +89,29 @@ class TABS(BaseMAEnv):
                 attack_range=jnp.array([10.0]),
                 attack_cooldown=jnp.array([1.5]),
                 cooldown=jnp.array([3.0]),
-                sight_angle=jnp.array([jnp.pi / 8]),
+                sight_angle=jnp.array([jnp.pi / 2]),
+            ),
+            attacking=jnp.array([True]),
+        )
+        unit4 = DefaultUnit(
+            transform=Transform(position=jnp.array([-5.0, 3.0]), rotation=jnp.array([2.3])),
+            rigidbody=RigidBody(
+                mass=jnp.array([1.0]),
+                velocity=jnp.array([0.0, 0.0]),
+                acceleration=jnp.array([0.0, 0.0]),
+                is_kinematic=jnp.array([False]),
+            ),
+            collider=CircleCollider(radius=jnp.array([1.0])),
+            team=jnp.array([1]),
+            pos_limit=jnp.array([-10.0, 10.0]),
+            status=UnitStatus(
+                id=jnp.array([3]),
+                health=jnp.array([80.0]),
+                attack_damage=jnp.array([1.5]),
+                attack_range=jnp.array([10.0]),
+                attack_cooldown=jnp.array([1.5]),
+                cooldown=jnp.array([3.0]),
+                sight_angle=jnp.array([jnp.pi / 2]),
             ),
             attacking=jnp.array([True]),
         )
@@ -107,7 +129,8 @@ class TABS(BaseMAEnv):
             reward=jnp.array([0.0]),
             done=jnp.array([False]),
             timestep=jnp.array([0]),
-            target=dummy_target,
+            attack_target=dummy_target,
+            attackable_matrix=None,
             visible_matrix=dummy_visible,
             distance_matrix=jnp.array([[0.0, 1.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 0.0]]),
         )
@@ -116,6 +139,7 @@ class TABS(BaseMAEnv):
             "unit1": unit1,
             "unit2": unit2,
             "unit3": unit3,
+            "unit4": unit4,
             "game_manager": game_manager,
         }
 
@@ -129,13 +153,14 @@ class TABS(BaseMAEnv):
                 state[sprite] = state[sprite].update(config=self.physics_config)
 
         collider_filter = {
-            "unit1": ["unit2", "unit3"],
-            "unit2": ["unit1", "unit3"],
-            "unit3": ["unit1", "unit2"],
+            "unit1": ["unit2", "unit3", "unit4"],
+            "unit2": ["unit1", "unit3", "unit4"],
+            "unit3": ["unit1", "unit2", "unit4"],
+            "unit4": ["unit1", "unit2", "unit3"],
         }
 
         state = physics_step(self.physics_config, state, list(state.keys()), collider_filter)
-        for sprite in ["unit1", "unit2", "unit3"]:
+        for sprite in ["unit1", "unit2", "unit3", "unit4"]:
             state[sprite] = state[sprite].act(state, action[sprite])
 
         return self.get_obs(state), state, 0.0, False, {"timestep": 0}
@@ -145,13 +170,11 @@ class TABS(BaseMAEnv):
 
 
 import pygame
-import sys
 import jax.numpy as jnp
 import numpy as np
 from typing import Dict, Any
 import math
-from src.maenv.tabs.tabs_battle_simulator.battle_simulator import GameManager, UnitAction
-from src.maenv.physics import physics_step
+from src.maenv.tabs.tabs_battle_simulator.battle_simulator import UnitAction
 
 
 class PygameRenderer:
@@ -227,19 +250,50 @@ class PygameRenderer:
         self.mouse_pos = (0, 0)
         self.user_controlled_actions = {}  # 유저가 컨트롤하는 유닛들의 액션 저장
 
+        # UI 토글 설정
+        self.ui_panel = {
+            "show_sight_range": True,
+            "show_attack_range": True,
+            "show_visible_matrix": True,
+            "show_distance_matrix": True,
+            "show_unit_info": True,
+            "show_grid": True,
+        }
+
+        # UI 패널 설정
+        self.panel_width = 200
+        self.panel_x = self.width - self.panel_width
+        self.checkbox_size = 15
+        self.checkbox_spacing = 25
+        self.panel_visible = True  # 패널 표시 상태
+
+        # 패널 토글 버튼 설정
+        self.toggle_button_width = 30
+        self.toggle_button_height = 20
+
+        # 게임 화면 영역 조정 (패널 상태에 따라)
+        self.update_game_area()
+
         self.running = True
+
+    def update_game_area(self):
+        """패널 상태에 따라 게임 영역 업데이트"""
+        if self.panel_visible:
+            self.game_width = self.width - self.panel_width
+        else:
+            self.game_width = self.width
 
     def world_to_screen(self, world_pos):
         """월드 좌표를 스크린 좌표로 변환 (수학적 좌표계: y증가 = 위쪽)"""
         world_x, world_y = world_pos
-        screen_x = (world_x - self.camera_x) * self.world_scale * self.zoom + self.width // 2
+        screen_x = (world_x - self.camera_x) * self.world_scale * self.zoom + self.game_width // 2
         screen_y = self.height // 2 - (world_y - self.camera_y) * self.world_scale * self.zoom
         return int(screen_x), int(screen_y)
 
     def screen_to_world(self, screen_pos):
         """스크린 좌표를 월드 좌표로 변환 (수학적 좌표계: y증가 = 위쪽)"""
         screen_x, screen_y = screen_pos
-        world_x = (screen_x - self.width // 2) / (self.world_scale * self.zoom) + self.camera_x
+        world_x = (screen_x - self.game_width // 2) / (self.world_scale * self.zoom) + self.camera_x
         world_y = (self.height // 2 - screen_y) / (self.world_scale * self.zoom) + self.camera_y
         return world_x, world_y
 
@@ -271,7 +325,7 @@ class PygameRenderer:
                         closest_distance = distance
                         closest_unit = obj_name
 
-                except Exception as e:
+                except Exception:
                     continue
 
         return closest_unit
@@ -297,6 +351,10 @@ class PygameRenderer:
                     self.camera_x = 0
                     self.camera_y = 0
                     self.zoom = 1.0
+                elif event.key == pygame.K_TAB:
+                    # TAB키로 패널 토글
+                    self.panel_visible = not self.panel_visible
+                    self.update_game_area()
             elif event.type == pygame.MOUSEWHEEL:
                 # 마우스 휠로 줌
                 zoom_factor = 1.1
@@ -307,17 +365,30 @@ class PygameRenderer:
                 self.zoom = max(0.1, min(5.0, self.zoom))
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # 왼쪽 마우스 버튼
-                    world_pos = self.screen_to_world(event.pos)
-                    clicked_unit = self.find_unit_at_position(world_pos, objects)
-
-                    if clicked_unit:
-                        # 유닛을 클릭한 경우 선택
-                        self.selected_unit = clicked_unit
-                        print(f"선택된 유닛: {clicked_unit}")
+                    # 토글 버튼 클릭 확인
+                    if self.handle_toggle_button_click(event.pos):
+                        pass
+                    # UI 패널 클릭 확인 (패널이 보일 때만)
+                    elif (
+                        self.panel_visible
+                        and hasattr(self, "checkbox_rects")
+                        and self.handle_ui_click(event.pos)
+                    ):
+                        # UI가 클릭되었으면 다른 처리는 하지 않음
+                        pass
                     else:
-                        # 땅을 클릭한 경우 선택 해제
-                        self.selected_unit = None
-                        print("유닛 선택 해제")
+                        # UI가 클릭되지 않았으면 기존 로직 실행
+                        world_pos = self.screen_to_world(event.pos)
+                        clicked_unit = self.find_unit_at_position(world_pos, objects)
+
+                        if clicked_unit:
+                            # 유닛을 클릭한 경우 선택
+                            self.selected_unit = clicked_unit
+                            print(f"Selected unit: {clicked_unit}")
+                        else:
+                            # 땅을 클릭한 경우 선택 해제
+                            self.selected_unit = None
+                            print("Unit deselected")
             elif event.type == pygame.MOUSEMOTION:
                 self.mouse_pos = event.pos
 
@@ -375,15 +446,15 @@ class PygameRenderer:
             keys = pygame.key.get_pressed()
             move_speed = 0.5 / self.zoom
             if keys[pygame.K_w] or keys[pygame.K_UP]:
-                self.camera_y -= move_speed
-            if keys[pygame.K_s] or keys[pygame.K_DOWN]:
                 self.camera_y += move_speed
+            if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+                self.camera_y -= move_speed
             if keys[pygame.K_a] or keys[pygame.K_LEFT]:
                 self.camera_x -= move_speed
             if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
                 self.camera_x += move_speed
 
-    def draw_unit(self, unit_name, unit, show_ranges=True, alpha=255):
+    def draw_unit(self, unit_name, unit, show_ranges=None, alpha=255):
         """개별 유닛을 그리기"""
         try:
             # JAX 배열에서 numpy 배열로 변환
@@ -474,12 +545,20 @@ class PygameRenderer:
                 range_alpha = alpha if alpha < 255 else None
 
                 # 시야 범위 (부채꼴)
-                self.draw_fan_sight_range(screen_pos, rotation, sight_angle, range_alpha)
+                if isinstance(show_ranges, dict) and show_ranges.get("sight", True):
+                    self.draw_fan_sight_range(screen_pos, rotation, sight_angle, range_alpha)
+                elif show_ranges is True:  # 이전 버전과의 호환성
+                    self.draw_fan_sight_range(screen_pos, rotation, sight_angle, range_alpha)
 
                 # 공격 범위 (직사각형) - TABS 스타일
-                self.draw_rectangular_attack_range(
-                    screen_pos, rotation, attack_range, radius, range_alpha
-                )
+                if isinstance(show_ranges, dict) and show_ranges.get("attack", True):
+                    self.draw_rectangular_attack_range(
+                        screen_pos, rotation, attack_range, radius, range_alpha
+                    )
+                elif show_ranges is True:  # 이전 버전과의 호환성
+                    self.draw_rectangular_attack_range(
+                        screen_pos, rotation, attack_range, radius, range_alpha
+                    )
 
             # 선택된 유닛 표시
             if unit_name == self.selected_unit:
@@ -710,10 +789,10 @@ class PygameRenderer:
             return
 
         game_manager = objects["game_manager"]
-        if not hasattr(game_manager, "target"):
+        if not hasattr(game_manager, "attack_target"):
             return
 
-        target_matrix = np.array(game_manager.target)
+        target_matrix = np.array(game_manager.attackable_matrix)
 
         # Target matrix가 1차원이면 2차원으로 변환 시도
         if target_matrix.ndim == 1:
@@ -940,6 +1019,7 @@ class PygameRenderer:
                 "WASD/Arrow Keys: Move Unit",
                 "Ctrl: Attack",
                 "Mouse: Rotation Direction",
+                "Tab: Toggle UI Panel",
                 "Left Click Unit: Select",
                 "Left Click Ground: Deselect",
                 "ESC: Exit",
@@ -950,6 +1030,7 @@ class PygameRenderer:
                 "WASD/Arrow Keys: Move Camera",
                 "Mouse Wheel: Zoom",
                 "Space: Reset Camera",
+                "Tab: Toggle UI Panel",
                 "Left Click Unit: Select",
                 "ESC: Exit",
             ]
@@ -992,10 +1073,12 @@ class PygameRenderer:
             legend_y += 18
 
         # Target matrix 그리기
-        self.draw_target_matrix(objects)
+        if self.ui_panel["show_distance_matrix"]:
+            self.draw_target_matrix(objects)
 
         # Visible matrix 그리기
-        self.draw_visible_matrix(objects)
+        if self.ui_panel["show_visible_matrix"]:
+            self.draw_visible_matrix(objects)
 
     def draw_unit_info(self, objects):
         """선택된 유닛의 상세 정보를 왼쪽 아래에 표시"""
@@ -1280,7 +1363,7 @@ class PygameRenderer:
         self.screen.fill(self.colors["background"])
 
         # 격자 그리기 (옵션)
-        if self.zoom > 0.5:
+        if self.zoom > 0.5 and self.ui_panel["show_grid"]:
             self.draw_grid()
 
         # 선택된 유닛의 시야 정보 가져오기
@@ -1358,16 +1441,28 @@ class PygameRenderer:
                         else:
                             print(f"DEBUG: {obj_name} remains opaque")
 
-                self.draw_unit(obj_name, obj, show_ranges, alpha)
+                # show_ranges를 개별 토글로 대체
+                unit_show_ranges = {
+                    "sight": self.ui_panel["show_sight_range"],
+                    "attack": self.ui_panel["show_attack_range"],
+                }
+                self.draw_unit(obj_name, obj, unit_show_ranges, alpha)
 
         # UI 그리기
         self.draw_ui(objects)
 
         # 선택된 유닛 정보 표시
-        self.draw_unit_info(objects)
+        if self.ui_panel["show_unit_info"]:
+            self.draw_unit_info(objects)
 
         # distance_matrix 시각화
-        self.draw_distance_matrix_visualization(objects)
+        if self.ui_panel["show_distance_matrix"]:
+            self.draw_distance_matrix_visualization(objects)
+
+        # UI 패널과 토글 버튼 그리기 (가장 마지막에)
+        self.draw_toggle_button()
+        if self.panel_visible:
+            self.draw_ui_panel()
 
         # 화면 업데이트
         pygame.display.flip()
@@ -1405,23 +1500,8 @@ class PygameRenderer:
         cos_half_angle = math.cos(attack_range_angle / 2)
         sin_half_angle = math.sin(attack_range_angle / 2)
 
-        # p1과 p2 계산 (battle_simulator.py와 동일)
-        local_unit_p1_x = cos_half_angle * unit_screen_radius
-        local_unit_p1_y = -sin_half_angle * unit_screen_radius
-        local_unit_p2_x = cos_half_angle * unit_screen_radius
-        local_unit_p2_y = sin_half_angle * unit_screen_radius
-
-        # height 계산 (p1과 p2 사이의 거리)
-        height = math.sqrt(
-            (local_unit_p1_x - local_unit_p2_x) ** 2 + (local_unit_p1_y - local_unit_p2_y) ** 2
-        )
-
-        # 실제로는 height = 2 * sin_half_angle * unit_screen_radius
-        height = 2 * sin_half_angle * unit_screen_radius
-
         # 공격 범위 직사각형 정의 (battle_simulator.py 로직을 정확히 따름)
         rx = cos_half_angle * unit_screen_radius
-        ry = sin_half_angle * unit_screen_radius
         width = attack_screen_range
 
         # battle_simulator.py에서 height는 p1과 p2 사이의 거리
@@ -1483,7 +1563,7 @@ class PygameRenderer:
             blit_y = screen_pos[1] - surface_center
             self.screen.blit(attack_surface, (blit_x, blit_y))
 
-        except Exception as e:
+        except Exception:
             # 에러 발생시 간단한 원형으로 대체
             attack_screen_radius = int(attack_range * self.world_scale * self.zoom)
             if attack_screen_radius > 3:
@@ -1593,7 +1673,7 @@ class PygameRenderer:
                             self.screen, (255, 0, 0), screen_fan_points[0], screen_fan_points[-2], 2
                         )
 
-        except Exception as e:
+        except Exception:
             # 에러 발생시 간단한 부채꼴로 대체
             try:
                 # 간단한 부채꼴 그리기 (polygon 실패시 선으로 대체)
@@ -1614,7 +1694,7 @@ class PygameRenderer:
                     self.screen, self.colors["sight_range"][:3], screen_pos, (end_x, end_y), 2
                 )
 
-            except:
+            except Exception:
                 pass  # 완전히 실패하면 아무것도 그리지 않음
 
     def draw_grid(self):
@@ -1622,9 +1702,9 @@ class PygameRenderer:
         grid_spacing = 5  # 월드 단위
         grid_color = (70, 70, 70)
 
-        # 화면에 보이는 격자 범위 계산
-        left = self.camera_x - (self.width // 2) / (self.world_scale * self.zoom)
-        right = self.camera_x + (self.width // 2) / (self.world_scale * self.zoom)
+        # 화면에 보이는 격자 범위 계산 (게임 영역에만)
+        left = self.camera_x - (self.game_width // 2) / (self.world_scale * self.zoom)
+        right = self.camera_x + (self.game_width // 2) / (self.world_scale * self.zoom)
         top = self.camera_y - (self.height // 2) / (self.world_scale * self.zoom)
         bottom = self.camera_y + (self.height // 2) / (self.world_scale * self.zoom)
 
@@ -1633,7 +1713,7 @@ class PygameRenderer:
         x = start_x
         while x <= right:
             screen_x, _ = self.world_to_screen((x, 0))
-            if 0 <= screen_x <= self.width:
+            if 0 <= screen_x <= self.game_width:  # 게임 영역에만 그리기
                 pygame.draw.line(self.screen, grid_color, (screen_x, 0), (screen_x, self.height))
             x += grid_spacing
 
@@ -1643,8 +1723,110 @@ class PygameRenderer:
         while y <= bottom:
             _, screen_y = self.world_to_screen((0, y))
             if 0 <= screen_y <= self.height:
-                pygame.draw.line(self.screen, grid_color, (0, screen_y), (self.width, screen_y))
+                pygame.draw.line(
+                    self.screen, grid_color, (0, screen_y), (self.game_width, screen_y)
+                )  # 게임 영역에만 그리기
             y += grid_spacing
+
+    def draw_checkbox(self, x, y, checked, label):
+        """체크박스 그리기"""
+        # 체크박스 배경
+        checkbox_rect = pygame.Rect(x, y, self.checkbox_size, self.checkbox_size)
+        pygame.draw.rect(self.screen, (255, 255, 255), checkbox_rect)
+        pygame.draw.rect(self.screen, (0, 0, 0), checkbox_rect, 2)
+
+        # 체크 표시
+        if checked:
+            pygame.draw.line(
+                self.screen,
+                (0, 150, 0),
+                (x + 3, y + self.checkbox_size // 2),
+                (x + self.checkbox_size // 2, y + self.checkbox_size - 3),
+                3,
+            )
+            pygame.draw.line(
+                self.screen,
+                (0, 150, 0),
+                (x + self.checkbox_size // 2, y + self.checkbox_size - 3),
+                (x + self.checkbox_size - 3, y + 3),
+                3,
+            )
+
+        # 라벨 텍스트
+        text = self.small_font.render(label, True, (255, 255, 255))
+        self.screen.blit(text, (x + self.checkbox_size + 5, y - 2))
+
+        return checkbox_rect
+
+    def draw_toggle_button(self):
+        """패널 토글 버튼 그리기"""
+        button_x = self.width - self.toggle_button_width - 5
+        button_y = 5
+        button_rect = pygame.Rect(
+            button_x, button_y, self.toggle_button_width, self.toggle_button_height
+        )
+
+        # 버튼 배경
+        button_color = (60, 60, 60) if self.panel_visible else (40, 40, 40)
+        pygame.draw.rect(self.screen, button_color, button_rect)
+        pygame.draw.rect(self.screen, (120, 120, 120), button_rect, 2)
+
+        # 버튼 텍스트 (화살표)
+        arrow_text = "◀" if self.panel_visible else "▶"
+        text_surface = self.small_font.render(arrow_text, True, (255, 255, 255))
+        text_rect = text_surface.get_rect(center=button_rect.center)
+        self.screen.blit(text_surface, text_rect)
+
+    def draw_ui_panel(self):
+        """우측 UI 패널 그리기"""
+        # 패널 배경
+        panel_rect = pygame.Rect(self.panel_x, 0, self.panel_width, self.height)
+        pygame.draw.rect(self.screen, (40, 40, 40), panel_rect)
+        pygame.draw.rect(self.screen, (80, 80, 80), panel_rect, 2)
+
+        # 제목
+        title = self.font.render("Display Options", True, (255, 255, 255))
+        self.screen.blit(title, (self.panel_x + 10, 10))
+
+        # 체크박스들
+        y_start = 50
+        self.checkbox_rects = {}
+
+        options = [
+            ("show_sight_range", "Sight Range"),
+            ("show_attack_range", "Attack Range"),
+            ("show_visible_matrix", "Visibility Matrix"),
+            ("show_distance_matrix", "Distance Matrix"),
+            ("show_unit_info", "Unit Info"),
+            ("show_grid", "Grid"),
+        ]
+
+        for i, (key, label) in enumerate(options):
+            y = y_start + i * self.checkbox_spacing
+            checkbox_rect = self.draw_checkbox(self.panel_x + 10, y, self.ui_panel[key], label)
+            self.checkbox_rects[key] = checkbox_rect
+
+    def handle_ui_click(self, mouse_pos):
+        """UI 패널 클릭 처리"""
+        for key, rect in self.checkbox_rects.items():
+            if rect.collidepoint(mouse_pos):
+                self.ui_panel[key] = not self.ui_panel[key]
+                return True
+        return False
+
+    def handle_toggle_button_click(self, mouse_pos):
+        """토글 버튼 클릭 처리"""
+        button_x = self.width - self.toggle_button_width - 5
+        button_y = 5
+        button_rect = pygame.Rect(
+            button_x, button_y, self.toggle_button_width, self.toggle_button_height
+        )
+
+        if button_rect.collidepoint(mouse_pos):
+            self.panel_visible = not self.panel_visible
+            self.update_game_area()
+            return True
+        return False
 
     def close(self):
         """렌더러 종료"""
@@ -1669,7 +1851,7 @@ def render_loop(state, fps=60, show_ranges=True):
             actions = {}
 
             # 유저가 컨트롤하는 유닛들의 액션 사용
-            for unit_name in ["unit1", "unit2", "unit3"]:
+            for unit_name in ["unit1", "unit2", "unit3", "unit4"]:
                 if unit_name in renderer.user_controlled_actions:
                     actions[unit_name] = renderer.user_controlled_actions[unit_name]
                 else:
@@ -1701,5 +1883,7 @@ if __name__ == "__main__":
     # step = env.step
 
     print("Starting test renderer...")
-    print("Controls: WASD to move camera, mouse wheel to zoom, space to reset, ESC to exit")
+    print(
+        "Controls: WASD to move camera, mouse wheel to zoom, space to reset, TAB to toggle UI panel, ESC to exit"
+    )
     render_loop(state)
