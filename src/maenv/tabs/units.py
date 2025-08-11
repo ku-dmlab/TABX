@@ -23,6 +23,7 @@ class Unit:
     sight_angle: chex.Array
     sight_radius: chex.Array
     space_occupied: chex.Array  # area of rectangle shape
+    space_occupied_kernel: chex.Array
     alive: chex.Array
     team: chex.Array  # 1: alley, 0: enemy
 

@@ -6,48 +6,43 @@ import chex
 from flax import struct
 
 from src.maenv.environments.base_maenv import BaseMAEnv
-from src.maenv.environments.spaces import Discrete
-from src.maenv.tabs.units import get_all_unit_spec
-from src.maenv.tabs.scenarios import Scenario
-from src.maenv.tabs.tabs_unit_deploy.utils import (
-    convert_unit_layer,
-    get_valid_battle_field_mask,
-    conv_lower_right_padding,
-)
+from src.maenv.environments.spaces import Discrete, Box
+from src.maenv.tabs.units import get_all_unit_spec, get_all_unit_names
+from src.maenv.tabs.scenarios import Scenario, TABSConf
+from src.maenv.tabs.tabs_unit_deploy.utils import convert_unit_layer, conv_lower_right_padding
 
 
 @struct.dataclass
 class State:
     next_unit: chex.Array  # The unit to be deploy next
     remaining_units: chex.Array  # Remaining units queue
-    battle_field: chex.Array  # N x M matrix facing enemies
-    enemy_battle_field: chex.Array  # N x M matrix facing allies
-    battle_field_mask: chex.Array  # N x M matrix representing available deployment spots.
+    battle_field: chex.Array  # (H_max x W_max) matrix facing enemies
+    battle_field_mask: (
+        chex.Array
+    )  # (H_max x W_max) matrix representing available deployment spots for the next unit
+    enemy_battle_field: chex.Array  # (H_max x W_max) matrix facing allies
+    enemy_battle_field_mask: chex.Array  # (H_max x W_max) mask for available enemy battle field
+    scenario: Scenario
 
 
 class TABSUnitDeploy(BaseMAEnv):
-    def __init__(self, scenario: Scenario = None) -> None:
+    def __init__(self, cfg: TABSConf) -> None:
         self._min_budget = min(get_all_unit_spec()[0])
-        if scenario:
-            # Check whether enemies are successfully deployed
-            is_valid, _ = get_valid_battle_field_mask(scenario.enemy_battle_field)
-            if not is_valid:
-                raise ValueError
-            self.enemy_battle_field = scenario.enemy_battle_field
-            self.ally_unit_comp = scenario.ally_unit_comp
-            assert scenario.field_width * scenario.field_height >= jnp.sum(self.ally_unit_comp)
-            self.field_height = scenario.field_height
-            self.field_width = scenario.field_width
-        else:
-            self.enemy_battle_field = jnp.concatenate(
-                (jnp.ones((2, 5), dtype=jnp.float32), jnp.zeros((2, 5), dtype=jnp.float32)), axis=0
-            )  # 10 farmers
-            self.ally_unit_comp = jnp.array([10, 0, 0, 0, 0, 0, 0], dtype=jnp.float32)  # 10 farmers
-            self.field_height = 4
-            self.field_width = 5
+        self.num_units = len(get_all_unit_names())
 
-        self.action_space = Discrete(num_categories=self.field_height * self.field_width)
-        # No need to define observation space
+        self.battle_field = jnp.zeros(
+            (cfg.max_field_height, cfg.max_field_width), dtype=jnp.float32
+        )
+        self.max_field_height = cfg.max_field_height
+        self.max_field_width = cfg.max_field_width
+        max_field_size = self.max_field_height * self.max_field_width
+        self.action_space = Discrete(num_categories=max_field_size)
+        self.observation_space = Box(
+            low=0,
+            high=cfg.max_agents,
+            shape=(1 + self.num_units + 2 * self.num_units * max_field_size),
+            dtype=jnp.float32,
+        )
 
         self._step = 0
 
@@ -67,41 +62,55 @@ class TABSUnitDeploy(BaseMAEnv):
 
         return obs
 
-    @partial(jax.jit, static_argnums=(0,))
-    def reset(self, key):
-        # TODO: implement random enemy deployment.
+    def _get_deploy_mask(self, next_unit: chex.Array, mask: chex.Array) -> chex.Array:
+        # Get the occupied space size of the next unit
+        space_occupied_spec = get_all_unit_spec()[-1]
+        space_sizes = jnp.sqrt(space_occupied_spec[:]).astype(jnp.int32)
+
+        masks = jax.vmap(
+            lambda size, kernel: jnp.where(
+                size > 1,
+                jnp.where(
+                    conv_lower_right_padding(mask, kernel) >= size**2, True, False
+                ),  # For Mammoth
+                mask,  # Others
+            ),
+            in_axes=(0, None),
+        )(space_sizes, jnp.ones((2, 2)))
+
+        return masks[next_unit][0].astype(jnp.bool_)
+
+    def reset(self, key, scenario: Scenario):
+        # TODO: implement random enemy deployment
+        enemy_battle_field = scenario.enemy_battle_field
+        enemy_battle_field_mask = scenario.enemy_battle_field_mask
+
+        next_unit = jnp.array([jnp.argmax(scenario.ally_unit_comp != 0) + 1])
+        battle_field = jnp.zeros_like(enemy_battle_field, dtype=jnp.float32)
+        battle_field_mask = self._get_deploy_mask(next_unit, enemy_battle_field_mask)
+
         state = State(
-            next_unit=jnp.array([jnp.argmax(self.ally_unit_comp != 0) + 1]),
-            remaining_units=self.ally_unit_comp,
-            battle_field=jnp.zeros((self.field_height, self.field_width), dtype=jnp.float32),
-            enemy_battle_field=jnp.flip(self.enemy_battle_field, axis=0),
-            battle_field_mask=jnp.ones((self.field_height, self.field_width), dtype=jnp.bool_),
+            next_unit=next_unit,
+            remaining_units=scenario.ally_unit_comp,
+            battle_field=battle_field,  # ally battle field
+            battle_field_mask=battle_field_mask.astype(jnp.float32),  # ally battle field mask
+            enemy_battle_field=enemy_battle_field,
+            enemy_battle_field_mask=enemy_battle_field_mask,
+            scenario=scenario,
         )
         return self.get_obs(state), state
 
-    @partial(jax.jit, static_argnums=(0,))
-    def step(self, key, state, action):
+    def step_env(self, key, state, action):
         # Deploy the next unit
-        h, w = action // self.field_width, action % self.field_width
+        h, w = action // self.max_field_width, action % self.max_field_width
         try_deploy = jnp.zeros_like(state.battle_field, dtype=jnp.bool_)
         try_deploy = try_deploy.at[h, w].set(True)
 
-        # Get the occupied space size of the next unit
-        space_occupied_spec = get_all_unit_spec()[-1]
-        n = jnp.sqrt(space_occupied_spec[state.next_unit - 1][0]).astype(int)
-        # Constrain deployment on contours by the next unit size
-        contour_deploy = (
-            jnp.zeros_like(try_deploy, dtype=jnp.bool_)
-            .at[
-                jnp.tile(jnp.arange(self.field_height - n + 1), self.field_width - n + 1),
-                jnp.tile(jnp.arange(self.field_width - n + 1), self.field_height - n + 1),
-            ]
-            .set(True)
-        )
-
-        _cond_deploy = try_deploy & contour_deploy & state.battle_field_mask
-        _deployed = state.battle_field.at[h, w].set(state.next_unit[0])
-        battle_field = jnp.where(_cond_deploy, _deployed, state.battle_field)
+        # Get the available deployment space
+        deploy_mask = self._get_deploy_mask(state.next_unit, state.enemy_battle_field_mask)
+        cond_deploy = try_deploy & deploy_mask
+        deployed = state.battle_field.at[h, w].set(state.next_unit[0])
+        battle_field = jnp.where(cond_deploy, deployed, state.battle_field)  # Deployed battle field
 
         # Remove the deployed unit from the list
         _cond_unit = jax.nn.one_hot(state.next_unit - 1, state.remaining_units.size)
@@ -109,31 +118,14 @@ class TABSUnitDeploy(BaseMAEnv):
 
         # Get a mask for the next unit after deployment
         next_unit = jnp.array([jnp.argmax(remaining_units != 0) + 1])
-        m = jnp.sqrt(space_occupied_spec[next_unit - 1][0]).astype(int)
-        deployed_mask = jnp.where(
-            state.battle_field > 0, True, False
-        )  # Deployed units before deployment
-        deploy_mask = jnp.logical_not(
-            conv_lower_right_padding(
-                try_deploy | deployed_mask, jnp.ones((m, m), dtype=jnp.bool_)
-            ).astype(jnp.bool_)
-        )
-        # Constrain deployment on contours by the next unit size
-        deploy_mask = deploy_mask.at[jnp.arange(self.field_width), self.field_width - m + 1 :].set(
-            False
-        )
-        deploy_mask = deploy_mask.at[
-            self.field_height - m + 1 :, jnp.arange(self.field_height)
-        ].set(False)
-
-        battle_field_mask = deploy_mask & state.battle_field_mask
+        battle_field_mask = self._get_deploy_mask(next_unit, ~try_deploy & deploy_mask)
 
         # Update state
         state = state.replace(
             next_unit=next_unit,
             remaining_units=remaining_units.flatten(),
-            battle_field=battle_field,
-            battle_field_mask=battle_field_mask,
+            battle_field=battle_field.astype(jnp.float32),
+            battle_field_mask=battle_field_mask.astype(jnp.float32),
         )
 
         # NOTE: Reward would be computed by the result of battle with this unit deployment.
