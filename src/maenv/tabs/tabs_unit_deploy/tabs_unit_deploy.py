@@ -1,5 +1,3 @@
-from functools import partial
-
 import jax
 import jax.numpy as jnp
 import chex
@@ -7,7 +5,6 @@ from flax import struct
 
 from src.maenv.environments.base_maenv import BaseMAEnv
 from src.maenv.environments.spaces import Discrete, Box
-from src.maenv.tabs.units import get_all_unit_spec, get_all_unit_names
 from src.maenv.tabs.scenarios import Scenario, TABSConf
 from src.maenv.tabs.tabs_unit_deploy.utils import convert_unit_layer, conv_lower_right_padding
 
@@ -16,31 +13,34 @@ from src.maenv.tabs.tabs_unit_deploy.utils import convert_unit_layer, conv_lower
 class State:
     next_unit: chex.Array  # The unit to be deploy next
     remaining_units: chex.Array  # Remaining units queue
+    unit_comp_mask: chex.Array  # Avail unit types
     battle_field: chex.Array  # (H_max x W_max) matrix facing enemies
     battle_field_mask: (
         chex.Array
     )  # (H_max x W_max) matrix representing available deployment spots for the next unit
     enemy_battle_field: chex.Array  # (H_max x W_max) matrix facing allies
     enemy_battle_field_mask: chex.Array  # (H_max x W_max) mask for available enemy battle field
+    space_occupied_spec: chex.Array
     scenario: Scenario
 
 
 class TABSUnitDeploy(BaseMAEnv):
     def __init__(self, cfg: TABSConf) -> None:
-        self._min_budget = min(get_all_unit_spec()[0])
-        self.num_units = len(get_all_unit_names())
+        self.max_num_units = cfg.max_num_units
+        self.max_agents = cfg.max_agents
 
-        self.battle_field = jnp.zeros(
-            (cfg.max_field_height, cfg.max_field_width), dtype=jnp.float32
-        )
         self.max_field_height = cfg.max_field_height
         self.max_field_width = cfg.max_field_width
+        self.battle_field = jnp.zeros(
+            (self.max_field_height, self.max_field_width), dtype=jnp.float32
+        )
         max_field_size = self.max_field_height * self.max_field_width
+
         self.action_space = Discrete(num_categories=max_field_size)
         self.observation_space = Box(
             low=0,
-            high=cfg.max_agents,
-            shape=(1 + self.num_units + 2 * self.num_units * max_field_size),
+            high=self.max_agents,
+            shape=(1 + self.max_num_units + 2 * self.max_num_units * max_field_size),
             dtype=jnp.float32,
         )
 
@@ -62,9 +62,10 @@ class TABSUnitDeploy(BaseMAEnv):
 
         return obs
 
-    def _get_deploy_mask(self, next_unit: chex.Array, mask: chex.Array) -> chex.Array:
+    def _get_deploy_mask(
+        self, next_unit: chex.Array, mask: chex.Array, space_occupied_spec: chex.Array
+    ) -> chex.Array:
         # Get the occupied space size of the next unit
-        space_occupied_spec = get_all_unit_spec()[-1]
         space_sizes = jnp.sqrt(space_occupied_spec[:]).astype(jnp.int32)
 
         masks = jax.vmap(
@@ -85,17 +86,23 @@ class TABSUnitDeploy(BaseMAEnv):
         enemy_battle_field = scenario.enemy_battle_field
         enemy_battle_field_mask = scenario.enemy_battle_field_mask
 
-        next_unit = jnp.array([jnp.argmax(scenario.ally_unit_comp != 0) + 1])
+        next_unit = jnp.array(
+            [jnp.argmax(scenario.ally_unit_comp * scenario.unit_comp_mask != 0) + 1]
+        )  # ID starts from 1
         battle_field = jnp.zeros_like(enemy_battle_field, dtype=jnp.float32)
-        battle_field_mask = self._get_deploy_mask(next_unit, enemy_battle_field_mask)
+        battle_field_mask = self._get_deploy_mask(
+            next_unit, enemy_battle_field_mask, scenario.space_occupied
+        )
 
         state = State(
             next_unit=next_unit,
             remaining_units=scenario.ally_unit_comp,
+            unit_comp_mask=scenario.unit_comp_mask,
             battle_field=battle_field,  # ally battle field
             battle_field_mask=battle_field_mask.astype(jnp.float32),  # ally battle field mask
             enemy_battle_field=enemy_battle_field,
             enemy_battle_field_mask=enemy_battle_field_mask,
+            space_occupied_spec=scenario.space_occupied,
             scenario=scenario,
         )
         return self.get_obs(state), state
@@ -107,7 +114,9 @@ class TABSUnitDeploy(BaseMAEnv):
         try_deploy = try_deploy.at[h, w].set(True)
 
         # Get the available deployment space
-        deploy_mask = self._get_deploy_mask(state.next_unit, state.enemy_battle_field_mask)
+        deploy_mask = self._get_deploy_mask(
+            state.next_unit, state.enemy_battle_field_mask, state.space_occupied_spec
+        )
         cond_deploy = try_deploy & deploy_mask
         deployed = state.battle_field.at[h, w].set(state.next_unit[0])
         battle_field = jnp.where(cond_deploy, deployed, state.battle_field)  # Deployed battle field
@@ -117,8 +126,10 @@ class TABSUnitDeploy(BaseMAEnv):
         remaining_units = jnp.where(_cond_unit, state.remaining_units - 1, state.remaining_units)
 
         # Get a mask for the next unit after deployment
-        next_unit = jnp.array([jnp.argmax(remaining_units != 0) + 1])
-        battle_field_mask = self._get_deploy_mask(next_unit, ~try_deploy & deploy_mask)
+        next_unit = jnp.array([jnp.argmax(remaining_units * state.unit_comp_mask != 0) + 1])
+        battle_field_mask = self._get_deploy_mask(
+            next_unit, ~try_deploy & deploy_mask, state.space_occupied_spec
+        )
 
         # Update state
         state = state.replace(
