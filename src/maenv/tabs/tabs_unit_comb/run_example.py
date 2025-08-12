@@ -1,14 +1,14 @@
 import jax
 from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
-from src.maenv.tabs.scenarios import MAP_NAME_TO_SCENARIO
+from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
 from src.maenv.utils import Transition
 
 if __name__ == "__main__":
     n_envs = 5
     num_steps = 10
 
-    env = TABSUnitComb()
-    scenario = MAP_NAME_TO_SCENARIO["4archer_1mammoth"]
+    env = TABSUnitComb(default_tabs_conf)
+    scenario = generate_scenario(default_tabs_conf)
 
     v_reset = jax.vmap(env.reset, in_axes=(0, None))
     v_step = jax.vmap(env.step, in_axes=(0, 0, 0))
