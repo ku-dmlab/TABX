@@ -66,15 +66,21 @@ class TABSUnitComb(BaseMAEnv):
         return self.get_obs(state), state
 
     def step_env(self, key, state, action):
-        purchase_valid = state.all_price[action] <= state.budget
+        mask = jnp.zeros(self.max_num_units, dtype=jnp.bool_)
+        mask = mask.at[action].set(True)
+
+        purchase_valid = state.all_price <= state.budget
+        purchase_valid = purchase_valid & mask
+
         new_unit_list = jnp.where(
             purchase_valid, state.current_unit_list + 1, state.current_unit_list
         )
-        new_budget = (state.budget - state.all_price[action] * purchase_valid).astype(jnp.int32)
+        new_budget = jnp.where(purchase_valid, state.budget - state.all_price, state.budget)
+        budget = new_budget[action].astype(jnp.int32)
         action_mask = jnp.where(new_budget >= state.all_price, True, False) * state.unit_comp_mask
         # Update state
         state = state.replace(
-            budget=new_budget,
+            budget=budget,
             current_unit_list=new_unit_list.astype(jnp.int32),
             action_mask=action_mask,
         )
