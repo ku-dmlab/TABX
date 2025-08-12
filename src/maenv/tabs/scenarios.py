@@ -11,6 +11,8 @@ class Scenario:
     ally_unit_comp: chex.Array
     enemy_unit_comp: chex.Array
     unit_comp_mask: chex.Array
+    battle_field: chex.Array
+    battle_field_mask: chex.Array
     enemy_battle_field: chex.Array
     enemy_battle_field_mask: chex.Array
     # unit spec
@@ -57,7 +59,9 @@ def generate_scenario(cfg: TABSConf):
     ally_unit_comp = jnp.zeros(cfg.max_num_units, dtype=jnp.float32)
     enemy_unit_comp = jnp.zeros_like(ally_unit_comp)
     unit_comp_mask = jnp.ones_like(ally_unit_comp)
-    enemy_battle_field = jnp.zeros(max_shape, dtype=jnp.float32)
+    battle_field = jnp.zeros(max_shape, dtype=jnp.float32)
+    battle_field_mask = jnp.zeros_like(battle_field)
+    enemy_battle_field = jnp.zeros_like(battle_field)
     enemy_battle_field_mask = jnp.zeros_like(enemy_battle_field)
 
     all_spec = get_all_unit_spec()
@@ -84,6 +88,9 @@ def generate_scenario(cfg: TABSConf):
         budget = 1600
         ally_unit_comp = ally_unit_comp.at[0].set(20)
         enemy_unit_comp = enemy_unit_comp.at[0].set(20)
+        # Mirror matchup
+        battle_field = battle_field.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
+        battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
         enemy_battle_field = enemy_battle_field.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
         enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
             jnp.ones((h, w), dtype=jnp.float32)
@@ -94,10 +101,13 @@ def generate_scenario(cfg: TABSConf):
         budget = 1600
         ally_unit_comp = ally_unit_comp.at[2].set(1)
         enemy_unit_comp = enemy_unit_comp.at[2].set(1)
-        _enemy_battle_field = jnp.concatenate(
+        # Mirror matchup
+        _battle_field = jnp.concatenate(
             (jnp.array([[0, 0, 3, 0, 0]]), jnp.zeros((h - 1, w), dtype=jnp.float32)), axis=0
         )
-        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_enemy_battle_field)
+        battle_field = battle_field.at[:h, :w].set(_battle_field)
+        battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
+        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_battle_field)
         enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
             jnp.ones((h, w), dtype=jnp.float32)
         )
@@ -109,10 +119,13 @@ def generate_scenario(cfg: TABSConf):
         ally_unit_comp = ally_unit_comp.at[4].set(1)
         enemy_unit_comp = enemy_unit_comp.at[2].set(4)
         enemy_unit_comp = enemy_unit_comp.at[4].set(1)
-        _enemy_battle_field = jnp.array(
+        # Mirror matchup
+        _battle_field = jnp.array(
             [[0, 0, 5, 0, 0], [0, 2, 0, 0, 2], [2, 0, 0, 0, 2], [0, 0, 0, 0, 0]], dtype=jnp.float32
         )
-        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_enemy_battle_field)
+        battle_field = battle_field.at[:h, :w].set(_battle_field)
+        battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
+        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_battle_field)
         enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
             jnp.ones((h, w), dtype=jnp.float32)
         )
@@ -124,6 +137,8 @@ def generate_scenario(cfg: TABSConf):
         ally_unit_comp=ally_unit_comp,
         enemy_unit_comp=enemy_unit_comp,
         unit_comp_mask=unit_comp_mask,
+        battle_field=battle_field,
+        battle_field_mask=battle_field_mask,
         enemy_battle_field=enemy_battle_field,
         enemy_battle_field_mask=enemy_battle_field_mask,
         price=price,

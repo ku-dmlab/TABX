@@ -81,6 +81,11 @@ def make_run(n_envs, num_steps):
         carry, traj_deploy = jax.lax.scan(
             _run_deploy, (init_obs, init_state, _rng), None, num_steps
         )
+        _, next_state, _ = carry
+
+        scenarios = jax.vmap(
+            lambda s, x, m: s.replace(battle_field=x, battle_field_mask=m), in_axes=(None, 0, 0)
+        )(scenario, next_state.battle_field, next_state.battle_field_mask)
 
         return {"traj_comb": traj_comb, "traj_deploy": traj_deploy}
 
@@ -97,7 +102,7 @@ def main():
         run_jit = jax.jit(make_run(n_envs, num_steps))
         out = run_jit(rng)
 
-    print(out)
+    # print(out)
 
 
 if __name__ == "__main__":
