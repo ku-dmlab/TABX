@@ -23,7 +23,6 @@ class Unit:
     sight_angle: chex.Array
     sight_radius: chex.Array
     space_occupied: chex.Array  # area of rectangle shape
-    space_occupied_kernel: chex.Array
     alive: chex.Array
     team: chex.Array  # 1: alley, 0: enemy
 
@@ -59,6 +58,9 @@ def get_all_unit_spec_dict() -> Dict[str, Dict[str, chex.Array]]:
 
 
 def get_all_unit_spec() -> chex.Array:
+    """
+    Return all predefined unit specifications.
+    """
     all_units = [Farmer, Archer, TheKing, BombThrower, Mammoth, Deadeye, Healer]
 
     prices = jnp.array([unit.price for unit in all_units]).flatten()
