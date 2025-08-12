@@ -47,6 +47,7 @@ class TABSUnitComb(BaseMAEnv):
         )
 
     def reset(self, key, scenario: Scenario):
+        # TODO: implement random enemy unit composition
         self.num_units = jnp.sum(scenario.unit_comp_mask)
         # assert scenario.budget >= self._min_budget
         chex.assert_equal(scenario.enemy_unit_comp.shape, (self.max_num_units,))
