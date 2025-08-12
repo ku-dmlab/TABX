@@ -1,5 +1,5 @@
 import jax
-from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
+from src.maenv.tabs.tabs_unit_deploy.tabs_unit_deploy import TABSUnitDeploy
 from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
 from src.maenv.utils import Transition
 
@@ -7,7 +7,7 @@ if __name__ == "__main__":
     n_envs = 5
     num_steps = 10
 
-    env = TABSUnitComb(default_tabs_conf)
+    env = TABSUnitDeploy(default_tabs_conf)
     scenario = generate_scenario(default_tabs_conf)
 
     v_reset = jax.vmap(env.reset, in_axes=(0, None))
@@ -37,7 +37,7 @@ if __name__ == "__main__":
             reward=rewards,
             obs=obs,
             info=infos,
-            avail_action=env_state.action_mask,
+            avail_action=env_state.battle_field_mask.flatten(),
         )
 
         return (next_obs, next_state, rng), transition

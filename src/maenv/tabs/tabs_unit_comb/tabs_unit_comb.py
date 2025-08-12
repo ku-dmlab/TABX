@@ -1,36 +1,31 @@
-from functools import partial
-from typing import Dict
-
-import jax
 import jax.numpy as jnp
 import chex
 from flax import struct
 
 from src.maenv.environments.base_maenv import BaseMAEnv
 from src.maenv.environments.spaces import Discrete, Box
-from src.maenv.tabs.units import get_all_unit_spec, get_all_unit_names
-from src.maenv.tabs.scenarios import Scenario
+from src.maenv.tabs.scenarios import Scenario, TABSConf
 
 
 @struct.dataclass
 class State:
     budget: int
-    all_unit_spec: Dict[str, Dict[str, chex.Array]]
+    all_price: chex.Array
     current_unit_list: chex.Array
     enemy_unit_comp: chex.Array
+    unit_comp_mask: chex.Array
     action_mask: chex.Array
     scenario: Scenario
 
 
 class TABSUnitComb(BaseMAEnv):
-    def __init__(self) -> None:
-        self._min_budget = min(get_all_unit_spec()[0])
-        self.num_units = len(get_all_unit_names())
+    def __init__(self, cfg: TABSConf) -> None:
+        self.max_num_units = cfg.max_num_units
+        self.max_agents = cfg.max_agents
 
-        max_agents = 50
-        self.action_space = Discrete(num_categories=self.num_units)  # unit id
+        self.action_space = Discrete(num_categories=self.max_num_units)  # unit id
         self.observation_space = Box(
-            low=0, high=max_agents, shape=(1 + self.num_units * 3), dtype=jnp.float32
+            low=0, high=self.max_agents, shape=(1 + self.max_num_units * 3), dtype=jnp.float32
         )
 
     def get_obs(self, state):
@@ -46,32 +41,37 @@ class TABSUnitComb(BaseMAEnv):
             (
                 jnp.array([state.budget]),
                 state.current_unit_list,
-                state.all_unit_spec[0],
+                state.all_price,
                 state.enemy_unit_comp,
             )
         )
 
     def reset(self, key, scenario: Scenario):
+        # TODO: implement random enemy unit composition
+        self.num_units = jnp.sum(scenario.unit_comp_mask)
         # assert scenario.budget >= self._min_budget
-        chex.assert_equal(scenario.enemy_unit_comp.shape, (self.num_units,))
+        chex.assert_equal(scenario.enemy_unit_comp.shape, (self.max_num_units,))
+        action_mask = (
+            jnp.where(scenario.budget >= scenario.price, True, False) * scenario.unit_comp_mask
+        )
         state = State(
             budget=scenario.budget,
-            all_unit_spec=get_all_unit_spec(),
-            current_unit_list=jnp.zeros(self.num_units, dtype=jnp.int32),
+            all_price=scenario.price,
+            current_unit_list=jnp.zeros(self.max_num_units, dtype=jnp.int32),
             enemy_unit_comp=scenario.enemy_unit_comp,
-            action_mask=jnp.where(scenario.budget >= get_all_unit_spec()[0], True, False),
+            unit_comp_mask=scenario.unit_comp_mask,
+            action_mask=action_mask,
             scenario=scenario,
         )
         return self.get_obs(state), state
 
     def step_env(self, key, state, action):
-        all_prices = state.all_unit_spec[0]
-        purchase_valid = all_prices[action] <= state.budget
+        purchase_valid = state.all_price[action] <= state.budget
         new_unit_list = jnp.where(
             purchase_valid, state.current_unit_list + 1, state.current_unit_list
         )
-        new_budget = (state.budget - all_prices[action] * purchase_valid).astype(jnp.int32)
-        action_mask = jnp.where(new_budget >= all_prices, True, False)
+        new_budget = (state.budget - state.all_price[action] * purchase_valid).astype(jnp.int32)
+        action_mask = jnp.where(new_budget >= state.all_price, True, False) * state.unit_comp_mask
         # Update state
         state = state.replace(
             budget=new_budget,
@@ -82,6 +82,8 @@ class TABSUnitComb(BaseMAEnv):
         reward = None
 
         # Episodes will continue until no more units can be purchased.
-        done = jnp.where(state.budget < self._min_budget, 1, 0)
+        done = jnp.where(
+            state.budget < jnp.min(jnp.where(state.all_price > 0, state.all_price, jnp.inf)), 1, 0
+        )
 
         return self.get_obs(state), state, reward, done, {}
