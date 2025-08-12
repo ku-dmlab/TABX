@@ -43,5 +43,4 @@ if __name__ == "__main__":
         return (next_obs, next_state, rng), transition
 
     rng, _rng = jax.random.split(rng)
-    _run((init_obs, init_state, _rng), None)
     carry, trajs = jax.lax.scan(_run, (init_obs, init_state, _rng), None, num_steps)
