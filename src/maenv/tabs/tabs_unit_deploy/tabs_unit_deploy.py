@@ -54,8 +54,8 @@ class TABSUnitDeploy(BaseMAEnv):
             - The current state of the deployed units on the battlefield.
         """
 
-        enemy_battle_field = convert_unit_layer(state.enemy_battle_field)
-        ally_battle_field = convert_unit_layer(state.battle_field)
+        enemy_battle_field = convert_unit_layer(state.enemy_battle_field, self.max_num_units)
+        ally_battle_field = convert_unit_layer(state.battle_field, self.max_num_units)
 
         battle_field = jnp.vstack((enemy_battle_field, ally_battle_field))
         obs = jnp.concatenate((state.next_unit, state.remaining_units, battle_field.flatten()))

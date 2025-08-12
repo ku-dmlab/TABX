@@ -1,41 +1,13 @@
-from typing import Tuple
 import chex
 import jax
 import jax.numpy as jnp
 from jax._src.numpy.util import promote_dtypes_inexact
 
-from src.maenv.tabs.units import get_all_unit_spec
 
-
-def convert_unit_layer(field: chex.Array) -> chex.Array:
-    n_units = len(get_all_unit_spec()[0])
+def convert_unit_layer(field: chex.Array, n_units: int) -> chex.Array:
     return jax.vmap(lambda x, i: jnp.where(x == i + 1, 1.0, 0.0), (None, 0))(
         field, jnp.arange(n_units)
     )
-
-
-def get_valid_battle_field_mask(battle_field: chex.Array) -> Tuple[bool, chex.Array]:
-    space_occupied_spec = get_all_unit_spec()[-1]
-    field_mask = convert_unit_layer(battle_field)
-    directions = jnp.array([[0, 0], [1, 0], [0, 1], [1, 1]])
-
-    is_valid = True
-    for i, j, k in zip(*list(jnp.nonzero(field_mask))):
-        n = space_occupied_spec[i].astype(int)
-        for idx, d in enumerate(directions[:n]):
-            if idx == 0:
-                continue
-            if field_mask[i, j + d[0], k + d[1]]:
-                is_valid = False  # Overlap among same unit type
-                break
-            field_mask = field_mask.at[i, j + d[0], k + d[1]].set(1)
-
-    if is_valid:
-        is_valid = not jnp.where(
-            jnp.sum(field_mask, axis=0) > 1, True, False
-        ).any()  # Overlap among different unit type
-
-    return is_valid, field_mask
 
 
 def conv_lower_right_padding(lhs: chex.Array, rhs: chex.Array):
