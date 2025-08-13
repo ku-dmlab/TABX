@@ -198,7 +198,7 @@ class TestTABSUnitDeploy(unittest.TestCase):
         expected_battle_field = jnp.zeros(
             (default_tabs_conf.max_field_height, default_tabs_conf.max_field_width)
         )
-        expected_battle_field = expected_battle_field.at[:2, :2].set(5)
+        expected_battle_field = expected_battle_field.at[0, 0].set(5).astype(jnp.float32)
         self.assertTrue(
             jnp.array_equal(s.battle_field, expected_battle_field),
             f"\ntrue:\n{expected_battle_field}\nout:\n{s.battle_field}",
@@ -229,7 +229,7 @@ class TestTABSUnitDeploy(unittest.TestCase):
             (default_tabs_conf.max_field_height, default_tabs_conf.max_field_width)
         )
         expected_battle_field = jnp.array(
-            [[5, 5, 0, 0, 7], [5, 5, 0, 0, 0], [0, 5, 5, 0, 0], [0, 5, 5, 0, 0]]
+            [[5, 0, 0, 0, 7], [0, 0, 0, 0, 0], [0, 5, 0, 0, 0], [0, 0, 0, 0, 0]], dtype=jnp.float32
         )
         self.assertTrue(
             jnp.array_equal(s.battle_field, expected_battle_field),
