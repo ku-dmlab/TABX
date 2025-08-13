@@ -17,6 +17,7 @@ class State:
     remaining_units: chex.Array  # Remaining units queue
     unit_comp_mask: chex.Array  # Avail unit types
     battle_field: chex.Array  # (H_max x W_max) matrix facing enemies
+    battle_field_occupied: chex.Array  # (H_max x W_max) matrix including occupied space
     battle_field_mask: (
         chex.Array
     )  # (H_max x W_max) matrix representing available deployment spots for the next unit
@@ -123,6 +124,7 @@ class TABSUnitDeploy(BaseMAEnv):
             remaining_units=scenario.ally_unit_comp,
             unit_comp_mask=scenario.unit_comp_mask,
             battle_field=battle_field,  # ally battle field
+            battle_field_occupied=battle_field,
             battle_field_mask=battle_field_mask.astype(jnp.float32),  # ally battle field mask
             enemy_battle_field=enemy_battle_field,
             enemy_battle_field_mask=enemy_battle_field_mask,
@@ -139,9 +141,8 @@ class TABSUnitDeploy(BaseMAEnv):
 
         # Get the condition for deployment
         cond_deploy = try_deploy & state.battle_field_mask.astype(jnp.bool_)
-        try_deploy = self._get_place_mask(state.next_unit, try_deploy, state.space_occupied_spec)
         battle_field = jnp.where(
-            cond_deploy.any() & (cond_deploy | try_deploy), state.next_unit[0], state.battle_field
+            cond_deploy, state.next_unit[0], state.battle_field
         )  # Deployed battle field
 
         # Remove the deployed unit from the list
@@ -154,10 +155,16 @@ class TABSUnitDeploy(BaseMAEnv):
 
         # Get a mask for the next unit after deployment
         next_unit = jnp.array([jnp.argmax(remaining_units * state.unit_comp_mask != 0) + 1])
+        occupied = self._get_place_mask(state.next_unit, try_deploy, state.space_occupied_spec)
+        battle_field_occupied = jnp.where(
+            cond_deploy.any() & (cond_deploy | occupied),
+            state.next_unit[0],
+            state.battle_field_occupied,
+        )
         battle_field_mask = jnp.where(
             cond_deploy.any(),
-            self._get_deploy_mask(next_unit, jnp.logical_not(try_deploy), state.space_occupied_spec)
-            & jnp.logical_not(battle_field).astype(jnp.bool_),
+            self._get_deploy_mask(next_unit, jnp.logical_not(occupied), state.space_occupied_spec)
+            & jnp.logical_not(battle_field_occupied),
             state.battle_field_mask,
         )
 
@@ -166,6 +173,7 @@ class TABSUnitDeploy(BaseMAEnv):
             next_unit=next_unit,
             remaining_units=remaining_units.flatten(),
             battle_field=battle_field.astype(jnp.float32),
+            battle_field_occupied=battle_field_occupied.astype(jnp.float32),
             battle_field_mask=battle_field_mask.astype(jnp.float32),
         )
 
