@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import jax
 import jax.numpy as jnp
 import chex
@@ -63,7 +65,10 @@ class TABSUnitDeploy(BaseMAEnv):
         return obs
 
     def _get_deploy_mask(
-        self, next_unit: chex.Array, mask: chex.Array, space_occupied_spec: chex.Array
+        self,
+        next_unit: chex.Array,
+        mask: chex.Array,
+        space_occupied_spec: chex.Array,
     ) -> chex.Array:
         # Get the occupied space size of the next unit
         space_sizes = jnp.sqrt(space_occupied_spec[:]).astype(jnp.int32)
@@ -79,7 +84,24 @@ class TABSUnitDeploy(BaseMAEnv):
             in_axes=(0, None),
         )(space_sizes, jnp.ones((2, 2)))
 
-        return masks[next_unit][0].astype(jnp.bool_)
+        return masks[next_unit - 1][0].astype(jnp.bool_)
+
+    def _get_place_mask(
+        self, next_unit: chex.Array, shape: Tuple, loc: chex.Array, space_occupied_spec: chex.Array
+    ):
+        space_sizes = jnp.sqrt(space_occupied_spec[:]).astype(jnp.int32)
+
+        place_mask = jnp.ones(shape, dtype=jnp.bool_)
+        masks = jax.vmap(
+            lambda size, loc: jnp.where(
+                size > 1,
+                place_mask.at[loc[0] : loc[0] + 2, loc[1] : loc[1] + 2].set(False),  # For Mammoth
+                place_mask.at[loc[0], loc[1]].set(False),  # Others
+            ),
+            in_axes=(0, None),
+        )(space_sizes, loc)
+
+        return masks[next_unit - 1][0].astype(jnp.bool_)
 
     def reset(self, key, scenario: Scenario):
         # TODO: implement random enemy deployment
@@ -89,9 +111,9 @@ class TABSUnitDeploy(BaseMAEnv):
         next_unit = jnp.array(
             [jnp.argmax(scenario.ally_unit_comp * scenario.unit_comp_mask != 0) + 1]
         )  # ID starts from 1
-        battle_field = jnp.zeros_like(enemy_battle_field, dtype=jnp.float32)
+        battle_field = jnp.zeros_like(scenario.battle_field)
         battle_field_mask = self._get_deploy_mask(
-            next_unit, enemy_battle_field_mask, scenario.space_occupied
+            next_unit, scenario.battle_field_mask, scenario.space_occupied
         )
 
         state = State(
@@ -113,11 +135,8 @@ class TABSUnitDeploy(BaseMAEnv):
         try_deploy = jnp.zeros_like(state.battle_field, dtype=jnp.bool_)
         try_deploy = try_deploy.at[h, w].set(True)
 
-        # Get the available deployment space
-        deploy_mask = self._get_deploy_mask(
-            state.next_unit, state.battle_field_mask, state.space_occupied_spec
-        )
-        cond_deploy = try_deploy & deploy_mask & state.battle_field_mask.astype(jnp.bool_)
+        # Get the condition for deployment
+        cond_deploy = try_deploy & state.battle_field_mask.astype(jnp.bool_)
         deployed = state.battle_field.at[h, w].set(state.next_unit[0])
         battle_field = jnp.where(cond_deploy, deployed, state.battle_field)  # Deployed battle field
 
@@ -130,10 +149,18 @@ class TABSUnitDeploy(BaseMAEnv):
         )
 
         # Get a mask for the next unit after deployment
+        place_mask = self._get_place_mask(
+            state.next_unit, battle_field.shape, jnp.array([h, w]), state.space_occupied_spec
+        )
+        deployed_mask = jnp.where(
+            cond_deploy.any(), place_mask, jnp.ones_like(battle_field, dtype=jnp.bool_)
+        )  # current occupying space
         next_unit = jnp.array([jnp.argmax(remaining_units * state.unit_comp_mask != 0) + 1])
         battle_field_mask = self._get_deploy_mask(
-            next_unit, ~try_deploy & deploy_mask, state.space_occupied_spec
-        ) & state.battle_field_mask.astype(jnp.bool_)
+            next_unit, deployed_mask, state.space_occupied_spec
+        ) & jnp.logical_not(state.battle_field).astype(
+            jnp.bool_
+        )  # current deployed & previous deployed
 
         # Update state
         state = state.replace(

@@ -36,7 +36,6 @@ class TABSConf:
     max_num_units: int
     max_field_height: int
     max_field_width: int
-    scenario: Optional[Scenario]
 
 
 default_tabs_conf = TABSConf(
@@ -45,14 +44,10 @@ default_tabs_conf = TABSConf(
     max_num_units=len(get_all_unit_names()),
     max_field_height=4,
     max_field_width=5,
-    scenario=None,
 )
 
 
 def generate_scenario(cfg: TABSConf):
-    if cfg.scenario:  # Custom scenario
-        return cfg.scenario
-
     max_shape = (cfg.max_field_height, cfg.max_field_width)
     # init
     budget = 0
