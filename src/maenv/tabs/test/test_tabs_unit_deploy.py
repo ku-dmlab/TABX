@@ -34,6 +34,8 @@ class TestTABSUnitDeploy(unittest.TestCase):
         rng = jax.random.PRNGKey(0)
         rng, _rng = jax.random.split(rng)
         self.space_occupied1(_rng)
+        rng, _rng = jax.random.split(rng)
+        self.space_occupied2(_rng)
 
     def reset_predefined_scenario1(self, scenario_name):
         tabs_conf = TABSConf(
@@ -196,7 +198,7 @@ class TestTABSUnitDeploy(unittest.TestCase):
         expected_battle_field = jnp.zeros(
             (default_tabs_conf.max_field_height, default_tabs_conf.max_field_width)
         )
-        expected_battle_field = expected_battle_field.at[0, 0].set(5)
+        expected_battle_field = expected_battle_field.at[:2, :2].set(5)
         self.assertTrue(
             jnp.array_equal(s.battle_field, expected_battle_field),
             f"\ntrue:\n{expected_battle_field}\nout:\n{s.battle_field}",
@@ -204,6 +206,38 @@ class TestTABSUnitDeploy(unittest.TestCase):
 
         expected_battle_field_mask = jnp.array(
             [[0, 0, 1, 1, 0], [0, 0, 1, 1, 0], [1, 1, 1, 1, 0], [0, 0, 0, 0, 0]], dtype=jnp.float32
+        )
+
+        self.assertTrue(
+            jnp.array_equal(s.battle_field_mask, expected_battle_field_mask),
+            f"\ntrue:\n{expected_battle_field_mask}\nout:\n{s.battle_field_mask}",
+        )
+
+    def space_occupied2(self, rng):
+        env = TABSUnitDeploy(default_tabs_conf)
+        scenario = generate_scenario(default_tabs_conf)
+        scenario = scenario.replace(ally_unit_comp=jnp.array([0, 0, 0, 0, 2, 0, 3]))
+
+        o, s = env.reset(0, scenario)
+        actions = jnp.array([0, 11, 1, 4])
+        rngs = jax.random.split(rng, len(actions))
+        for i in range(len(actions)):
+            action = actions[i]
+            o, s, _, _, _ = env.step(rngs[i], s, action)
+
+        expected_battle_field = jnp.zeros(
+            (default_tabs_conf.max_field_height, default_tabs_conf.max_field_width)
+        )
+        expected_battle_field = jnp.array(
+            [[5, 5, 0, 0, 7], [5, 5, 0, 0, 0], [0, 5, 5, 0, 0], [0, 5, 5, 0, 0]]
+        )
+        self.assertTrue(
+            jnp.array_equal(s.battle_field, expected_battle_field),
+            f"\ntrue:\n{expected_battle_field}\nout:\n{s.battle_field}",
+        )
+
+        expected_battle_field_mask = jnp.array(
+            [[0, 0, 1, 1, 0], [0, 0, 1, 1, 1], [1, 0, 0, 1, 1], [1, 0, 0, 1, 1]], dtype=jnp.float32
         )
 
         self.assertTrue(

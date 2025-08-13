@@ -87,19 +87,31 @@ class TABSUnitDeploy(BaseMAEnv):
         return masks[next_unit - 1][0].astype(jnp.bool_)
 
     def _get_place_mask(
-        self, next_unit: chex.Array, shape: Tuple, loc: chex.Array, space_occupied_spec: chex.Array
-    ):
+        self,
+        next_unit: chex.Array,
+        mask: chex.Array,
+        space_occupied_spec: chex.Array,
+    ) -> chex.Array:
         space_sizes = jnp.sqrt(space_occupied_spec[:]).astype(jnp.int32)
 
-        place_mask = jnp.ones(shape, dtype=jnp.bool_)
         masks = jax.vmap(
-            lambda size, loc: jnp.where(
+            lambda size, kernel: jnp.where(
                 size > 1,
-                place_mask.at[loc[0] : loc[0] + 2, loc[1] : loc[1] + 2].set(False),  # For Mammoth
-                place_mask.at[loc[0], loc[1]].set(False),  # Others
+                jax.scipy.signal.convolve2d(mask, kernel, mode="same").astype(jnp.bool_),
+                mask,
             ),
             in_axes=(0, None),
-        )(space_sizes, loc)
+        )(space_sizes, jnp.ones((2, 2)))
+
+        # place_mask = jnp.ones(shape, dtype=jnp.bool_)
+        # masks = jax.vmap(
+        #     lambda size, h, w: jnp.where(
+        #         size > 1,
+        #         place_mask.at[h : h + 2, w : w + 2].set(False),  # For Mammoth
+        #         place_mask.at[h, w].set(False),  # Others
+        #     ),
+        #     in_axes=(0, None, None),
+        # )(space_sizes, h, w)
 
         return masks[next_unit - 1][0].astype(jnp.bool_)
 
@@ -137,8 +149,10 @@ class TABSUnitDeploy(BaseMAEnv):
 
         # Get the condition for deployment
         cond_deploy = try_deploy & state.battle_field_mask.astype(jnp.bool_)
-        deployed = state.battle_field.at[h, w].set(state.next_unit[0])
-        battle_field = jnp.where(cond_deploy, deployed, state.battle_field)  # Deployed battle field
+        try_deploy = self._get_place_mask(state.next_unit, try_deploy, state.space_occupied_spec)
+        battle_field = jnp.where(
+            cond_deploy.any() & (cond_deploy | try_deploy), state.next_unit[0], state.battle_field
+        )  # Deployed battle field
 
         # Remove the deployed unit from the list
         _cond_unit = jax.nn.one_hot(state.next_unit - 1, state.remaining_units.size)
@@ -149,18 +163,13 @@ class TABSUnitDeploy(BaseMAEnv):
         )
 
         # Get a mask for the next unit after deployment
-        place_mask = self._get_place_mask(
-            state.next_unit, battle_field.shape, jnp.array([h, w]), state.space_occupied_spec
-        )
-        deployed_mask = jnp.where(
-            cond_deploy.any(), place_mask, jnp.ones_like(battle_field, dtype=jnp.bool_)
-        )  # current occupying space
         next_unit = jnp.array([jnp.argmax(remaining_units * state.unit_comp_mask != 0) + 1])
-        battle_field_mask = self._get_deploy_mask(
-            next_unit, deployed_mask, state.space_occupied_spec
-        ) & jnp.logical_not(state.battle_field).astype(
-            jnp.bool_
-        )  # current deployed & previous deployed
+        battle_field_mask = jnp.where(
+            cond_deploy.any(),
+            self._get_deploy_mask(next_unit, jnp.logical_not(try_deploy), state.space_occupied_spec)
+            & jnp.logical_not(battle_field).astype(jnp.bool_),
+            state.battle_field_mask,
+        )
 
         # Update state
         state = state.replace(
