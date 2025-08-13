@@ -40,7 +40,7 @@ class TABSUnitDeploy(BaseMAEnv):
         self.observation_space = Box(
             low=0,
             high=self.max_agents,
-            shape=(1 + self.max_num_units + 2 * self.max_num_units * max_field_size),
+            shape=(1 + self.max_num_units + 2 * self.max_num_units * max_field_size,),
             dtype=jnp.float32,
         )
 
@@ -115,21 +115,25 @@ class TABSUnitDeploy(BaseMAEnv):
 
         # Get the available deployment space
         deploy_mask = self._get_deploy_mask(
-            state.next_unit, state.enemy_battle_field_mask, state.space_occupied_spec
+            state.next_unit, state.battle_field_mask, state.space_occupied_spec
         )
-        cond_deploy = try_deploy & deploy_mask
+        cond_deploy = try_deploy & deploy_mask & state.battle_field_mask.astype(jnp.bool_)
         deployed = state.battle_field.at[h, w].set(state.next_unit[0])
         battle_field = jnp.where(cond_deploy, deployed, state.battle_field)  # Deployed battle field
 
         # Remove the deployed unit from the list
         _cond_unit = jax.nn.one_hot(state.next_unit - 1, state.remaining_units.size)
-        remaining_units = jnp.where(_cond_unit, state.remaining_units - 1, state.remaining_units)
+        remaining_units = jnp.where(
+            cond_deploy.any(),
+            jnp.where(_cond_unit, state.remaining_units - 1, state.remaining_units),
+            state.remaining_units,
+        )
 
         # Get a mask for the next unit after deployment
         next_unit = jnp.array([jnp.argmax(remaining_units * state.unit_comp_mask != 0) + 1])
         battle_field_mask = self._get_deploy_mask(
             next_unit, ~try_deploy & deploy_mask, state.space_occupied_spec
-        )
+        ) & state.battle_field_mask.astype(jnp.bool_)
 
         # Update state
         state = state.replace(
