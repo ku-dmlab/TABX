@@ -60,7 +60,7 @@ class TABSUnitComb(BaseMAEnv):
             current_unit_list=jnp.zeros(self.max_num_units, dtype=jnp.int32),
             enemy_unit_comp=scenario.enemy_unit_comp,
             unit_comp_mask=scenario.unit_comp_mask,
-            action_mask=action_mask,
+            action_mask=action_mask.astype(jnp.float32),
             scenario=scenario,
         )
         return self.get_obs(state), state
@@ -80,7 +80,7 @@ class TABSUnitComb(BaseMAEnv):
 
         max_agent_mask = jnp.where(new_unit_list < self.max_agents, 1, 0)
         action_mask = (
-            jnp.where(new_budget >= state.all_price, True, False)
+            jnp.where(budget >= state.all_price, True, False)
             * state.unit_comp_mask
             * max_agent_mask
         )
@@ -88,7 +88,7 @@ class TABSUnitComb(BaseMAEnv):
         state = state.replace(
             budget=budget,
             current_unit_list=new_unit_list.astype(jnp.int32),
-            action_mask=action_mask,
+            action_mask=action_mask.astype(jnp.float32),
         )
         # NOTE: Reward would be computed by the result of battle with this unit combination.
         reward = None
