@@ -103,16 +103,6 @@ class TABSUnitDeploy(BaseMAEnv):
             in_axes=(0, None),
         )(space_sizes, jnp.ones((2, 2)))
 
-        # place_mask = jnp.ones(shape, dtype=jnp.bool_)
-        # masks = jax.vmap(
-        #     lambda size, h, w: jnp.where(
-        #         size > 1,
-        #         place_mask.at[h : h + 2, w : w + 2].set(False),  # For Mammoth
-        #         place_mask.at[h, w].set(False),  # Others
-        #     ),
-        #     in_axes=(0, None, None),
-        # )(space_sizes, h, w)
-
         return masks[next_unit - 1][0].astype(jnp.bool_)
 
     def reset(self, key, scenario: Scenario):
