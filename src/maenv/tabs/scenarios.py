@@ -14,7 +14,8 @@ class VectorizedScenario:
     body_weights: jnp.ndarray
     body_radiuss: jnp.ndarray
     teams: jnp.ndarray
-    pos_limits: jnp.ndarray
+    pos_min: jnp.ndarray
+    pos_max: jnp.ndarray
     unit_ids: jnp.ndarray
     healths: jnp.ndarray
     attack_damages: jnp.ndarray
@@ -175,7 +176,14 @@ def get_vectorized_scenario(scenario, n_unit):
         body_weights=jnp.full((n_unit * 2, 1), 1.0),
         body_radiuss=jnp.full((n_unit * 2, 1), 1.0),
         teams=jnp.zeros((n_unit * 2, 1)).astype(jnp.int32),
-        pos_limits=jnp.zeros((n_unit * 2, 2)),
+        pos_min=jnp.full((n_unit * 2, 2), 0.0),
+        pos_max=jnp.repeat(
+            jnp.array(
+                [scenario.battle_field.shape[0] * 12, scenario.battle_field.shape[1] * 6]
+            ).reshape(1, 2),
+            n_unit * 2,
+            axis=0,
+        ),
         unit_ids=jnp.zeros((n_unit * 2, 1)).astype(jnp.int32),
         healths=jnp.zeros((n_unit * 2, 1)) + 1.0,
         attack_damages=jnp.zeros((n_unit * 2, 1)),
@@ -200,7 +208,7 @@ def get_vectorized_scenario(scenario, n_unit):
 
         deployed_unit_id = battle_field[x, y].astype(int) - 1
         positions = vectorized_scenario.positions.at[i].set(
-            jnp.stack((6 * (x + (1 - is_ally) * scenario.battle_field.shape[0]), 6 * y))
+            jnp.stack((6 * (x + (1 - is_ally) * scenario.battle_field.shape[0] + 1), 6 * y))
             * unit_remain
             + vectorized_scenario.positions[i] * (1 - unit_remain)
         )

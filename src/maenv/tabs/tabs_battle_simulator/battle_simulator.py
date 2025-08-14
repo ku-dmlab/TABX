@@ -88,7 +88,7 @@ class UnitAction:
 class DefaultUnit(
     namedtuple(
         "DefaultUnit",
-        ["transform", "rigidbody", "collider", "team", "pos_limit", "status", "attacking"],
+        ["transform", "rigidbody", "collider", "team", "pos_min", "pos_max", "status", "attacking"],
     )
 ):
     transform: (
@@ -97,7 +97,8 @@ class DefaultUnit(
     rigidbody: RigidBody  # The physical properties of the unit for physics simulation (e.g., velocity, mass)
     collider: CircleCollider  # The collision shape and parameters for detecting overlaps with other objects
     team: chex.Array  # The team identifier to distinguish between different groups of units
-    pos_limit: chex.Array  # The positional boundaries or limits within which the unit can move
+    pos_min: chex.Array  # The positional boundaries or limits within which the unit can move
+    pos_max: chex.Array  # The positional boundaries or limits within which the unit can move
     status: UnitStatus  # The current status of the unit, including health, attack stats, and other attributes
     attacking: (
         chex.Array
@@ -115,16 +116,23 @@ class DefaultUnit(
             )
         )
 
-    def __new__(cls, transform, rigidbody, collider, team, pos_limit, status, attacking):
-        return super().__new__(
-            cls, transform, rigidbody, collider, team, pos_limit, status, attacking
-        )
+    # def __new__(cls, transform, rigidbody, collider, team, pos_limit, status, attacking):
+    #     return super().__new__(
+    #         cls, transform, rigidbody, collider, team, pos_limit, status, attacking
+    #     )
 
     def update(self, **kwargs):
         config = kwargs["config"]
         next_cooldown = jnp.where(self.attacking, 0.0, self.status.cooldown + config["dt"])
         updated_object = physics_update(config, self)
-        return updated_object._replace(status=self.status._replace(cooldown=next_cooldown))
+
+        updated_transform = self.transform._replace(
+            position=jnp.clip(updated_object.transform.position, self.pos_min, self.pos_max)
+        )
+
+        return updated_object._replace(
+            transform=updated_transform, status=self.status._replace(cooldown=next_cooldown)
+        )
 
     def act(self, objects, action, **kwargs):
         # action : [rotate_angle, discrete action]
@@ -380,7 +388,8 @@ class TABS(BaseMAEnv):
                 ),
                 collider=CircleCollider(radius=jnp.array([1.0])),
                 team=jnp.array([0]),
-                pos_limit=jnp.array([0.0, 0.0]),
+                pos_min=jnp.array([0.0, 0.0]),
+                pos_max=jnp.array([0.0, 0.0]),
                 status=UnitStatus(
                     id=jnp.array([i]),
                     unit_id=jnp.array([0]),
@@ -623,7 +632,8 @@ class TABS(BaseMAEnv):
                 ),
                 collider=CircleCollider(radius=vectorized_scenario.body_radiuss[i]),
                 team=vectorized_scenario.teams[i],
-                pos_limit=vectorized_scenario.pos_limits[i],
+                pos_min=vectorized_scenario.pos_min[i],
+                pos_max=vectorized_scenario.pos_max[i],
                 status=self.empty_state[unit].status._replace(
                     unit_id=vectorized_scenario.unit_ids[i],
                     health=vectorized_scenario.healths[i],
