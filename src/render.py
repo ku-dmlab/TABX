@@ -633,8 +633,31 @@ class PygameRenderer:
 
             # 유닛 이름 및 정보 (줌이 충분할 때만)
             if self.zoom > 1.0 and screen_radius > 10:
-                # 유닛 이름
-                name_text = self.small_font.render(unit_name, True, (255, 255, 255))
+                # 유닛 타입 이름 가져오기
+                unit_type_names = [
+                    "",
+                    "Farmer",
+                    "Archer",
+                    "TheKing",
+                    "BombThrower",
+                    "Mammoth",
+                    "Deadeye",
+                    "Healer",
+                ]
+
+                # unit_id 가져오기
+                if hasattr(unit.status.unit_id, "__array__"):
+                    unit_id = int(np.array(unit.status.unit_id))
+                else:
+                    unit_id = int(unit.status.unit_id)
+
+                # unit_id가 유효한 범위인지 확인
+                if 0 <= unit_id < len(unit_type_names):
+                    display_name = f"{unit_name} ({unit_type_names[unit_id]})"
+                else:
+                    display_name = unit_name
+
+                name_text = self.small_font.render(display_name, True, (255, 255, 255))
                 name_rect = name_text.get_rect(
                     center=(screen_pos[0], screen_pos[1] + screen_radius + 15)
                 )
@@ -664,7 +687,7 @@ class PygameRenderer:
                 # 텍스트 표시
                 self.screen.blit(disabled_text, disabled_rect)
 
-        except Exception as e:
+        except Exception:
             pass
 
     def draw_target_matrix(self, objects):
@@ -746,16 +769,24 @@ class PygameRenderer:
                     )
                     self.screen.blit(text_surface, text_rect)
 
-        # 축 라벨 그리기
+                # 축 라벨 그리기 - battle_simulator와 동일한 순서로 unit key 생성
+        unit_keys = []
+        for i in range(n_units):
+            unit_key = f"unit_{i}"
+            if unit_key in objects:
+                unit_keys.append(unit_key)
+
         for i in range(n_units):
             # Y축 라벨 (왼쪽)
-            label_text = self.small_font.render(f"U{i + 1}", True, self.colors["target_text"])
+            unit_suffix = unit_keys[i].split("_")[-1] if i < len(unit_keys) else str(i)
+            label_text = self.small_font.render(f"{unit_suffix}", True, self.colors["target_text"])
             self.screen.blit(
                 label_text, (start_x - 20, start_y + i * matrix_size + matrix_size // 2 - 8)
             )
 
             # X축 라벨 (위쪽)
-            label_text = self.small_font.render(f"U{i + 1}", True, self.colors["target_text"])
+            unit_suffix = unit_keys[i].split("_")[-1] if i < len(unit_keys) else str(i)
+            label_text = self.small_font.render(f"{unit_suffix}", True, self.colors["target_text"])
             text_rect = label_text.get_rect(
                 center=(start_x + i * matrix_size + matrix_size // 2, start_y - 5)
             )
@@ -789,9 +820,13 @@ class PygameRenderer:
         # 선택된 유닛이 있으면 해당 유닛의 시야만 표시
         selected_unit_index = None
         if self.selected_unit:
-            # 유닛 이름에서 인덱스 추출 (unit1 -> 0, unit2 -> 1, ...)
-            unit_keys = [key for key in objects.keys() if key.startswith("unit")]
-            unit_keys.sort()  # unit1, unit2, unit3 순서로 정렬
+            # 유닛 키 목록을 battle_simulator와 동일한 방식으로 생성
+            unit_keys = []
+            for i in range(n_units):
+                unit_key = f"unit_{i}"
+                if unit_key in objects:
+                    unit_keys.append(unit_key)
+
             if self.selected_unit in unit_keys:
                 selected_unit_index = unit_keys.index(self.selected_unit)
 
@@ -871,21 +906,32 @@ class PygameRenderer:
                     )
                     self.screen.blit(text_surface, text_rect)
 
-        # 축 라벨 그리기
+                # 축 라벨 그리기 - battle_simulator와 동일한 순서로 unit key 생성
+        unit_keys = []
+        for i in range(n_units):
+            unit_key = f"unit_{i}"
+            if unit_key in objects:
+                unit_keys.append(unit_key)
+
         for i in range(n_units):
             # Y축 라벨 (왼쪽) - 선택된 유닛은 하이라이트
             if selected_unit_index is not None and i == selected_unit_index:
                 label_color = self.colors["visible_selected_true"]  # 선택된 유닛은 밝은 색
-                label_text = self.small_font.render(f"U{i + 1}*", True, label_color)
+                # unit key에서 숫자만 추출하여 표시
+                unit_suffix = unit_keys[i].split("_")[-1] if i < len(unit_keys) else str(i)
+                label_text = self.small_font.render(f"{unit_suffix}*", True, label_color)
             else:
                 label_color = self.colors["visible_text"]
-                label_text = self.small_font.render(f"U{i + 1}", True, label_color)
+                # unit key에서 숫자만 추출하여 표시
+                unit_suffix = unit_keys[i].split("_")[-1] if i < len(unit_keys) else str(i)
+                label_text = self.small_font.render(f"{unit_suffix}", True, label_color)
             self.screen.blit(
                 label_text, (start_x - 20, start_y + i * matrix_size + matrix_size // 2 - 8)
             )
 
             # X축 라벨 (위쪽)
-            label_text = self.small_font.render(f"U{i + 1}", True, self.colors["visible_text"])
+            unit_suffix = unit_keys[i].split("_")[-1] if i < len(unit_keys) else str(i)
+            label_text = self.small_font.render(f"{unit_suffix}", True, self.colors["visible_text"])
             text_rect = label_text.get_rect(
                 center=(start_x + i * matrix_size + matrix_size // 2, start_y - 5)
             )
@@ -1410,9 +1456,7 @@ class PygameRenderer:
                 self.selected_unit_obs = new_obs
 
                 # 디버깅: 첫 번째 유닛 선택 시 obs 딕셔너리 구조 출력
-                if hasattr(self, "_debug_printed") == False:
-                    for key in sorted(obs.keys()):
-                        obs_val = obs[key]
+                if not hasattr(self, "_debug_printed"):
                     self._debug_printed = True
             else:
                 self.selected_unit_obs = None
@@ -1446,9 +1490,13 @@ class PygameRenderer:
                         visible_matrix = None
 
                     if visible_matrix is not None and visible_matrix.ndim == 2:
-                        # 유닛 키 목록 정렬
-                        unit_keys = [key for key in objects.keys() if key.startswith("unit")]
-                        unit_keys.sort()
+                        # 유닛 키 목록을 battle_simulator와 동일한 방식으로 생성
+                        # battle_simulator에서는 self.unit_keys를 사용하므로 같은 순서로 만들어야 함
+                        unit_keys = []
+                        for i in range(visible_matrix.shape[0]):
+                            unit_key = f"unit_{i}"
+                            if unit_key in objects:
+                                unit_keys.append(unit_key)
 
                         if self.selected_unit in unit_keys:
                             selected_index = unit_keys.index(self.selected_unit)
@@ -1477,16 +1525,19 @@ class PygameRenderer:
                     # 선택된 유닛이 있고, 현재 유닛이 선택된 유닛이 아닌 경우
                     if obj_name in visibility_info["unit_keys"]:
                         target_index = visibility_info["unit_keys"].index(obj_name)
+                        # visible_matrix에서 matrix[i, j]는 unit i가 unit j를 볼 수 있는지를 나타냄
+                        # 따라서 selected_unit이 target_unit을 볼 수 있는지 확인하려면
+                        # matrix[selected_index, target_index]를 확인해야 함
                         can_see = visibility_info["matrix"][
                             visibility_info["selected_index"], target_index
                         ]
 
-                        if not can_see:
-                            # 선택된 유닛이 현재 유닛을 볼 수 없는 경우
-                            alpha = 80  # 투명하게 표시
-
+                        if can_see:
+                            # 선택된 유닛이 현재 유닛을 볼 수 있는 경우
+                            alpha = 200  # 반투명하게 표시 (조금 흐리게)
                         else:
-                            pass
+                            # 선택된 유닛이 현재 유닛을 볼 수 없는 경우
+                            alpha = 60  # 더 투명하게 표시 (거의 투명)
 
                 # 선택된 유닛의 범위를 자동으로 표시
                 if obj_name == self.selected_unit:
@@ -1943,11 +1994,11 @@ if __name__ == "__main__":
     from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
     from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
 
-    default_tabs_conf = default_tabs_conf.replace(scenario_name="1theking")
+    default_tabs_conf = default_tabs_conf.replace(scenario_name="4archer_1mammoth")
     scenario = generate_scenario(default_tabs_conf)
 
     # 테스트 유닛 생성
-    env = TABS(num_agents=4)
+    env = TABS(num_agents=12)
     # reset = jax.jit(env.reset)
     reset = env.reset
     obs, state = reset(jax.random.key(0), scenario)
