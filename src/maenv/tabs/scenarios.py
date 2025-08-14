@@ -3,6 +3,25 @@ import chex
 from flax import struct
 import jax.numpy as jnp
 from src.maenv.tabs.units import get_all_unit_names, get_all_unit_spec
+import jax
+
+
+@struct.dataclass
+class VectorizedScenario:
+    positions: jnp.ndarray
+    rotations: jnp.ndarray
+    body_weights: jnp.ndarray
+    body_radiuss: jnp.ndarray
+    teams: jnp.ndarray
+    pos_limits: jnp.ndarray
+    unit_ids: jnp.ndarray
+    healths: jnp.ndarray
+    attack_damages: jnp.ndarray
+    attack_ranges: jnp.ndarray
+    attack_cooldowns: jnp.ndarray
+    sight_angles: jnp.ndarray
+    is_alive: jnp.ndarray
+    attack_types: jnp.ndarray
 
 
 @struct.dataclass
@@ -148,3 +167,191 @@ def generate_scenario(cfg: TABSConf):
         sight_radius=sight_radius,
         space_occupied=space_occupied,
     )
+
+
+def get_vectorized_scenario(scenario, n_unit):
+    vectorized_scenario = VectorizedScenario(
+        positions=jnp.zeros((n_unit * 2 * 2, 2)),
+        rotations=jnp.zeros((n_unit * 2 * 2, 1)),
+        body_weights=jnp.full((n_unit * 2, 1), 1.0),
+        body_radiuss=jnp.full((n_unit * 2, 1), 1.0),
+        teams=jnp.zeros((n_unit * 2, 1)).astype(jnp.int32),
+        pos_limits=jnp.zeros((n_unit * 2, 2)),
+        unit_ids=jnp.zeros((n_unit * 2, 1)).astype(jnp.int32),
+        healths=jnp.zeros((n_unit * 2, 1)) + 1.0,
+        attack_damages=jnp.zeros((n_unit * 2, 1)),
+        attack_ranges=jnp.full((n_unit * 2, 1), 1.0),
+        attack_cooldowns=jnp.full((n_unit * 2, 1), 1.0),
+        sight_angles=jnp.zeros((n_unit * 2, 1)) + jnp.pi / 2,
+        is_alive=jnp.zeros((n_unit * 2, 1)).astype(jnp.bool_),
+        attack_types=jnp.zeros((n_unit * 2, 1)).astype(jnp.int32),
+    )
+
+    def ally_vectorize_body(carry, i):
+        vectorized_scenario, scenario = carry
+
+        unit_idx = (scenario.battle_field > 0).argmax()
+        unit_remain = scenario.ally_unit_comp.sum() > 0
+
+        x, y = jnp.unravel_index(unit_idx, scenario.battle_field.shape)
+
+        deployed_unit_id = scenario.battle_field[x, y].astype(int) - 1
+        positions = vectorized_scenario.positions.at[i].set(
+            jnp.stack((2 * x, 2 * y)) * unit_remain
+            + vectorized_scenario.positions[i] * (1 - unit_remain)
+        )
+        body_weights = vectorized_scenario.body_weights.at[i].set(
+            scenario.body_weight[deployed_unit_id] * unit_remain
+            + vectorized_scenario.body_weights[i] * (1 - unit_remain)
+        )
+        body_radiuss = vectorized_scenario.body_radiuss.at[i].set(
+            scenario.body_radius[deployed_unit_id] * unit_remain
+            + vectorized_scenario.body_radiuss[i] * (1 - unit_remain)
+        )
+        teams = vectorized_scenario.teams.at[i].set(0)
+        unit_ids = vectorized_scenario.unit_ids.at[i].set(
+            deployed_unit_id * unit_remain + vectorized_scenario.unit_ids[i] * (1 - unit_remain)
+        )
+        healths = vectorized_scenario.healths.at[i].set(
+            scenario.health[deployed_unit_id] * unit_remain
+            + vectorized_scenario.healths[i] * (1 - unit_remain)
+        )
+        attack_damages = vectorized_scenario.attack_damages.at[i].set(
+            scenario.attack_damage[deployed_unit_id] * unit_remain
+            + vectorized_scenario.attack_damages[i] * (1 - unit_remain)
+        )
+        attack_ranges = vectorized_scenario.attack_ranges.at[i].set(
+            scenario.attack_range[deployed_unit_id] * unit_remain
+            + vectorized_scenario.attack_ranges[i] * (1 - unit_remain)
+        )
+        attack_cooldowns = vectorized_scenario.attack_cooldowns.at[i].set(
+            scenario.attack_cooldown[deployed_unit_id] * unit_remain
+            + vectorized_scenario.attack_cooldowns[i] * (1 - unit_remain)
+        )
+        sight_angles = vectorized_scenario.sight_angles.at[i].set(
+            scenario.sight_angle[deployed_unit_id] * unit_remain
+            + vectorized_scenario.sight_angles[i] * (1 - unit_remain)
+        )
+        is_alive = vectorized_scenario.is_alive.at[i].set(
+            1 * unit_remain + vectorized_scenario.is_alive[i] * (1 - unit_remain)
+        )
+        attack_types = vectorized_scenario.attack_types.at[i].set(
+            scenario.attack_damage[deployed_unit_id]
+            < 0 * unit_remain + vectorized_scenario.attack_types[i] * (1 - unit_remain)
+        )
+
+        next_battle_field = scenario.battle_field.at[x, y].set(
+            unit_remain * 0 + (1 - unit_remain) * (deployed_unit_id + 1)
+        )
+        next_ally_unit_comp = scenario.ally_unit_comp.at[deployed_unit_id].set(
+            scenario.ally_unit_comp[deployed_unit_id] - 1 * unit_remain
+        )
+
+        next_scenario = scenario.replace(
+            battle_field=next_battle_field, ally_unit_comp=next_ally_unit_comp
+        )
+
+        next_vectorized_scenario = vectorized_scenario.replace(
+            positions=positions,
+            body_weights=body_weights,
+            body_radiuss=body_radiuss,
+            teams=teams,
+            unit_ids=unit_ids,
+            healths=healths,
+            attack_damages=attack_damages,
+            attack_ranges=attack_ranges,
+            attack_cooldowns=attack_cooldowns,
+            sight_angles=sight_angles,
+            is_alive=is_alive,
+            attack_types=attack_types,
+        )
+
+        return (next_vectorized_scenario, next_scenario), None
+
+    def enemy_vectorize_body(carry, i):
+        vectorized_scenario, scenario = carry
+
+        unit_idx = (scenario.enemy_battle_field > 0).argmax()
+        unit_remain = scenario.enemy_unit_comp.sum() > 0
+
+        x, y = jnp.unravel_index(unit_idx, scenario.enemy_battle_field.shape)
+
+        deployed_unit_id = scenario.enemy_battle_field[x, y].astype(int) - 1
+        positions = vectorized_scenario.positions.at[i].set(
+            jnp.stack((3 * (x + scenario.battle_field.shape[0]), 3 * y)) * unit_remain
+            + vectorized_scenario.positions[i] * (1 - unit_remain)
+        )
+        body_weights = vectorized_scenario.body_weights.at[i].set(
+            scenario.body_weight[deployed_unit_id] * unit_remain
+            + vectorized_scenario.body_weights[i] * (1 - unit_remain)
+        )
+        body_radiuss = vectorized_scenario.body_radiuss.at[i].set(
+            scenario.body_radius[deployed_unit_id] * unit_remain
+            + vectorized_scenario.body_radiuss[i] * (1 - unit_remain)
+        )
+        teams = vectorized_scenario.teams.at[i].set(1)
+        unit_ids = vectorized_scenario.unit_ids.at[i].set(
+            deployed_unit_id * unit_remain + vectorized_scenario.unit_ids[i] * (1 - unit_remain)
+        )
+        healths = vectorized_scenario.healths.at[i].set(
+            scenario.health[deployed_unit_id] * unit_remain
+            + vectorized_scenario.healths[i] * (1 - unit_remain)
+        )
+        attack_damages = vectorized_scenario.attack_damages.at[i].set(
+            scenario.attack_damage[deployed_unit_id] * unit_remain
+            + vectorized_scenario.attack_damages[i] * (1 - unit_remain)
+        )
+        attack_ranges = vectorized_scenario.attack_ranges.at[i].set(
+            scenario.attack_range[deployed_unit_id] * unit_remain
+            + vectorized_scenario.attack_ranges[i] * (1 - unit_remain)
+        )
+        attack_cooldowns = vectorized_scenario.attack_cooldowns.at[i].set(
+            scenario.attack_cooldown[deployed_unit_id] * unit_remain
+            + vectorized_scenario.attack_cooldowns[i] * (1 - unit_remain)
+        )
+        sight_angles = vectorized_scenario.sight_angles.at[i].set(
+            scenario.sight_angle[deployed_unit_id] * unit_remain
+            + vectorized_scenario.sight_angles[i] * (1 - unit_remain)
+        )
+        is_alive = vectorized_scenario.is_alive.at[i].set(
+            1 * unit_remain + vectorized_scenario.is_alive[i] * (1 - unit_remain)
+        )
+        attack_types = vectorized_scenario.attack_types.at[i].set(
+            scenario.attack_damage[deployed_unit_id]
+            < 0 * unit_remain + vectorized_scenario.attack_types[i] * (1 - unit_remain)
+        )
+
+        next_enemy_battle_field = scenario.enemy_battle_field.at[x, y].set(
+            unit_remain * 0 + (1 - unit_remain) * (deployed_unit_id + 1)
+        )
+        next_enemy_unit_comp = scenario.enemy_unit_comp.at[deployed_unit_id].set(
+            scenario.enemy_unit_comp[deployed_unit_id] - 1 * unit_remain
+        )
+
+        next_scenario = scenario.replace(
+            enemy_battle_field=next_enemy_battle_field, enemy_unit_comp=next_enemy_unit_comp
+        )
+
+        next_vectorized_scenario = vectorized_scenario.replace(
+            positions=positions,
+            body_weights=body_weights,
+            body_radiuss=body_radiuss,
+            teams=teams,
+            unit_ids=unit_ids,
+            healths=healths,
+            attack_damages=attack_damages,
+            attack_ranges=attack_ranges,
+            attack_cooldowns=attack_cooldowns,
+            sight_angles=sight_angles,
+            is_alive=is_alive,
+            attack_types=attack_types,
+        )
+
+        return (next_vectorized_scenario, next_scenario), None
+
+    carry = (vectorized_scenario, scenario)
+
+    carry, _ = jax.lax.scan(ally_vectorize_body, carry, jnp.arange(n_unit))
+    carry, _ = jax.lax.scan(enemy_vectorize_body, carry, jnp.arange(n_unit, n_unit * 2))
+
+    return carry[0]
