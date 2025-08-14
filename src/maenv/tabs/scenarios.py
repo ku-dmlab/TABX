@@ -1,9 +1,27 @@
-import jax
-import jax.numpy as jnp
+from typing import Optional
 import chex
 from flax import struct
-
+import jax.numpy as jnp
 from src.maenv.tabs.units import get_all_unit_names, get_all_unit_spec
+import jax
+
+
+@struct.dataclass
+class VectorizedScenario:
+    positions: jnp.ndarray
+    rotations: jnp.ndarray
+    body_weights: jnp.ndarray
+    body_radiuss: jnp.ndarray
+    teams: jnp.ndarray
+    pos_limits: jnp.ndarray
+    unit_ids: jnp.ndarray
+    healths: jnp.ndarray
+    attack_damages: jnp.ndarray
+    attack_ranges: jnp.ndarray
+    attack_cooldowns: jnp.ndarray
+    sight_angles: jnp.ndarray
+    is_alive: jnp.ndarray
+    attack_types: jnp.ndarray
 
 
 @struct.dataclass
@@ -26,26 +44,7 @@ class Scenario:
     attack_range: chex.Array  # WM
     attack_cooldown: chex.Array  # sec
     sight_angle: chex.Array
-    sight_radius: chex.Array
     space_occupied: chex.Array  # area of rectangle shape
-
-
-@struct.dataclass
-class VectorizedScenario:
-    positions: jnp.ndarray
-    rotations: jnp.ndarray
-    body_weights: jnp.ndarray
-    body_radiuss: jnp.ndarray
-    teams: jnp.ndarray
-    pos_limits: jnp.ndarray
-    unit_ids: jnp.ndarray
-    healths: jnp.ndarray
-    attack_damages: jnp.ndarray
-    attack_ranges: jnp.ndarray
-    attack_cooldowns: jnp.ndarray
-    sight_angles: jnp.ndarray
-    is_alive: jnp.ndarray
-    attack_types: jnp.ndarray
 
 
 @struct.dataclass
@@ -79,29 +78,28 @@ def generate_scenario(cfg: TABSConf):
     enemy_battle_field_mask = jnp.zeros_like(enemy_battle_field)
 
     all_spec = get_all_unit_spec()
-    assert len(all_spec[0]) <= cfg.max_num_units
-    m = cfg.max_num_units - len(all_spec[0])
+    assert len(all_spec["prices"]) <= cfg.max_num_units
+    m = cfg.max_num_units - len(all_spec["prices"])
     if m > 0:
         unit_comp_mask = unit_comp_mask.at[-m:].set(0)
 
-    price = jnp.concatenate((all_spec[0], jnp.zeros(m)))
-    health = jnp.concatenate((all_spec[1], jnp.zeros(m)))
-    body_radius = jnp.concatenate((all_spec[2], jnp.zeros(m)))
-    body_weight = jnp.concatenate((all_spec[3], jnp.zeros(m)))
-    velocity = jnp.concatenate((all_spec[4], jnp.zeros(m)))
-    attack_damage = jnp.concatenate((all_spec[5], jnp.zeros(m)))
-    attack_range = jnp.concatenate((all_spec[6], jnp.zeros(m)))
-    attack_cooldown = jnp.concatenate((all_spec[7], jnp.zeros(m)))
-    sight_angle = jnp.concatenate((all_spec[8], jnp.zeros(m)))
-    sight_radius = jnp.concatenate((all_spec[9], jnp.zeros(m)))
-    space_occupied = jnp.concatenate((all_spec[10], jnp.zeros(m)))
+    price = jnp.concatenate((all_spec["prices"], jnp.zeros(m)))
+    health = jnp.concatenate((all_spec["healths"], jnp.zeros(m)))
+    body_radius = jnp.concatenate((all_spec["body_radiuses"], jnp.zeros(m)))
+    body_weight = jnp.concatenate((all_spec["body_weights"], jnp.zeros(m)))
+    velocity = jnp.concatenate((all_spec["velocities"], jnp.zeros(m)))
+    attack_damage = jnp.concatenate((all_spec["attack_damages"], jnp.zeros(m)))
+    attack_range = jnp.concatenate((all_spec["attack_ranges"], jnp.zeros(m)))
+    attack_cooldown = jnp.concatenate((all_spec["attack_cooldown"], jnp.zeros(m)))
+    sight_angle = jnp.concatenate((all_spec["sight_angles"], jnp.zeros(m)))
+    space_occupied = jnp.concatenate((all_spec["space_occupied"], jnp.zeros(m)))
 
-    if cfg.scenario_name == "10farmers":
+    if cfg.scenario_name == "20farmers":
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 1600
-        ally_unit_comp = ally_unit_comp.at[0].set(10)
-        enemy_unit_comp = enemy_unit_comp.at[0].set(10)
+        ally_unit_comp = ally_unit_comp.at[0].set(20)
+        enemy_unit_comp = enemy_unit_comp.at[0].set(20)
         # Mirror matchup
         battle_field = battle_field.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
         battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
@@ -164,7 +162,6 @@ def generate_scenario(cfg: TABSConf):
         attack_range=attack_range,
         attack_cooldown=attack_cooldown,
         sight_angle=sight_angle,
-        sight_radius=sight_radius,
         space_occupied=space_occupied,
     )
 
