@@ -640,6 +640,30 @@ class PygameRenderer:
                 )
                 self.screen.blit(name_text, name_rect)
 
+            # disabled 상태 확인 및 표시
+            is_disabled = False
+            if hasattr(unit.status, "is_disabled"):
+                if hasattr(unit.status.is_disabled, "__array__"):
+                    is_disabled = bool(np.array(unit.status.is_disabled))
+                else:
+                    is_disabled = bool(unit.status.is_disabled)
+
+            # disabled 유닛에 "DISABLED" 텍스트 표시
+            if is_disabled and screen_radius > 5:
+                disabled_text = self.font.render("DISABLED", True, (255, 50, 50))  # 빨간색 텍스트
+                disabled_rect = disabled_text.get_rect(
+                    center=(screen_pos[0], screen_pos[1] + screen_radius + 35)  # 유닛 이름 아래
+                )
+
+                # 텍스트 배경 (가독성을 위해)
+                bg_rect = disabled_rect.inflate(6, 4)
+                bg_surface = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+                bg_surface.fill((0, 0, 0, 200))  # 반투명 검정 배경
+                self.screen.blit(bg_surface, bg_rect)
+
+                # 텍스트 표시
+                self.screen.blit(disabled_text, disabled_rect)
+
         except Exception as e:
             pass
 
@@ -1919,11 +1943,11 @@ if __name__ == "__main__":
     from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
     from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
 
-    default_tabs_conf = default_tabs_conf.replace(scenario_name="4archer_1mammoth")
+    default_tabs_conf = default_tabs_conf.replace(scenario_name="1theking")
     scenario = generate_scenario(default_tabs_conf)
 
     # 테스트 유닛 생성
-    env = TABS(num_agents=10)
+    env = TABS(num_agents=4)
     # reset = jax.jit(env.reset)
     reset = env.reset
     obs, state = reset(jax.random.key(0), scenario)

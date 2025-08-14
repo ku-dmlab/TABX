@@ -26,6 +26,7 @@ class UnitStatus(
             "sight_angle",
             "is_alive",
             "attack_type",
+            "is_disabled",
         ],
     )
 ):
@@ -39,6 +40,7 @@ class UnitStatus(
     sight_angle: chex.Array  # Field of view angle in radians
     is_alive: chex.Array  # Boolean showing whether the unit is alive
     attack_type: chex.Array  # Type of attack the unit performs
+    is_disabled: chex.Array  # Boolean showing whether the unit is disabled
 
     def to_array(self):
         return jnp.concatenate(
@@ -52,6 +54,7 @@ class UnitStatus(
                 self.sight_angle,
                 self.is_alive,
                 self.attack_type,
+                self.is_disabled,
             )
         )
 
@@ -131,22 +134,21 @@ class DefaultUnit(
         game_manager: GameManager = objects["game_manager"]
         target_id = game_manager.attack_target[self.status.id.reshape()]
         target_attackable = game_manager.attackable_matrix[self.status.id.reshape()]
+        action_able = ~self.status.is_disabled & self.status.is_alive
         can_attack = (
             self.status.cooldown > self.status.attack_cooldown
-        ) & self.status.is_alive  # if unit is dead, do not attack
+        ) & action_able  # if unit is dead, do not attack
 
         notify(objects, "hit", (self, is_attack, target_id, target_attackable, can_attack))
 
-        move_action = (
-            move_table[discrete_action] * self.status.is_alive
-        )  # if unit is dead, do not move
+        move_action = move_table[discrete_action] * action_able  # if unit is dead, do not move
 
         cooldown = is_attack & can_attack
 
         return self._replace(
             rigidbody=self.rigidbody._replace(velocity=move_action),
             transform=self.transform._replace(
-                rotation=(self.transform.rotation + action[0].reshape() * self.status.is_alive)
+                rotation=(self.transform.rotation + action[0].reshape() * action_able)
                 % (2 * jnp.pi)
             ),
             status=self.status._replace(
@@ -271,7 +273,7 @@ class GameManager(
 
         available_target = (collision).squeeze(-1) & (
             ~jnp.identity(position_diff.shape[0], dtype=jnp.bool)
-        )  # exclude self
+        )
 
         return available_target
 
@@ -286,7 +288,7 @@ class GameManager(
         unit_sight_angle_vector = jnp.stack([objects[key].status.sight_angle for key in unit_keys])
         unit_alive_vector = jnp.stack([objects[key].status.is_alive for key in unit_keys])
         unit_attack_type_vector = jnp.stack([objects[key].status.attack_type for key in unit_keys])
-
+        unit_is_disabled_vector = jnp.stack([objects[key].status.is_disabled for key in unit_keys])
         position_diff = (
             unit_position_vector[None] - unit_position_vector[:, None]
         )  # position_diff[i][j] = i'th unit's position - j'th unit's position
@@ -324,7 +326,7 @@ class GameManager(
         fwd_y = jnp.sin(unit_rotation_vector)
         cond_front = (fwd_x[None] * rel_x + fwd_y[None] * rel_y) + unit_body_radius_vector[None] < 0
 
-        sight_inside = cond_lower & cond_upper & cond_front
+        sight_inside = cond_lower & cond_upper & cond_front & ~unit_is_disabled_vector[:, None]
         attackable_matrix = (
             in_attack_range
             & (
@@ -332,7 +334,7 @@ class GameManager(
                 | (is_team.squeeze() & (unit_attack_type_vector == AttackType.HEALING))
             )
             & unit_alive_vector.T
-        )
+        ) & ~unit_is_disabled_vector.T
         maksed_relative_distnace = (
             jnp.square(position_diff).sum(axis=-1)
             + 1e6 * jnp.identity(position_diff.shape[0])
@@ -389,6 +391,7 @@ class TABS(BaseMAEnv):
                     cooldown=jnp.array([1.0]),
                     sight_angle=jnp.array([1.0]),
                     is_alive=jnp.array([False]),
+                    is_disabled=jnp.array([False]),
                     attack_type=jnp.array([AttackType.DEFAULT]),
                     max_health=jnp.array([1.0]),
                 ),
@@ -627,9 +630,10 @@ class TABS(BaseMAEnv):
                     attack_damage=vectorized_scenario.attack_damages[i],
                     attack_range=vectorized_scenario.attack_ranges[i],
                     attack_cooldown=vectorized_scenario.attack_cooldowns[i],
-                    cooldown=vectorized_scenario.attack_cooldowns[i],
+                    cooldown=vectorized_scenario.attack_cooldowns[i] * 0.0,
                     sight_angle=vectorized_scenario.sight_angles[i],
                     is_alive=vectorized_scenario.is_alive[i],
+                    is_disabled=vectorized_scenario.is_disabled[i],
                     attack_type=vectorized_scenario.attack_types[i],
                     max_health=vectorized_scenario.healths[i],
                 ),

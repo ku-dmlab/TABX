@@ -23,6 +23,7 @@ class VectorizedScenario:
     sight_angles: jnp.ndarray
     is_alive: jnp.ndarray
     attack_types: jnp.ndarray
+    is_disabled: jnp.ndarray
 
 
 @struct.dataclass
@@ -181,8 +182,9 @@ def get_vectorized_scenario(scenario, n_unit):
         attack_ranges=jnp.full((n_unit * 2, 1), 1.0),
         attack_cooldowns=jnp.full((n_unit * 2, 1), 1.0),
         sight_angles=jnp.zeros((n_unit * 2, 1)) + jnp.pi / 2,
-        is_alive=jnp.zeros((n_unit * 2, 1)).astype(jnp.bool_),
+        is_alive=jnp.full((n_unit * 2, 1), True).astype(jnp.bool_),
         attack_types=jnp.zeros((n_unit * 2, 1)).astype(jnp.int32),
+        is_disabled=jnp.full((n_unit * 2, 1), True).astype(jnp.bool_),
     )
 
     def vectorize_body(carry, i, is_ally):
@@ -241,6 +243,9 @@ def get_vectorized_scenario(scenario, n_unit):
         is_alive = vectorized_scenario.is_alive.at[i].set(
             1 * unit_remain + vectorized_scenario.is_alive[i] * (1 - unit_remain)
         )
+        is_disabled = vectorized_scenario.is_disabled.at[i].set(
+            False * unit_remain + vectorized_scenario.is_disabled[i] * (1 - unit_remain)
+        )
         attack_types = vectorized_scenario.attack_types.at[i].set(
             scenario.attack_damage[deployed_unit_id]
             < 0 * unit_remain + vectorized_scenario.attack_types[i] * (1 - unit_remain)
@@ -276,6 +281,7 @@ def get_vectorized_scenario(scenario, n_unit):
             sight_angles=sight_angles,
             is_alive=is_alive,
             attack_types=attack_types,
+            is_disabled=is_disabled,
         )
 
         return (next_vectorized_scenario, next_scenario), (x, y)
