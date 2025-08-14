@@ -78,7 +78,7 @@ class TABSUnitComb(BaseMAEnv):
         new_budget = jnp.where(purchase_valid, state.budget - state.all_price, state.budget)
         budget = new_budget[action].astype(jnp.int32)
 
-        max_agent_mask = jnp.where(new_unit_list < self.max_agents, 1, 0)
+        max_agent_mask = jnp.where(jnp.sum(new_unit_list) < self.max_agents, 1, 0)
         action_mask = (
             jnp.where(budget >= state.all_price, True, False)
             * state.unit_comp_mask
