@@ -69,20 +69,22 @@ class TABSUnitComb(BaseMAEnv):
         mask = jnp.zeros(self.max_num_units, dtype=jnp.bool_)
         mask = mask.at[action].set(True)
 
+        valid_max_agent = jnp.where(
+            jnp.sum(state.current_unit_list) + 1 <= self.max_agents, 1, 0
+        ).astype(jnp.bool_)
         purchase_valid = state.all_price <= state.budget
-        purchase_valid = purchase_valid & mask
+        purchase_valid = purchase_valid & mask & valid_max_agent
 
         new_unit_list = jnp.where(
             purchase_valid, state.current_unit_list + 1, state.current_unit_list
         )
-        new_budget = jnp.where(purchase_valid, state.budget - state.all_price, state.budget)
-        budget = new_budget[action].astype(jnp.int32)
+        new_budgets = jnp.where(purchase_valid, state.budget - state.all_price, state.budget)
+        budget = new_budgets[action].astype(jnp.int32)
 
-        max_agent_mask = jnp.where(jnp.sum(new_unit_list) < self.max_agents, 1, 0)
         action_mask = (
             jnp.where(budget >= state.all_price, True, False)
             * state.unit_comp_mask
-            * max_agent_mask
+            * valid_max_agent
         )
         # Update state
         state = state.replace(
@@ -95,7 +97,10 @@ class TABSUnitComb(BaseMAEnv):
 
         # Episodes will continue until no more units can be purchased.
         done = jnp.where(
-            state.budget < jnp.min(jnp.where(state.all_price > 0, state.all_price, jnp.inf)), 1, 0
+            jnp.logical_not(valid_max_agent)
+            | (state.budget < jnp.min(jnp.where(state.all_price > 0, state.all_price, jnp.inf))),
+            1,
+            0,
         )
 
         return self.get_obs(state), state, reward, done, {}

@@ -1,27 +1,9 @@
-from typing import Optional
+import jax
+import jax.numpy as jnp
 import chex
 from flax import struct
-import jax.numpy as jnp
+
 from src.maenv.tabs.units import get_all_unit_names, get_all_unit_spec
-import jax
-
-
-@struct.dataclass
-class VectorizedScenario:
-    positions: jnp.ndarray
-    rotations: jnp.ndarray
-    body_weights: jnp.ndarray
-    body_radiuss: jnp.ndarray
-    teams: jnp.ndarray
-    pos_limits: jnp.ndarray
-    unit_ids: jnp.ndarray
-    healths: jnp.ndarray
-    attack_damages: jnp.ndarray
-    attack_ranges: jnp.ndarray
-    attack_cooldowns: jnp.ndarray
-    sight_angles: jnp.ndarray
-    is_alive: jnp.ndarray
-    attack_types: jnp.ndarray
 
 
 @struct.dataclass
@@ -46,6 +28,24 @@ class Scenario:
     sight_angle: chex.Array
     sight_radius: chex.Array
     space_occupied: chex.Array  # area of rectangle shape
+
+
+@struct.dataclass
+class VectorizedScenario:
+    positions: jnp.ndarray
+    rotations: jnp.ndarray
+    body_weights: jnp.ndarray
+    body_radiuss: jnp.ndarray
+    teams: jnp.ndarray
+    pos_limits: jnp.ndarray
+    unit_ids: jnp.ndarray
+    healths: jnp.ndarray
+    attack_damages: jnp.ndarray
+    attack_ranges: jnp.ndarray
+    attack_cooldowns: jnp.ndarray
+    sight_angles: jnp.ndarray
+    is_alive: jnp.ndarray
+    attack_types: jnp.ndarray
 
 
 @struct.dataclass
@@ -96,12 +96,12 @@ def generate_scenario(cfg: TABSConf):
     sight_radius = jnp.concatenate((all_spec[9], jnp.zeros(m)))
     space_occupied = jnp.concatenate((all_spec[10], jnp.zeros(m)))
 
-    if cfg.scenario_name == "20farmers":
+    if cfg.scenario_name == "10farmers":
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 1600
-        ally_unit_comp = ally_unit_comp.at[0].set(20)
-        enemy_unit_comp = enemy_unit_comp.at[0].set(20)
+        ally_unit_comp = ally_unit_comp.at[0].set(10)
+        enemy_unit_comp = enemy_unit_comp.at[0].set(10)
         # Mirror matchup
         battle_field = battle_field.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
         battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))

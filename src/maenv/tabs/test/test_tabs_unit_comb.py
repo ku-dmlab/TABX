@@ -10,7 +10,7 @@ from src.maenv.tabs.scenarios import TABSConf, Scenario, generate_scenario, defa
 
 class TestTABSUnitComb(unittest.TestCase):
     def test_reset(self):
-        self.reset_predefined_scenario1("20farmers")
+        self.reset_predefined_scenario1("10farmers")
         self.reset_predefined_scenario1("1theking")
         self.reset_predefined_scenario1("4archer_1mammoth")
 
@@ -18,6 +18,10 @@ class TestTABSUnitComb(unittest.TestCase):
         rng = jax.random.PRNGKey(0)
         rng, _rng = jax.random.split(rng)
         self.purchase1(_rng)
+        rng, _rng = jax.random.split(rng)
+        self.purchase2(_rng)
+        rng, _rng = jax.random.split(rng)
+        self.purchase3(rng)
 
     def reset_predefined_scenario1(self, scenario_name):
         tabs_conf = TABSConf(
@@ -59,7 +63,6 @@ class TestTABSUnitComb(unittest.TestCase):
             jnp.array_equal(s.current_unit_list, true),
             f"\ntrue: {true}\nout: {s.current_unit_list}",
         )
-        print(s.budget)
         true = jnp.array([1, 1, 0, 1, 0, 1, 1], dtype=jnp.float32)
         self.assertTrue(
             jnp.array_equal(s.action_mask, true),
@@ -71,18 +74,46 @@ class TestTABSUnitComb(unittest.TestCase):
         scenario = generate_scenario(default_tabs_conf)
 
         rng, _rng = jax.random.split(rng)
-        o, s = env.reset(rng, scenario)
-        action = jnp.array(5)
-        o, s, _, _, _ = env.step(_rng, s, action)
+        o, init_s = env.reset(rng, scenario)
+        action = jnp.array(4)
+        o, s, _, _, _ = env.step(_rng, init_s, action)
 
         self.assertTrue(s.budget == scenario.budget, f"\ntrue: {scenario.budget}\nout: {s.budget}")
         self.assertTrue(
-            jnp.array_equal(s.current_unit_list, scenario.current_unit_list),
-            f"\ntrue: {scenario.current_unit_list}\nout: {s.current_unit_list}",
+            jnp.array_equal(s.current_unit_list, init_s.current_unit_list),
+            f"\ntrue: {init_s.current_unit_list}\nout: {s.current_unit_list}",
         )
         self.assertTrue(
-            jnp.array_equal(s.action_mask, scenario.action_mask),
-            f"\ntrue: {scenario.action_mask}\nout: {s.action_mask}",
+            jnp.array_equal(s.action_mask, init_s.action_mask),
+            f"\ntrue: {init_s.action_mask}\nout: {s.action_mask}",
+        )
+
+    def purchase3(self, rng):
+        tabs_conf = default_tabs_conf
+        tabs_conf = tabs_conf.replace(max_agents=1)
+        env = TABSUnitComb(tabs_conf)
+        scenario = generate_scenario(tabs_conf)
+
+        rng, _rng, _rng1 = jax.random.split(rng, 3)
+        o, init_s = env.reset(rng, scenario)
+
+        action = jnp.array(0)
+        o, s1, _, d, _ = env.step_env(_rng, init_s, action)
+        self.assertFalse(d.astype(jnp.bool_))
+        o, s, _, d, _ = env.step_env(_rng1, s1, action)
+        self.assertTrue(d.astype(jnp.bool_))
+
+        self.assertTrue(
+            s1.budget == s.budget,
+            f"\ntrue: {s1.budget}\nout: {s.budget}",
+        )
+        self.assertTrue(
+            jnp.array_equal(s1.current_unit_list, s.current_unit_list),
+            f"\ntrue: {s1.current_unit_list}\nout: {s.current_unit_list}",
+        )
+        self.assertTrue(
+            jnp.array_equal(s.action_mask, jnp.zeros_like(s.action_mask)),
+            f"\ntrue: {jnp.zeros_like(s.action_mask)}\nout: {s.action_mask}",
         )
 
 
