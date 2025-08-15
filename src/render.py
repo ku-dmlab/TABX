@@ -55,6 +55,16 @@ class PygameRenderer:
         self.reset_fn = reset_fn
         self.reset_requested = False
 
+        # Scenario selection
+        self.available_scenarios = {}
+        self.scenario_names = []
+        self.selected_scenario_index = 0
+        self._preload_scenarios()
+
+        # Policy selection
+        self.policy_names = ["Heuristic", "Idle"]
+        self.selected_policy_index = 0  # 기본적으로 Heuristic 정책 사용
+
         # 화면 설정
         self.screen = pygame.display.set_mode((width, height))
         pygame.display.set_caption("TABS Battle Renderer")
@@ -136,6 +146,38 @@ class PygameRenderer:
         self.update_game_area()
 
         self.running = True
+
+    def _preload_scenarios(self):
+        """모든 시나리오를 미리 로드"""
+        try:
+            from src.maenv.tabs.scenarios import (
+                get_scenario_name_list,
+                generate_scenario,
+                default_tabs_conf,
+            )
+
+            self.scenario_names = get_scenario_name_list()
+
+            # 현재 시나리오가 목록에 있으면 해당 인덱스로 설정
+            if self.scenario:
+                # 현재 scenario의 이름을 추정 (scenario 객체에서 직접 가져올 수 없으므로)
+                # default_tabs_conf에서 scenario_name을 확인
+                current_scenario_name = getattr(self.scenario, "scenario_name", None)
+                if current_scenario_name and current_scenario_name in self.scenario_names:
+                    self.selected_scenario_index = self.scenario_names.index(current_scenario_name)
+                else:
+                    # 첫 번째 시나리오를 기본으로 설정
+                    self.selected_scenario_index = 0
+
+            # 모든 시나리오 생성
+            for scenario_name in self.scenario_names:
+                conf = default_tabs_conf.replace(scenario_name=scenario_name)
+                self.available_scenarios[scenario_name] = generate_scenario(conf)
+
+        except Exception as e:
+            print(f"Failed to preload scenarios: {e}")
+            self.scenario_names = []
+            self.available_scenarios = {}
 
     def update_game_area(self):
         """패널 상태에 따라 게임 영역 업데이트"""
@@ -244,8 +286,14 @@ class PygameRenderer:
                     self.zoom = max(0.1, min(5.0, self.zoom))
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # 왼쪽 마우스 버튼
+                    # 시나리오 선택기 클릭 확인 (최우선)
+                    if self.handle_scenario_selector_click(event.pos):
+                        pass
+                    # 정책 선택기 클릭 확인
+                    elif self.handle_policy_selector_click(event.pos):
+                        pass
                     # 토글 버튼 클릭 확인
-                    if self.handle_toggle_button_click(event.pos):
+                    elif self.handle_toggle_button_click(event.pos):
                         pass
                     # UI 패널 클릭 확인 (패널이 보일 때만)
                     elif (
@@ -1599,6 +1647,12 @@ class PygameRenderer:
         if self.panel_visible:
             self.draw_ui_panel()
 
+        # 시나리오 선택기 그리기 (가장 위에 표시)
+        self.draw_scenario_selector()
+
+        # 정책 선택기 그리기 (시나리오 선택기 아래)
+        self.draw_policy_selector()
+
         # 화면 업데이트
         pygame.display.flip()
         self.clock.tick(self.fps)
@@ -1912,6 +1966,127 @@ class PygameRenderer:
         text_rect = text_surface.get_rect(center=button_rect.center)
         self.screen.blit(text_surface, text_rect)
 
+    def draw_scenario_selector(self):
+        """화면 가운데 위에 시나리오 선택 UI 그리기"""
+        if not self.scenario_names:
+            return
+
+        # UI 설정
+        selector_height = 50
+        button_width = 150
+        button_height = 30
+        button_spacing = 10
+        total_width = (
+            len(self.scenario_names) * button_width
+            + (len(self.scenario_names) - 1) * button_spacing
+        )
+
+        # 화면 가운데 위에 배치
+        start_x = (self.game_width - total_width) // 2
+        start_y = 10
+
+        # 배경 그리기
+        bg_rect = pygame.Rect(start_x - 10, start_y - 5, total_width + 20, selector_height)
+        bg_surface = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+        bg_surface.fill((0, 0, 0, 180))
+        self.screen.blit(bg_surface, bg_rect)
+        pygame.draw.rect(self.screen, (100, 100, 100), bg_rect, 2)
+
+        # 제목 그리기
+        title_text = self.font.render("Scenario:", True, (255, 255, 255))
+        title_rect = title_text.get_rect()
+        title_rect.centerx = start_x + total_width // 2
+        title_rect.y = start_y
+        self.screen.blit(title_text, title_rect)
+
+        # 시나리오 버튼들 그리기
+        button_y = start_y + 25
+        self.scenario_button_rects = {}
+
+        for i, scenario_name in enumerate(self.scenario_names):
+            button_x = start_x + i * (button_width + button_spacing)
+            button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
+
+            # 선택된 시나리오는 다른 색상으로 표시
+            if i == self.selected_scenario_index:
+                button_color = (80, 150, 80)  # 선택된 버튼은 초록색
+                text_color = (255, 255, 255)
+            else:
+                button_color = (60, 60, 60)  # 선택되지 않은 버튼은 회색
+                text_color = (200, 200, 200)
+
+            # 버튼 배경
+            pygame.draw.rect(self.screen, button_color, button_rect)
+            pygame.draw.rect(self.screen, (150, 150, 150), button_rect, 2)
+
+            # 버튼 텍스트
+            text_surface = self.small_font.render(scenario_name, True, text_color)
+            text_rect = text_surface.get_rect(center=button_rect.center)
+            self.screen.blit(text_surface, text_rect)
+
+            # 클릭 감지를 위해 저장
+            self.scenario_button_rects[scenario_name] = button_rect
+
+    def draw_policy_selector(self):
+        """시나리오 선택기 아래에 정책 선택 UI 그리기"""
+        if not self.policy_names:
+            return
+
+        # UI 설정
+        selector_height = 40
+        button_width = 120
+        button_height = 25
+        button_spacing = 10
+        total_width = (
+            len(self.policy_names) * button_width + (len(self.policy_names) - 1) * button_spacing
+        )
+
+        # 시나리오 선택기 아래에 배치
+        start_x = (self.game_width - total_width) // 2
+        start_y = 70  # 시나리오 선택기 아래
+
+        # 배경 그리기
+        bg_rect = pygame.Rect(start_x - 10, start_y - 5, total_width + 20, selector_height)
+        bg_surface = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+        bg_surface.fill((0, 0, 0, 160))
+        self.screen.blit(bg_surface, bg_rect)
+        pygame.draw.rect(self.screen, (80, 80, 80), bg_rect, 2)
+
+        # 제목 그리기
+        title_text = self.small_font.render("AI Policy:", True, (255, 255, 255))
+        title_rect = title_text.get_rect()
+        title_rect.centerx = start_x + total_width // 2
+        title_rect.y = start_y
+        self.screen.blit(title_text, title_rect)
+
+        # 정책 버튼들 그리기
+        button_y = start_y + 18
+        self.policy_button_rects = {}
+
+        for i, policy_name in enumerate(self.policy_names):
+            button_x = start_x + i * (button_width + button_spacing)
+            button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
+
+            # 선택된 정책은 다른 색상으로 표시
+            if i == self.selected_policy_index:
+                button_color = (80, 80, 150)  # 선택된 버튼은 파란색
+                text_color = (255, 255, 255)
+            else:
+                button_color = (50, 50, 50)  # 선택되지 않은 버튼은 진한 회색
+                text_color = (180, 180, 180)
+
+            # 버튼 배경
+            pygame.draw.rect(self.screen, button_color, button_rect)
+            pygame.draw.rect(self.screen, (120, 120, 120), button_rect, 1)
+
+            # 버튼 텍스트
+            text_surface = self.small_font.render(policy_name, True, text_color)
+            text_rect = text_surface.get_rect(center=button_rect.center)
+            self.screen.blit(text_surface, text_rect)
+
+            # 클릭 감지를 위해 저장
+            self.policy_button_rects[policy_name] = button_rect
+
     def draw_ui_panel(self):
         """우측 UI 패널 그리기"""
         # 패널 배경
@@ -1950,6 +2125,42 @@ class PygameRenderer:
                 return True
         return False
 
+    def handle_scenario_selector_click(self, mouse_pos):
+        """시나리오 선택기 클릭 처리"""
+        if not hasattr(self, "scenario_button_rects"):
+            return False
+
+        for i, (scenario_name, rect) in enumerate(self.scenario_button_rects.items()):
+            if rect.collidepoint(mouse_pos):
+                # 시나리오 변경
+                old_index = self.selected_scenario_index
+                self.selected_scenario_index = i
+
+                if old_index != self.selected_scenario_index:
+                    print(f"Scenario changed to: {scenario_name}")
+                    # 자동으로 선택된 시나리오로 리셋
+                    self.reset_requested = True
+
+                return True
+        return False
+
+    def handle_policy_selector_click(self, mouse_pos):
+        """정책 선택기 클릭 처리"""
+        if not hasattr(self, "policy_button_rects"):
+            return False
+
+        for i, (policy_name, rect) in enumerate(self.policy_button_rects.items()):
+            if rect.collidepoint(mouse_pos):
+                # 정책 변경
+                old_index = self.selected_policy_index
+                self.selected_policy_index = i
+
+                if old_index != self.selected_policy_index:
+                    print(f"AI Policy changed to: {policy_name}")
+
+                return True
+        return False
+
     def handle_toggle_button_click(self, mouse_pos):
         """토글 버튼 클릭 처리"""
         button_x = self.width - self.toggle_button_width - 5
@@ -1964,16 +2175,34 @@ class PygameRenderer:
             return True
         return False
 
+    def get_selected_policy(self):
+        """현재 선택된 정책 이름 반환"""
+        if 0 <= self.selected_policy_index < len(self.policy_names):
+            return self.policy_names[self.selected_policy_index]
+        return "Heuristic"  # 기본값
+
     def check_reset_request(self):
         """환경 리셋 요청 확인 및 처리"""
         if self.reset_requested:
             self.reset_requested = False
-            if self.reset_fn and self.scenario:
+            if self.reset_fn and self.available_scenarios:
                 try:
                     import jax
 
-                    obs, state = self.reset_fn(jax.random.key(0), self.scenario)
-                    return obs, state
+                    # 선택된 시나리오 사용
+                    if self.scenario_names and 0 <= self.selected_scenario_index < len(
+                        self.scenario_names
+                    ):
+                        selected_scenario_name = self.scenario_names[self.selected_scenario_index]
+                        selected_scenario = self.available_scenarios[selected_scenario_name]
+
+                        obs, state = self.reset_fn(jax.random.key(0), selected_scenario)
+                        return obs, state
+                    else:
+                        # 기본 시나리오 사용 (fallback)
+                        obs, state = self.reset_fn(jax.random.key(0), self.scenario)
+                        return obs, state
+
                 except Exception as e:
                     print(f"Environment reset failed: {e}")
                     return None, None
@@ -2002,7 +2231,6 @@ def render_loop(state, fps=60, show_ranges=True, env=None, scenario=None, reset_
     try:
         # 초기 obs 생성
         from src.maenv.tabs.tabs_battle_simulator.battle_simulator import TABS
-        from src.maenv.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
 
         obs = env.get_obs(state)
         key = jax.random.key(2)
@@ -2028,13 +2256,20 @@ def render_loop(state, fps=60, show_ranges=True, env=None, scenario=None, reset_
                 if unit_name in renderer.user_controlled_actions:
                     actions[unit_name] = renderer.user_controlled_actions[unit_name]
                 else:
-                    action_key, key = jax.random.split(key)
-                    # 유저가 컨트롤하지 않는 유닛은 랜덤 액션
-                    actions[unit_name] = heuristic_policy(
-                        action_key, obs[unit_name], env.num_agents
-                    )
+                    # 선택된 정책에 따라 액션 결정
+                    selected_policy = renderer.get_selected_policy()
 
-                    # actions[unit_name] = jnp.array([0.0, 5])
+                    if selected_policy == "Heuristic":
+                        action_key, key = jax.random.split(key)
+                        # Heuristic 정책 사용
+                        actions[unit_name] = heuristic_policy(action_key, obs[unit_name])
+                    elif selected_policy == "Idle":
+                        # 아무것도 하지 않음 (IDLE 액션)
+                        actions[unit_name] = jnp.array([0.0, UnitAction.IDLE])
+                    else:
+                        # 기본값: Heuristic 정책
+                        action_key, key = jax.random.split(key)
+                        actions[unit_name] = heuristic_policy(action_key, obs[unit_name])
 
             # 게임 스텝 실행
             obs, state, reward, done, info = step(jax.random.key(0), state, actions)
@@ -2055,14 +2290,17 @@ if __name__ == "__main__":
     from src.maenv.tabs.tabs_battle_simulator.battle_simulator import TABS
     from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
     from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
+    from src.maenv.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
+    import functools
 
-    default_tabs_conf = default_tabs_conf.replace(scenario_name="20farmers")
+    default_tabs_conf = default_tabs_conf.replace(scenario_name="10farmers")
     scenario = generate_scenario(default_tabs_conf)
 
     # 테스트 유닛 생성
+    heuristic_policy = jax.jit(functools.partial(heuristic_policy, num_agents=20, epsilon=0.01))
     env = TABS(num_agents=20)
     # reset = jax.jit(env.reset)
-    reset = env.reset
+    reset = jax.jit(env.reset)
     obs, state = reset(jax.random.key(0), scenario)
     # state["game_manager"] = state["game_manager"].update_distance_matrix(state)
     step = jax.jit(env.step)

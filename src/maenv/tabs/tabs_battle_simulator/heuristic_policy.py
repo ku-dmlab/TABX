@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import jax
 
 
-def heuristic_policy(key, obs, num_agents, epsilon=0.01):
+def heuristic_policy(key, obs, num_agents, epsilon=0.1):
     own_status = obs[:13]
     observation = obs[13:].reshape(num_agents - 1, -1)
 
