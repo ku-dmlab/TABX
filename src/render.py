@@ -12,9 +12,7 @@ import jax.numpy as jnp
 
 
 import pygame
-import jax.numpy as jnp
 import numpy as np
-from typing import Dict, Any
 import math
 from src.maenv.tabs.tabs_battle_simulator.battle_simulator import UnitAction
 
@@ -22,7 +20,16 @@ from src.maenv.tabs.tabs_battle_simulator.battle_simulator import UnitAction
 class PygameRenderer:
     """실시간으로 게임 객체들을 렌더링하는 pygame 렌더러"""
 
-    def __init__(self, width=1920, height=1080, fps=60, world_scale=20):
+    def __init__(
+        self,
+        width=1920,
+        height=1080,
+        fps=60,
+        world_scale=20,
+        env=None,
+        scenario=None,
+        reset_fn=None,
+    ):
         """
         초기화
 
@@ -31,6 +38,9 @@ class PygameRenderer:
             height: 창 높이
             fps: 프레임 레이트
             world_scale: 게임 월드 좌표를 픽셀로 변환하는 스케일
+            env: 환경 객체 (env.reset()을 위해 필요)
+            scenario: 시나리오 객체 (reset할 때 사용)
+            reset_fn: 리셋 함수 (env.reset 또는 jit된 버전)
         """
         pygame.init()
 
@@ -38,6 +48,12 @@ class PygameRenderer:
         self.height = height
         self.fps = fps
         self.world_scale = world_scale
+
+        # Environment components for reset functionality
+        self.env = env
+        self.scenario = scenario
+        self.reset_fn = reset_fn
+        self.reset_requested = False
 
         # 화면 설정
         self.screen = pygame.display.set_mode((width, height))
@@ -201,7 +217,14 @@ class PygameRenderer:
                     self.panel_visible = not self.panel_visible
                     self.update_game_area()
                 elif event.key == pygame.K_r:
-                    # R키로 obs 스크롤 리셋
+                    # R키로 환경 리셋
+                    if self.reset_fn and self.scenario:
+                        try:
+                            # 환경 리셋 요청 플래그 설정
+                            self.reset_requested = True
+                        except Exception as e:
+                            print(f"Failed to reset environment: {e}")
+                    # obs 스크롤도 함께 리셋
                     self.obs_scroll_offset = 0
             elif event.type == pygame.MOUSEWHEEL:
                 # obs 배열이 표시되고 있을 때는 스크롤로 obs 배열 탐색
@@ -949,6 +972,7 @@ class PygameRenderer:
                 "WASD/Arrow Keys: Move Unit",
                 "Ctrl: Attack",
                 "Mouse: Rotation Direction",
+                "R: Reset Environment",
                 "Tab: Toggle UI Panel",
                 "Left Click Unit: Select",
                 "Left Click Ground: Deselect",
@@ -960,6 +984,7 @@ class PygameRenderer:
                 "WASD/Arrow Keys: Move Camera",
                 "Mouse Wheel: Zoom",
                 "Space: Reset Camera",
+                "R: Reset Environment",
                 "Tab: Toggle UI Panel",
                 "Left Click Unit: Select",
                 "ESC: Exit",
@@ -1433,7 +1458,7 @@ class PygameRenderer:
             pygame.draw.line(self.screen, color, end_pos, (arrow_x1, arrow_y1), thickness)
             pygame.draw.line(self.screen, color, end_pos, (arrow_x2, arrow_y2), thickness)
 
-    def render(self, objects: Dict[str, Any], show_ranges=True, obs=None):
+    def render(self, objects, show_ranges=True, obs=None):
         """
         객체들을 렌더링
 
@@ -1939,30 +1964,62 @@ class PygameRenderer:
             return True
         return False
 
+    def check_reset_request(self):
+        """환경 리셋 요청 확인 및 처리"""
+        if self.reset_requested:
+            self.reset_requested = False
+            if self.reset_fn and self.scenario:
+                try:
+                    import jax
+
+                    obs, state = self.reset_fn(jax.random.key(0), self.scenario)
+                    return obs, state
+                except Exception as e:
+                    print(f"Environment reset failed: {e}")
+                    return None, None
+        return None, None
+
     def close(self):
         """렌더러 종료"""
         pygame.quit()
 
 
 # 사용 예시 함수
-def render_loop(state, fps=60, show_ranges=True):
+def render_loop(state, fps=60, show_ranges=True, env=None, scenario=None, reset_fn=None):
     """
     실시간 렌더링 루프
 
     Args:
-        objects: 게임 객체들의 딕셔너리
+        state: 게임 상태
         fps: 프레임 레이트
         show_ranges: 공격/시야 범위 표시 여부
+        env: 환경 객체
+        scenario: 시나리오 객체
+        reset_fn: 리셋 함수
     """
-    renderer = PygameRenderer(fps=fps)
+    renderer = PygameRenderer(fps=fps, env=env, scenario=scenario, reset_fn=reset_fn)
 
     try:
         # 초기 obs 생성
         from src.maenv.tabs.tabs_battle_simulator.battle_simulator import TABS
+        from src.maenv.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
 
         obs = env.get_obs(state)
+        key = jax.random.key(2)
 
         while renderer.render(state, show_ranges, obs):
+            # 리셋 요청 확인 및 처리
+            reset_obs, reset_state = renderer.check_reset_request()
+            if reset_obs is not None and reset_state is not None:
+                obs = reset_obs
+                state = reset_state
+                # 선택된 유닛 초기화
+                renderer.selected_unit = None
+                renderer.selected_unit_obs = None
+                renderer.obs_scroll_offset = 0
+                print("Environment reset completed!")
+                continue  # 이번 프레임은 리셋만 하고 다음 프레임으로
+
             # 액션 준비
             actions = {}
 
@@ -1971,8 +2028,13 @@ def render_loop(state, fps=60, show_ranges=True):
                 if unit_name in renderer.user_controlled_actions:
                     actions[unit_name] = renderer.user_controlled_actions[unit_name]
                 else:
+                    action_key, key = jax.random.split(key)
                     # 유저가 컨트롤하지 않는 유닛은 랜덤 액션
-                    actions[unit_name] = jnp.array([0.0, 5])
+                    actions[unit_name] = heuristic_policy(
+                        action_key, obs[unit_name], env.num_agents
+                    )
+
+                    # actions[unit_name] = jnp.array([0.0, 5])
 
             # 게임 스텝 실행
             obs, state, reward, done, info = step(jax.random.key(0), state, actions)
@@ -1994,15 +2056,15 @@ if __name__ == "__main__":
     from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
     from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
 
-    default_tabs_conf = default_tabs_conf.replace(scenario_name="4archer_1mammoth")
+    default_tabs_conf = default_tabs_conf.replace(scenario_name="20farmers")
     scenario = generate_scenario(default_tabs_conf)
 
     # 테스트 유닛 생성
-    env = TABS(num_agents=12)
+    env = TABS(num_agents=20)
     # reset = jax.jit(env.reset)
     reset = env.reset
     obs, state = reset(jax.random.key(0), scenario)
     # state["game_manager"] = state["game_manager"].update_distance_matrix(state)
     step = jax.jit(env.step)
     # step = env.step
-    render_loop(state)
+    render_loop(state, env=env, scenario=scenario, reset_fn=reset)
