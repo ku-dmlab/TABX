@@ -68,6 +68,10 @@ default_tabs_conf = TABSConf(
 )
 
 
+def get_scenario_name_list():
+    return ["10farmers", "1theking", "4archer_1mammoth"]
+
+
 def generate_scenario(cfg: TABSConf):
     max_shape = (cfg.max_field_height, cfg.max_field_width)
     # init
@@ -97,12 +101,12 @@ def generate_scenario(cfg: TABSConf):
     sight_angle = jnp.concatenate((all_spec["sight_angles"], jnp.zeros(m)))
     space_occupied = jnp.concatenate((all_spec["space_occupied"], jnp.zeros(m)))
 
-    if cfg.scenario_name == "20farmers":
+    if cfg.scenario_name == "10farmers":
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 1600
-        ally_unit_comp = ally_unit_comp.at[0].set(20)
-        enemy_unit_comp = enemy_unit_comp.at[0].set(20)
+        ally_unit_comp = ally_unit_comp.at[0].set(10)
+        enemy_unit_comp = enemy_unit_comp.at[0].set(10)
         # Mirror matchup
         battle_field = battle_field.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
         battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
