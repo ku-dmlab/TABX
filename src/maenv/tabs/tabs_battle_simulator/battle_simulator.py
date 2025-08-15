@@ -532,7 +532,7 @@ class TABS(BaseMAEnv):
         n_unit = state["game_manager"].attackable_matrix.shape[0]
 
         roll_shifts = jnp.arange(0, -n_unit, step=-1)
-        v_roll = jax.vmap(lambda array, shift: jnp.roll(array, shift))
+        v_roll = jax.vmap(lambda array, shift: jnp.roll(array, shift, axis=0))
 
         rolled_attackable_matrix = v_roll(state["game_manager"].attackable_matrix, roll_shifts)[
             :, 1:, None
