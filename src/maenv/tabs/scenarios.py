@@ -5,6 +5,7 @@ import jax.numpy as jnp
 from src.maenv.tabs.units import get_all_unit_names, get_all_unit_spec
 import jax
 import functools
+from src.maenv.tabs.units import UnitID
 
 
 @struct.dataclass
@@ -69,7 +70,7 @@ default_tabs_conf = TABSConf(
 
 
 def get_scenario_name_list():
-    return ["10farmers", "1theking", "4archer_1mammoth"]
+    return ["10farmers", "1theking", "4archer_1mammoth", "8archer_vs_1mammoth_1healer"]
 
 
 def generate_scenario(cfg: TABSConf):
@@ -105,10 +106,12 @@ def generate_scenario(cfg: TABSConf):
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 1600
-        ally_unit_comp = ally_unit_comp.at[0].set(10)
-        enemy_unit_comp = enemy_unit_comp.at[0].set(10)
+        ally_unit_comp = ally_unit_comp.at[UnitID.Farmer - 1].set(10)
+        enemy_unit_comp = enemy_unit_comp.at[UnitID.Farmer - 1].set(10)
         # Mirror matchup
-        battle_field = battle_field.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
+        battle_field = battle_field.at[:h, :w].set(
+            jnp.full((h, w), UnitID.Farmer, dtype=jnp.float32)
+        )
         battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
         enemy_battle_field = enemy_battle_field.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
         enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
@@ -140,11 +143,48 @@ def generate_scenario(cfg: TABSConf):
         enemy_unit_comp = enemy_unit_comp.at[4].set(1)
         # Mirror matchup
         _battle_field = jnp.array(
-            [[0, 0, 5, 0, 0], [0, 2, 0, 0, 2], [2, 0, 0, 0, 2], [0, 0, 0, 0, 0]], dtype=jnp.float32
+            [
+                [0, 0, UnitID.Mammoth, 0, 0],
+                [0, UnitID.Archer, 0, 0, UnitID.Archer],
+                [UnitID.Archer, 0, 0, 0, UnitID.Archer],
+                [0, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
         )
         battle_field = battle_field.at[:h, :w].set(_battle_field)
         battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
         enemy_battle_field = enemy_battle_field.at[:h, :w].set(_battle_field)
+        enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
+            jnp.ones((h, w), dtype=jnp.float32)
+        )
+    elif cfg.scenario_name == "8archer_vs_1mammoth_1healer":
+        h, w = 4, 5
+        assert max_shape[0] >= h and max_shape[1] >= w
+        budget = 2000
+        ally_unit_comp = ally_unit_comp.at[UnitID.Archer - 1].set(8)
+        enemy_unit_comp = enemy_unit_comp.at[UnitID.Mammoth - 1].set(1)
+        enemy_unit_comp = enemy_unit_comp.at[UnitID.Healer - 1].set(1)
+        battle_field = jnp.array(
+            [
+                [UnitID.Archer, UnitID.Archer, 0, 0, 0],
+                [UnitID.Archer, UnitID.Archer, 0, 0, 0],
+                [UnitID.Archer, UnitID.Archer, 0, 0, 0],
+                [UnitID.Archer, UnitID.Archer, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        enemy_battle_field = jnp.array(
+            [
+                [UnitID.Mammoth, 0, 0, 0, UnitID.Healer],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        battle_field = battle_field.at[:h, :w].set(battle_field)
+        battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
+        enemy_battle_field = enemy_battle_field.at[:h, :w].set(enemy_battle_field)
         enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
             jnp.ones((h, w), dtype=jnp.float32)
         )
@@ -279,6 +319,13 @@ def get_vectorized_scenario(scenario, n_unit):
                 enemy_battle_field=next_battle_field, enemy_unit_comp=next_unit_comp
             )
 
+        pos_min = vectorized_scenario.pos_min.at[i].set(
+            vectorized_scenario.pos_min[i] + scenario.body_radius[deployed_unit_id]
+        )
+        pos_max = vectorized_scenario.pos_max.at[i].set(
+            vectorized_scenario.pos_max[i] - scenario.body_radius[deployed_unit_id]
+        )
+
         next_vectorized_scenario = vectorized_scenario.replace(
             positions=positions,
             rotations=rotations,
@@ -294,6 +341,8 @@ def get_vectorized_scenario(scenario, n_unit):
             is_alive=is_alive,
             attack_types=attack_types,
             is_disabled=is_disabled,
+            pos_min=pos_min,
+            pos_max=pos_max,
         )
 
         return (next_vectorized_scenario, next_scenario), (x, y)
