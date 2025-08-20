@@ -1,4 +1,4 @@
-from src.maenv.tabs.tabs_battle_simulator.battle_simulator import UnitAction
+from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import UnitAction
 import jax.numpy as jnp
 import jax
 

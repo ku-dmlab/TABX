@@ -1,5 +1,5 @@
 from src.maenv.environments.base_maenv import BaseMAEnv
-from src.maenv.tabs.tabs_battle_simulator.battle_simulator import (
+from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import (
     DefaultUnit,
     UnitStatus,
     GameManager,
@@ -14,7 +14,7 @@ import jax.numpy as jnp
 import pygame
 import numpy as np
 import math
-from src.maenv.tabs.tabs_battle_simulator.battle_simulator import UnitAction
+from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import UnitAction
 
 
 class PygameRenderer:
@@ -2230,7 +2230,6 @@ def render_loop(state, fps=60, show_ranges=True, env=None, scenario=None, reset_
 
     try:
         # 초기 obs 생성
-        from src.maenv.tabs.tabs_battle_simulator.battle_simulator import TABS
 
         obs = env.get_obs(state)
         key = jax.random.key(2)
@@ -2287,7 +2286,7 @@ if __name__ == "__main__":
     import jax
     import jax.numpy as jnp
     from src.maenv.physics import Transform, RigidBody, CircleCollider
-    from src.maenv.tabs.tabs_battle_simulator.battle_simulator import TABS
+    from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import BattleSimulator
     from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
     from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
     from src.maenv.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
@@ -2298,9 +2297,9 @@ if __name__ == "__main__":
 
     # 테스트 유닛 생성
     heuristic_policy = jax.jit(functools.partial(heuristic_policy, num_agents=20, epsilon=0.01))
-    env = TABS(num_agents=20)
-    # reset = jax.jit(env.reset)
+    env = BattleSimulator(num_agents=20)
     reset = jax.jit(env.reset)
+    # reset = env.reset
     obs, state = reset(jax.random.key(0), scenario)
     # state["game_manager"] = state["game_manager"].update_distance_matrix(state)
     step = jax.jit(env.step)

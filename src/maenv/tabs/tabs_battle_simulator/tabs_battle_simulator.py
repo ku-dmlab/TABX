@@ -182,10 +182,10 @@ class DefaultUnit(
         # need to calculate cooldown of attacker
         is_attack_by_self = attacker.status.id == self.status.id
 
-        damage = attacker.status.attack_damage * (
-            attacker.status.attack_type == AttackType.DEFAULT
-        ) - attacker.status.attack_damage * (attacker.status.attack_type == AttackType.HEALING)
-
+        # damage = attacker.status.attack_damage * (
+        #     attacker.status.attack_type == AttackType.DEFAULT
+        # ) - attacker.status.attack_damage * (attacker.status.attack_type == AttackType.HEALING)
+        damage = attacker.status.attack_damage
         damaged_status = self.on_damage(damage)
         new_status = jax.tree.map(
             lambda x, y: jnp.where(is_target, y, x), self.status, damaged_status
@@ -325,14 +325,16 @@ class GameManager(
         rel_y = position_diff[:, :, 1:2]
 
         cond_lower = (
-            n_u1_x[None] * rel_x + n_u1_y[None] * rel_y + unit_body_radius_vector[:, None] > 0
+            n_u1_x[None] * rel_x + n_u1_y[None] * rel_y + unit_body_radius_vector[:, None] >= 0
         )
-        cond_upper = (
-            -(n_u2_x[None] * rel_x + n_u2_y[None] * rel_y) + unit_body_radius_vector[:, None] > 0
-        )
+        cond_upper = (n_u2_x[None] * rel_x + n_u2_y[None] * rel_y) - unit_body_radius_vector[
+            :, None
+        ] <= 0
         fwd_x = jnp.cos(unit_rotation_vector)
         fwd_y = jnp.sin(unit_rotation_vector)
-        cond_front = (fwd_x[None] * rel_x + fwd_y[None] * rel_y) + unit_body_radius_vector[None] < 0
+        cond_front = (fwd_x[None] * rel_x + fwd_y[None] * rel_y) + unit_body_radius_vector[
+            :, None
+        ] < 0
 
         sight_inside = cond_lower & cond_upper & cond_front & ~unit_is_disabled_vector[:, None]
         attackable_matrix = (
@@ -364,7 +366,7 @@ class GameManager(
         )
 
 
-class TABS(BaseMAEnv):
+class BattleSimulator(BaseMAEnv):
     def __init__(
         self,
         num_agents: int = 4,
@@ -676,13 +678,12 @@ class TABS(BaseMAEnv):
 
         state = physics_step(self.physics_config, state, list(state.keys()), collider_filter)
         # action processing
-        units = [key for key in state if "unit" in key]
 
-        for sprite in units:
+        for sprite in self.unit_keys:
             state[sprite] = state[sprite].act(state, action[sprite])
 
         # alive processing after action step, for independent unit sequence
-        for sprite in units:
+        for sprite in self.unit_keys:
             state[sprite] = state[sprite]._replace(
                 status=state[sprite].status._replace(is_alive=(state[sprite].status.health > 0))
             )
