@@ -374,10 +374,12 @@ class BattleSimulator(BaseMAEnv):
             {"dt": 0.2, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
         ),
         obs_type: str = "unit_spec",
+        max_team: int = 2,
     ):
         super().__init__(num_agents, physics_config)
         self.obs_type = obs_type
         self.unit_keys = [f"unit_{i}" for i in range(num_agents)]
+        self.max_team = max_team
 
         self.empty_state = {
             name: DefaultUnit(
@@ -683,12 +685,29 @@ class BattleSimulator(BaseMAEnv):
             state[sprite] = state[sprite].act(state, action[sprite])
 
         # alive processing after action step, for independent unit sequence
+        dones = {}
         for sprite in self.unit_keys:
             state[sprite] = state[sprite]._replace(
                 status=state[sprite].status._replace(is_alive=(state[sprite].status.health > 0))
             )
+            dones[sprite] = ~state[sprite].status.is_alive
 
-        return self.get_obs(state), state, 0.0, False, {"timestep": 0}
+        is_alives = jnp.stack([state[unit].status.is_alive for unit in self.unit_keys])
+        teams = jnp.stack([state[unit].team for unit in self.unit_keys])
+        is_disabled = jnp.stack([state[unit].status.is_disabled for unit in self.unit_keys])
+
+        def is_team_done(team):
+            return ((teams == team) & (~is_alives | is_disabled)).sum() == (teams == team).sum()
+
+        dones["__all__"] = jax.vmap(is_team_done)(jnp.arange(self.max_team)).any()
+
+        return (
+            self.get_obs(state),
+            state,
+            0.0,
+            dones,
+            {"timestep": 0, "disabled_units": is_disabled},
+        )
 
     def render(self, state):
         return None

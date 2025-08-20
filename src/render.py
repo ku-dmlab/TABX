@@ -122,13 +122,14 @@ class PygameRenderer:
 
         # UI 토글 설정
         self.ui_panel = {
-            "show_sight_range": False,
-            "show_attack_range": False,
-            "show_visible_matrix": False,
-            "show_distance_matrix": False,
-            "show_unit_info": False,
-            "show_grid": False,
-            "show_obs_array": False,  # obs 배열 표시 옵션 추가 (기본적으로 비활성화)
+            "show_sight_range": False,  # 시야 범위 표시
+            "show_attack_range": False,  # 공격 범위 표시
+            "show_visible_matrix": False,  # 가시성 매트릭스 표시
+            "show_distance_matrix": False,  # 거리 매트릭스 표시
+            "show_unit_info": False,  # 유닛 정보 표시
+            "show_grid": False,  # 격자 표시
+            "show_obs_array": False,  # obs 배열은 너무 크므로 기본적으로 비활성화
+            "show_done_status": True,  # done 상태만 표시
         }
 
         # UI 패널 설정
@@ -1232,6 +1233,159 @@ class PygameRenderer:
             error_surface = self.small_font.render(error_text, True, (255, 100, 100))
             self.screen.blit(error_surface, (panel_x + 10, panel_y + 50))
 
+    def draw_done_status(self, done):
+        """done 상태를 화면에 표시"""
+        try:
+            # 유닛 개수에 따라 동적으로 패널 높이 계산
+            unit_keys = [key for key in done.keys() if key != "__all__" and key.startswith("unit")]
+            base_height = 120  # 제목, 게임 상태, 통계 정보를 위한 기본 높이
+            unit_height = len(unit_keys) * 20  # 각 유닛당 20픽셀
+            calculated_height = base_height + unit_height
+
+            # 최소/최대 높이 제한
+            min_height = 200
+            max_height = self.height - 250  # 화면 높이에서 여유 공간 확보
+            panel_height = max(min_height, min(calculated_height, max_height))
+
+            # done 상태 패널 설정
+            panel_width = 300
+            panel_x = 10
+            panel_y = self.height - panel_height - 220  # unit_info 패널 위에 배치
+
+            # 반투명 배경 그리기
+            panel_surface = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
+            panel_surface.fill((0, 0, 0, 200))  # 반투명 검정
+            self.screen.blit(panel_surface, (panel_x, panel_y))
+
+            # 테두리 그리기
+            pygame.draw.rect(
+                self.screen, (120, 120, 120), (panel_x, panel_y, panel_width, panel_height), 2
+            )
+
+            # 제목 그리기
+            title_text = self.font.render("Done Status", True, (255, 255, 255))
+            title_rect = title_text.get_rect(center=(panel_x + panel_width // 2, panel_y + 20))
+            self.screen.blit(title_text, title_rect)
+
+            # done 정보 표시
+            text_y = panel_y + 45
+            line_height = 20
+
+            # __all__ 상태를 먼저 표시 (전체 게임 완료 상태)
+            if "__all__" in done:
+                all_done = bool(done["__all__"])
+                all_color = (100, 255, 100) if all_done else (255, 100, 100)
+                all_status = "COMPLETED" if all_done else "RUNNING"
+
+                all_text = f"Game Status: {all_status}"
+                all_surface = self.font.render(all_text, True, all_color)
+                self.screen.blit(all_surface, (panel_x + 10, text_y))
+                text_y += line_height + 10
+
+                # 구분선 그리기
+                pygame.draw.line(
+                    self.screen,
+                    (100, 100, 100),
+                    (panel_x + 10, text_y - 5),
+                    (panel_x + panel_width - 10, text_y - 5),
+                    1,
+                )
+
+            # 유닛별 done 상태 표시
+            unit_title = self.small_font.render("Unit Status:", True, (255, 255, 255))
+            self.screen.blit(unit_title, (panel_x + 10, text_y))
+            text_y += line_height
+
+            # 유닛 키들을 정렬해서 일관된 순서로 표시
+            unit_keys.sort()
+
+            # 통계 정보를 위한 공간 계산
+            stats_space = 60  # 통계 정보를 위한 공간
+            available_height = panel_y + panel_height - text_y - stats_space
+            max_units_display = available_height // line_height
+
+            displayed_units = 0
+            for unit_key in unit_keys:
+                if displayed_units >= max_units_display:
+                    # 남은 유닛 수 표시
+                    remaining = len(unit_keys) - displayed_units
+                    more_text = self.small_font.render(
+                        f"... and {remaining} more units", True, (150, 150, 150)
+                    )
+                    self.screen.blit(more_text, (panel_x + 10, text_y))
+                    break
+
+                unit_done = bool(done[unit_key])
+
+                # done 상태에 따른 색상 설정
+                if unit_done:
+                    unit_color = (100, 255, 100)  # 초록색 (완료)
+                    status_symbol = "✓"
+                else:
+                    unit_color = (255, 100, 100)  # 빨간색 (진행중)
+                    status_symbol = "●"
+
+                # 유닛 이름 단축 (unit_0 -> 0)
+                unit_display = unit_key.replace("unit_", "")
+
+                unit_text = (
+                    f"{status_symbol} Unit {unit_display}: {'DONE' if unit_done else 'ACTIVE'}"
+                )
+                unit_surface = self.small_font.render(unit_text, True, unit_color)
+                self.screen.blit(unit_surface, (panel_x + 10, text_y))
+                text_y += line_height
+                displayed_units += 1
+
+            # 통계 정보 추가
+            if unit_keys:
+                stats_y = panel_y + panel_height - 40
+
+                # 구분선 그리기
+                pygame.draw.line(
+                    self.screen,
+                    (100, 100, 100),
+                    (panel_x + 10, stats_y - 5),
+                    (panel_x + panel_width - 10, stats_y - 5),
+                    1,
+                )
+
+                done_count = sum(1 for key in unit_keys if done[key])
+                total_count = len(unit_keys)
+
+                stats_text = f"Completed: {done_count}/{total_count} units"
+                stats_surface = self.small_font.render(stats_text, True, (200, 200, 200))
+                self.screen.blit(stats_surface, (panel_x + 10, stats_y))
+
+                # 진행률 바 그리기
+                progress_y = stats_y + 20
+                progress_width = panel_width - 20
+                progress_height = 8
+
+                # 배경 바
+                pygame.draw.rect(
+                    self.screen,
+                    (80, 80, 80),
+                    (panel_x + 10, progress_y, progress_width, progress_height),
+                )
+
+                # 진행률 바
+                if total_count > 0:
+                    progress_ratio = done_count / total_count
+                    progress_fill_width = int(progress_width * progress_ratio)
+                    progress_color = (100, 255, 100) if progress_ratio == 1.0 else (255, 200, 100)
+
+                    pygame.draw.rect(
+                        self.screen,
+                        progress_color,
+                        (panel_x + 10, progress_y, progress_fill_width, progress_height),
+                    )
+
+        except Exception as e:
+            # 에러 발생시 간단한 에러 메시지 표시
+            error_text = f"Done Status Error: {str(e)}"
+            error_surface = self.small_font.render(error_text, True, (255, 100, 100))
+            self.screen.blit(error_surface, (10, 200))
+
     def draw_unit_info(self, objects):
         """선택된 유닛의 상세 정보를 왼쪽 아래에 표시"""
         if not self.selected_unit or self.selected_unit not in objects:
@@ -1506,7 +1660,7 @@ class PygameRenderer:
             pygame.draw.line(self.screen, color, end_pos, (arrow_x1, arrow_y1), thickness)
             pygame.draw.line(self.screen, color, end_pos, (arrow_x2, arrow_y2), thickness)
 
-    def render(self, objects, show_ranges=True, obs=None):
+    def render(self, objects, show_ranges=True, obs=None, done=None):
         """
         객체들을 렌더링
 
@@ -1514,6 +1668,7 @@ class PygameRenderer:
             objects: 게임 객체들의 딕셔너리 (key는 이름, value는 unit 객체)
             show_ranges: 공격/시야 범위를 표시할지 여부
             obs: 관찰값 딕셔너리 (key는 유닛 이름, value는 obs 배열)
+            done: done 상태 딕셔너리 (key는 유닛 이름과 __all__, value는 boolean)
         """
         if not self.running:
             return False
@@ -1641,6 +1796,10 @@ class PygameRenderer:
         # obs 배열 표시
         if self.ui_panel["show_obs_array"]:
             self.draw_obs_array()
+
+        # done 상태 표시
+        if self.ui_panel["show_done_status"] and done is not None:
+            self.draw_done_status(done)
 
         # UI 패널과 토글 버튼 그리기 (가장 마지막에)
         self.draw_toggle_button()
@@ -2110,6 +2269,7 @@ class PygameRenderer:
             ("show_unit_info", "Unit Info"),
             ("show_grid", "Grid"),
             ("show_obs_array", "Obs Array"),
+            ("show_done_status", "Done Status"),
         ]
 
         for i, (key, label) in enumerate(options):
@@ -2233,8 +2393,9 @@ def render_loop(state, fps=60, show_ranges=True, env=None, scenario=None, reset_
 
         obs = env.get_obs(state)
         key = jax.random.key(2)
+        done = None  # 초기값 설정
 
-        while renderer.render(state, show_ranges, obs):
+        while renderer.render(state, show_ranges, obs, done):
             # 리셋 요청 확인 및 처리
             reset_obs, reset_state = renderer.check_reset_request()
             if reset_obs is not None and reset_state is not None:
