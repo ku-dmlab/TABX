@@ -11,6 +11,7 @@ from src.maenv.tabs.scenarios import Scenario, TABSConf
 class State:
     budget: int
     all_price: chex.Array
+    all_spec: chex.Array
     current_unit_list: chex.Array
     enemy_unit_comp: chex.Array
     unit_comp_mask: chex.Array
@@ -31,10 +32,11 @@ class TABSUnitComb(BaseMAEnv):
     def get_obs(self, state):
         """
         Return observation including
-            - current budget
-            - current purchased unit list
-            - all units' prices
-            - enemy unit composition
+            - Current budget
+            - Current purchased unit list
+            - All units' price
+            - All units' spec
+            - Enemy unit composition
         """
 
         return jnp.concatenate(
@@ -42,6 +44,7 @@ class TABSUnitComb(BaseMAEnv):
                 jnp.array([state.budget]),
                 state.current_unit_list,
                 state.all_price,
+                state.all_spec.flatten(),
                 state.enemy_unit_comp,
             )
         )
@@ -54,9 +57,23 @@ class TABSUnitComb(BaseMAEnv):
         action_mask = (
             jnp.where(scenario.budget >= scenario.price, True, False) * scenario.unit_comp_mask
         )
+
+        all_spec = jnp.vstack(
+            (
+                scenario.health,
+                scenario.body_radius,
+                scenario.body_weight,
+                scenario.velocity,
+                scenario.attack_damage,
+                scenario.attack_range,
+                scenario.attack_cooldown,
+            )
+        )
+
         state = State(
             budget=scenario.budget,
             all_price=scenario.price,
+            all_spec=all_spec,
             current_unit_list=jnp.zeros(self.max_num_units, dtype=jnp.int32),
             enemy_unit_comp=scenario.enemy_unit_comp,
             unit_comp_mask=scenario.unit_comp_mask,

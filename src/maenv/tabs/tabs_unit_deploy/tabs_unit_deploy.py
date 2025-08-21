@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import jax
 import jax.numpy as jnp
 import chex
@@ -24,6 +22,7 @@ class State:
     enemy_battle_field: chex.Array  # (H_max x W_max) matrix facing allies
     enemy_battle_field_mask: chex.Array  # (H_max x W_max) mask for available enemy battle field
     space_occupied_spec: chex.Array
+    all_spec: chex.Array
     scenario: Scenario
 
 
@@ -55,13 +54,14 @@ class TABSUnitDeploy(BaseMAEnv):
             - The unit id to be deploy next.
             - The list of units still available for deployment, including the next unit id.
             - The current state of the deployed units on the battlefield.
+            - All units' spec
         """
 
         enemy_battle_field = convert_unit_layer(state.enemy_battle_field, self.max_num_units)
         ally_battle_field = convert_unit_layer(state.battle_field, self.max_num_units)
 
         battle_field = jnp.vstack((enemy_battle_field, ally_battle_field))
-        obs = jnp.concatenate((state.next_unit, state.remaining_units, battle_field.flatten()))
+        obs = jnp.concatenate((state.next_unit, state.remaining_units, battle_field.flatten(), state.all_spec.flatten()))
 
         return obs
 
@@ -119,6 +119,18 @@ class TABSUnitDeploy(BaseMAEnv):
             next_unit, scenario.battle_field_mask, scenario.space_occupied
         )
 
+        all_spec = jnp.vstack(
+            (
+                scenario.health,
+                scenario.body_radius,
+                scenario.body_weight,
+                scenario.velocity,
+                scenario.attack_damage,
+                scenario.attack_range,
+                scenario.attack_cooldown,
+            )
+        )
+
         state = State(
             next_unit=next_unit,
             remaining_units=scenario.ally_unit_comp,
@@ -129,6 +141,7 @@ class TABSUnitDeploy(BaseMAEnv):
             enemy_battle_field=enemy_battle_field,
             enemy_battle_field_mask=enemy_battle_field_mask,
             space_occupied_spec=scenario.space_occupied,
+            all_spec=all_spec,
             scenario=scenario,
         )
         return self.get_obs(state), state
