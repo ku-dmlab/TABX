@@ -2,6 +2,13 @@ import jax
 import jax.numpy as jnp
 from flax.struct import dataclass
 from flax import nnx
+import os
+
+
+def get_abs_path(path):
+    if not os.path.isdir(path):
+        path = os.getcwd() + path
+    return path
 
 
 @dataclass

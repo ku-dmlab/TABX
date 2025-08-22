@@ -9,6 +9,11 @@ from flax import nnx
 from src.baseline.module.modules import RNNPolicy, RNNValue
 import optax
 from functools import partial
+import os
+import orbax.checkpoint as ocp
+from etils import epath
+from src.baseline.utils import get_abs_path
+import json
 
 
 @dataclass
@@ -29,7 +34,7 @@ class MAPPO:
         self.v_reset = jax.vmap(env.reset, in_axes=(0, 0))
         self.v_step = jax.vmap(env.step, in_axes=(0, 0, 0))
 
-        if fixed_scenario is None:
+        if fixed_scenario is None:  # TODO: support dynamic scenario
             raise "fixed_scenario is required"
 
         # repeat scenario n_env times for each env
@@ -128,10 +133,12 @@ class MAPPO:
             )
 
             next_obs = jax.tree.map(
-                lambda x, y: jnp.where(dones["__all__"], x, y), reset_obs, next_obs
+                lambda x, y: jnp.select(dones["__all__"][:, 0], x, y), reset_obs, next_obs
             )
             next_env_states = jax.tree.map(
-                lambda x, y: jnp.where(dones["__all__"], x, y), reset_env_state, next_env_states
+                lambda x, y: jnp.select(dones["__all__"][:, 0], x, y),
+                reset_env_state,
+                next_env_states,
             )
 
             sample_result.update(
@@ -340,7 +347,7 @@ class MAPPO:
                 "ratio": train_result["ratio"].mean(),
                 "ratio_max": train_result["ratio_max"].max(),
                 "ratio_min": train_result["ratio_min"].min(),
-                "rewards": rollout_result["rewards"].sum() / self.config.n_env,
+                "rewards": rollout_result["common_reward"].sum() / self.config.n_env,
             }
 
             return (train_state,), ppo_result
@@ -351,3 +358,33 @@ class MAPPO:
         ) = jax.lax.scan(train_body, (train_state,), None, step)
 
         return train_state, ppo_result
+
+    def save_state(self, train_state, path):
+        path = get_abs_path(path)
+
+        with ocp.StandardCheckpointer() as checkpointer:
+            checkpointer.save(epath.Path(path), train_state)
+
+        # Save config to the checkpoint directory
+        config_path = os.path.join(path, "config.json")
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        with open(config_path, "w") as f:
+            json.dump(self.config.__dict__, f, indent=2)
+
+    def load_state(self, path, update_config=False):
+        path = get_abs_path(path)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Path {path} does not exist")
+
+        if update_config:
+            config_path = os.path.join(path, "config.json")
+            with open(config_path, "r") as f:
+                config = json.load(f)
+
+            for key, value in config.items():
+                setattr(self.config, key, value)
+
+        checkpointer = ocp.StandardCheckpointer()
+        train_state = checkpointer.restore(epath.Path(path), self.init_train_state())
+
+        return train_state
