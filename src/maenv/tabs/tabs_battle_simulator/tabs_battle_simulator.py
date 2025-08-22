@@ -210,6 +210,8 @@ class GameManager(
             "attackable_matrix",
             "visible_matrix",
             "distance_matrix",
+            "team_hp_ratio",
+            "last_team_hp_ratio",
         ],
     )
 ):
@@ -220,6 +222,8 @@ class GameManager(
     attackable_matrix: chex.Array
     visible_matrix: chex.Array
     distance_matrix: chex.Array
+    team_hp_ratio: chex.Array
+    last_team_hp_ratio: chex.Array
 
     def get_units_in_attack_range(
         self,
@@ -365,21 +369,43 @@ class GameManager(
             timestep=self.timestep + 1,
         )
 
+    def update_team_hp_ratio(self, state, teams, is_disabled, unit_keys, max_team):
+        hp = jnp.stack([state[unit].status.health for unit in unit_keys])
+        max_hp = jnp.stack([state[unit].status.max_health for unit in unit_keys])
+
+        def team_hp(team):
+            return (((teams == team) & ~is_disabled) * hp).sum() / (
+                ((teams == team) & ~is_disabled) * max_hp
+            ).sum()
+
+        team_hp_ratio = jax.vmap(team_hp)(jnp.arange(max_team))
+
+        return self._replace(
+            last_team_hp_ratio=self.team_hp_ratio,
+            team_hp_ratio=team_hp_ratio,
+        )
+
 
 class BattleSimulator(BaseMAEnv):
     def __init__(
         self,
-        num_agents: int = 4,
+        max_n_ally: int = 4,
+        max_n_enemy: int = 4,
         physics_config: Dict[str, float] = EasyDict(
             {"dt": 0.2, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
         ),
         obs_type: str = "unit_spec",
         max_team: int = 2,
     ):
-        super().__init__(num_agents, physics_config)
+        super().__init__(max_n_ally + max_n_enemy, physics_config)
         self.obs_type = obs_type
-        self.unit_keys = [f"unit_{i}" for i in range(num_agents)]
+        self.ally_keys = [f"unit_{i}" for i in range(max_n_ally)]
+        self.enemy_keys = [f"unit_{i}" for i in range(max_n_ally, max_n_ally + max_n_enemy)]
+        self.unit_keys = self.ally_keys + self.enemy_keys
         self.max_team = max_team
+
+        self.max_n_ally = max_n_ally
+        self.max_n_enemy = max_n_enemy
 
         self.empty_state = {
             name: DefaultUnit(
@@ -421,6 +447,8 @@ class BattleSimulator(BaseMAEnv):
             reward=jnp.array([0.0]),
             done=jnp.array([False]),
             timestep=jnp.array([0]),
+            team_hp_ratio=jnp.zeros(self.max_team),
+            last_team_hp_ratio=jnp.zeros(self.max_team),
         )
 
     def get_obs(self, state):
@@ -618,7 +646,7 @@ class BattleSimulator(BaseMAEnv):
 
     def reset(self, key, senario: Scenario):
         vectorized_scenario: VectorizedScenario = get_vectorized_scenario(
-            senario, self.num_agents // 2
+            senario, self.max_n_ally, self.max_n_enemy
         )
 
         state = {}
@@ -661,6 +689,8 @@ class BattleSimulator(BaseMAEnv):
             reward=jnp.array([0.0]),
             done=jnp.array([False]),
             timestep=jnp.array([0]),
+            team_hp_ratio=jnp.zeros(self.max_team),
+            last_team_hp_ratio=jnp.zeros(self.max_team),
         )
 
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
@@ -699,14 +729,25 @@ class BattleSimulator(BaseMAEnv):
         def is_team_done(team):
             return ((teams == team) & (~is_alives | is_disabled)).sum() == (teams == team).sum()
 
-        dones["__all__"] = jax.vmap(is_team_done)(jnp.arange(self.max_team)).any()
+        dones["__all__"] = jnp.array(
+            [(jax.vmap(is_team_done)(jnp.arange(self.max_team)) > 0).sum() == 1]
+        )
+
+        state["game_manager"] = state["game_manager"].update_team_hp_ratio(
+            state, teams, is_disabled, self.unit_keys, self.max_team
+        )
+
+        delta_hp = state["game_manager"].team_hp_ratio - state["game_manager"].last_team_hp_ratio
+        reward_matrix = (jnp.identity(self.max_team) - 0.5) * 2.0
+
+        rewards = (delta_hp[None] * reward_matrix).sum(axis=-1, keepdims=True)
 
         return (
             self.get_obs(state),
             state,
-            0.0,
+            rewards,
             dones,
-            {"timestep": 0, "disabled_units": is_disabled},
+            {"timestep": state["game_manager"].timestep, "disabled_units": is_disabled},
         )
 
     def render(self, state):
