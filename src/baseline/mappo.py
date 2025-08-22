@@ -60,7 +60,7 @@ class MAPPO:
         discrete_actions = discrete_distribution.sample(seed=discrete_key)[:, None]
         continuous_actions = continuous_distribution.sample(seed=continuous_key)
 
-        actions = jnp.concatenate([discrete_actions, continuous_actions], axis=-1)
+        actions = jnp.concatenate([continuous_actions, discrete_actions], axis=-1)
 
         discrete_log_probs = discrete_distribution.log_prob(
             discrete_actions[:, 0].astype(jnp.int32)
@@ -73,6 +73,8 @@ class MAPPO:
             "next_hidden_state": next_hidden_state,
             "discrete_log_probs": discrete_log_probs,
             "continuous_log_probs": continuous_log_probs,
+            "discrete_actions": discrete_actions,
+            "continuous_actions": continuous_actions,
         }
 
         return result
@@ -249,11 +251,13 @@ class MAPPO:
             )
             logits, mean, log_std = policy_output
             discrete_distribution = tfd.Categorical(logits=logits)
-            discrete_action = batch["actions"][:, :, :, 0].astype(jnp.int32)
-            discrete_log_pi = discrete_distribution.log_prob(discrete_action)[:, :, :, None]
+            discrete_action = batch["discrete_actions"]
+            discrete_log_pi = discrete_distribution.log_prob(discrete_action[:, :, :, 0])[
+                :, :, :, None
+            ]
             continuous_distribution = tfd.Normal(mean, jnp.exp(log_std))
 
-            continuous_action = batch["actions"][:, :, :, 1:]
+            continuous_action = batch["continuous_actions"]
             continuous_log_pi = continuous_distribution.log_prob(continuous_action)
 
             log_pi = discrete_log_pi + continuous_log_pi
