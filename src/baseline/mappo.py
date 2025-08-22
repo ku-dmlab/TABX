@@ -131,7 +131,7 @@ class MAPPO:
                 lambda x, y: jnp.where(dones["__all__"], x, y), reset_obs, next_obs
             )
             next_env_states = jax.tree.map(
-                lambda x, y: jnp.where(dones["__all__"], x, y), reset_env_state, reset_obs
+                lambda x, y: jnp.where(dones["__all__"], x, y), reset_env_state, next_env_states
             )
 
             sample_result.update(
