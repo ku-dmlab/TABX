@@ -192,7 +192,7 @@ def generate_scenario(cfg: TABSConf):
         raise NotImplementedError
 
     return Scenario(
-        budget=budget,
+        budget=jnp.array([budget]),
         ally_unit_comp=ally_unit_comp,
         enemy_unit_comp=enemy_unit_comp,
         unit_comp_mask=unit_comp_mask,
@@ -213,30 +213,30 @@ def generate_scenario(cfg: TABSConf):
     )
 
 
-def get_vectorized_scenario(scenario, n_unit):
+def get_vectorized_scenario(scenario, n_ally, n_enemy):
     vectorized_scenario = VectorizedScenario(
-        positions=jnp.zeros((n_unit * 2, 2)),
-        rotations=jnp.zeros((n_unit * 2, 1)),
-        body_weights=jnp.full((n_unit * 2, 1), 1.0),
-        body_radiuss=jnp.full((n_unit * 2, 1), 1.0),
-        teams=jnp.zeros((n_unit * 2, 1)).astype(jnp.int32),
-        pos_min=jnp.full((n_unit * 2, 2), 0.0),
+        positions=jnp.zeros((n_ally + n_enemy, 2)),
+        rotations=jnp.zeros((n_ally + n_enemy, 1)),
+        body_weights=jnp.full((n_ally + n_enemy, 1), 1.0),
+        body_radiuss=jnp.full((n_ally + n_enemy, 1), 1.0),
+        teams=jnp.zeros((n_ally + n_enemy, 1)).astype(jnp.int32),
+        pos_min=jnp.full((n_ally + n_enemy, 2), 0.0),
         pos_max=jnp.repeat(
             jnp.array(
                 [scenario.battle_field.shape[0] * 12, scenario.battle_field.shape[1] * 6]
             ).reshape(1, 2),
-            n_unit * 2,
+            n_ally + n_enemy,
             axis=0,
         ),
-        unit_ids=jnp.zeros((n_unit * 2, 1)).astype(jnp.int32),
-        healths=jnp.zeros((n_unit * 2, 1)) + 1.0,
-        attack_damages=jnp.zeros((n_unit * 2, 1)),
-        attack_ranges=jnp.full((n_unit * 2, 1), 1.0),
-        attack_cooldowns=jnp.full((n_unit * 2, 1), 1.0),
-        sight_angles=jnp.zeros((n_unit * 2, 1)) + jnp.pi / 2,
-        is_alive=jnp.full((n_unit * 2, 1), True).astype(jnp.bool_),
-        attack_types=jnp.zeros((n_unit * 2, 1)).astype(jnp.int32),
-        is_disabled=jnp.full((n_unit * 2, 1), True).astype(jnp.bool_),
+        unit_ids=jnp.zeros((n_ally + n_enemy, 1)).astype(jnp.int32),
+        healths=jnp.zeros((n_ally + n_enemy, 1)) + 1.0,
+        attack_damages=jnp.zeros((n_ally + n_enemy, 1)),
+        attack_ranges=jnp.full((n_ally + n_enemy, 1), 1.0),
+        attack_cooldowns=jnp.full((n_ally + n_enemy, 1), 1.0),
+        sight_angles=jnp.zeros((n_ally + n_enemy, 1)) + jnp.pi / 2,
+        is_alive=jnp.full((n_ally + n_enemy, 1), True).astype(jnp.bool_),
+        attack_types=jnp.zeros((n_ally + n_enemy, 1)).astype(jnp.int32),
+        is_disabled=jnp.full((n_ally + n_enemy, 1), True).astype(jnp.bool_),
     )
 
     def vectorize_body(carry, i, is_ally):
@@ -352,9 +352,9 @@ def get_vectorized_scenario(scenario, n_unit):
 
     carry = (vectorized_scenario, scenario)
 
-    carry, ally_positions = jax.lax.scan(ally_vectorize_body, carry, jnp.arange(n_unit))
+    carry, ally_positions = jax.lax.scan(ally_vectorize_body, carry, jnp.arange(n_ally))
     carry, enemy_positions = jax.lax.scan(
-        enemy_vectorize_body, carry, jnp.arange(n_unit, n_unit * 2)
+        enemy_vectorize_body, carry, jnp.arange(n_ally, n_ally + n_enemy)
     )
 
     return carry[0]
