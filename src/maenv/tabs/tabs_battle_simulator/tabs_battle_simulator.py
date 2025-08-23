@@ -156,7 +156,10 @@ class DefaultUnit(
         return self._replace(
             rigidbody=self.rigidbody._replace(velocity=move_action),
             transform=self.transform._replace(
-                rotation=(self.transform.rotation + action[0].reshape() * action_able)
+                rotation=(
+                    self.transform.rotation
+                    + jnp.clip(action[0].reshape(), -jnp.pi / 12, jnp.pi / 12) * action_able
+                )
                 % (2 * jnp.pi)
             ),
             status=self.status._replace(
