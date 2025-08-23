@@ -3,6 +3,10 @@ import jax.numpy as jnp
 import jax
 
 
+
+def angle_wrap_to_pi(x):
+    return (x + jnp.pi) % (2 * jnp.pi) - jnp.pi
+
 def heuristic_policy(key, obs, num_agents, epsilon=0.1):
     own_status = obs[:13]
     observation = obs[13:].reshape(num_agents - 1, -1)
@@ -42,7 +46,7 @@ def heuristic_policy(key, obs, num_agents, epsilon=0.1):
         exist_attackable_target * UnitAction.ATTACK + ~exist_attackable_target * move_action
     )
     rotate_action = jnp.pi * 0.1 * (~exist_visible_target) + exist_visible_target * (
-        jnp.arctan2(min_relative_position[1], min_relative_position[0]) - rotation
+        angle_wrap_to_pi(jnp.arctan2(min_relative_position[1], min_relative_position[0]) - rotation)
     )
 
     discrete_key, rotate_key = jax.random.split(key, 2)
