@@ -47,7 +47,7 @@ def heuristic_policy(key, obs, num_agents, epsilon=0.1):
 
     discrete_key, rotate_key = jax.random.split(key, 2)
     random_discrete_action = jax.random.choice(
-        discrete_key, jnp.array([UnitAction.ATTACK, UnitAction.IDLE])
+        discrete_key, jnp.array([UnitAction.UP, UnitAction.DOWN, UnitAction.LEFT, UnitAction.RIGHT])
     )
     random_rotate_action = jax.random.normal(rotate_key) / jnp.pi
 
