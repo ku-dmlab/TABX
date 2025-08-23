@@ -64,6 +64,12 @@ class PygameRenderer:
         # Policy selection
         self.policy_names = ["Heuristic", "Idle", "MAPPO"]
         self.selected_policy_index = 0  # 기본적으로 Heuristic 정책 사용
+        
+        # 이전 프레임의 액션을 저장하여 공격 시작 감지
+        self.previous_actions = {}
+        
+        # 공격 플래시 지속 시간 관리
+        self.attack_flash_timers = {}  # 각 유닛별 공격 플래시 남은 프레임 수
 
         # 화면 설정
         self.screen = pygame.display.set_mode((width, height))
@@ -82,7 +88,7 @@ class PygameRenderer:
             "cooldown_bg": (150, 150, 150),  # 쿨다운바 배경
             "cooldown_fg": (255, 255, 100),  # 쿨다운바 전경 (노란색)
             "cooldown_ready": (100, 255, 100),  # 공격 준비됨 (초록색)
-            "attack_range": (255, 255, 0, 50),  # 공격 범위 (반투명 노란색)
+            "attack_range": (255, 100, 0, 80),  # 공격 범위 (반투명 주황색, 더 진하게)
             "sight_range": (0, 255, 255, 30),  # 시야 범위 (반투명 청록색)
             "attacking": (255, 255, 255, 100),  # 공격 중 표시
             "selected": (255, 255, 255),  # 선택된 유닛 표시
@@ -386,7 +392,7 @@ class PygameRenderer:
             if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
                 self.camera_x += move_speed
 
-    def draw_unit(self, unit_name, unit, show_ranges=None, alpha=255):
+    def draw_unit(self, unit_name, unit, show_ranges=None, alpha=255, action=None, show_attack_flash=False):
         """개별 유닛을 그리기"""
         try:
             # JAX 배열에서 numpy 배열로 변환
@@ -430,13 +436,15 @@ class PygameRenderer:
             else:
                 sight_angle = float(unit.status.sight_angle)
 
-            # 공격 중인지 확인
-            attacking = False
-            if hasattr(unit, "attacking"):
-                if hasattr(unit.attacking, "__array__"):
-                    attacking = bool(np.array(unit.attacking))
+            # show_attack_flash 파라미터로 공격 범위 표시 여부가 결정됨
+            
+            # 생존 상태 확인
+            is_alive = True
+            if hasattr(unit.status, "is_alive"):
+                if hasattr(unit.status.is_alive, "__array__"):
+                    is_alive = bool(np.array(unit.status.is_alive))
                 else:
-                    attacking = bool(unit.attacking)
+                    is_alive = bool(unit.status.is_alive)
 
             screen_pos = self.world_to_screen(pos)
             screen_radius = int(radius * self.world_scale * self.zoom)
@@ -452,6 +460,11 @@ class PygameRenderer:
 
             # 유닛 몸체
             team_color = self.colors.get(f"team_{team}", (128, 128, 128))
+            
+            # 죽은 유닛의 채도를 어둡게 만들기
+            if not is_alive:
+                # 채도를 줄이고 어둡게 만들기 (RGB 값을 절반으로 줄임)
+                team_color = tuple(int(c * 0.4) for c in team_color)
 
             if alpha < 255:
                 # 투명도가 적용된 경우, 별도 surface에 그린 후 알파 블렌딩
@@ -482,15 +495,8 @@ class PygameRenderer:
                 elif show_ranges is True:  # 이전 버전과의 호환성
                     self.draw_fan_sight_range(screen_pos, rotation, sight_angle, range_alpha)
 
-                # 공격 범위 (직사각형) - TABS 스타일
-                if isinstance(show_ranges, dict) and show_ranges.get("attack", True):
-                    self.draw_rectangular_attack_range(
-                        screen_pos, rotation, attack_range, radius, range_alpha, sight_angle
-                    )
-                elif show_ranges is True:  # 이전 버전과의 호환성
-                    self.draw_rectangular_attack_range(
-                        screen_pos, rotation, attack_range, radius, range_alpha, sight_angle
-                    )
+                # 공격 범위 표시는 아래 "공격 중 표시" 섹션에서 처리
+                # (중복 방지를 위해 여기서는 제거)
 
             # 선택된 유닛 표시
             if unit_name == self.selected_unit:
@@ -533,21 +539,21 @@ class PygameRenderer:
                 else:
                     pygame.draw.line(self.screen, (255, 255, 255), screen_pos, direction_end, 2)
 
-            # 공격 중 표시
-            if attacking and screen_radius > 2:
-                attack_surface = pygame.Surface(
-                    (screen_radius * 3, screen_radius * 3), pygame.SRCALPHA
-                )
-                pygame.draw.circle(
-                    attack_surface,
-                    self.colors["attacking"],
-                    (screen_radius * 1.5, screen_radius * 1.5),
-                    screen_radius * 1.5,
-                )
-                self.screen.blit(
-                    attack_surface,
-                    (screen_pos[0] - screen_radius * 1.5, screen_pos[1] - screen_radius * 1.5),
-                )
+            # 공격 플래시 표시 - 직사각형 공격 범위로 표시 (여러 프레임 지속)
+            if show_attack_flash and screen_radius > 2:
+                flash_info = self.attack_flash_timers.get(unit_name)
+                if flash_info:
+                    # 남은 프레임 수에 따라 알파 값 조정 (점점 흐려짐)
+                    flash_frames_left = flash_info['frames']
+                    attack_rotation = flash_info['rotation']  # 공격한 시점의 회전 각도 사용
+                    max_flash_frames = 15
+                    alpha_ratio = flash_frames_left / max_flash_frames
+                    flash_alpha = int(255 * alpha_ratio * 0.8)  # 최대 80% 투명도
+                    
+                    # 공격 범위를 공격한 시점의 방향으로 고정하여 표시
+                    self.draw_rectangular_attack_range(
+                        screen_pos, attack_rotation, attack_range, radius, flash_alpha, sight_angle
+                    )
 
             # 체력바 (줌이 충분할 때만)
             if self.zoom > 0.5 and screen_radius > 5:
@@ -1458,13 +1464,10 @@ class PygameRenderer:
             else:
                 attack_cooldown = float(unit.status.attack_cooldown)
 
-            # 공격 중인지 확인
+            # 공격했는지 확인 (쿨다운이 매우 낮을 때 = 방금 공격함)
             attacking = False
-            if hasattr(unit, "attacking"):
-                if hasattr(unit.attacking, "__array__"):
-                    attacking = bool(np.array(unit.attacking))
-                else:
-                    attacking = bool(unit.attacking)
+            if attack_cooldown > 0:
+                attacking = cooldown < (attack_cooldown * 0.1)
 
             # 생존 상태 확인
             is_alive = True  # 기본값
@@ -1660,7 +1663,7 @@ class PygameRenderer:
             pygame.draw.line(self.screen, color, end_pos, (arrow_x1, arrow_y1), thickness)
             pygame.draw.line(self.screen, color, end_pos, (arrow_x2, arrow_y2), thickness)
 
-    def render(self, objects, show_ranges=True, obs=None, done=None):
+    def render(self, objects, show_ranges=True, obs=None, done=None, actions=None):
         """
         객체들을 렌더링
 
@@ -1669,6 +1672,7 @@ class PygameRenderer:
             show_ranges: 공격/시야 범위를 표시할지 여부
             obs: 관찰값 딕셔너리 (key는 유닛 이름, value는 obs 배열)
             done: done 상태 딕셔너리 (key는 유닛 이름과 __all__, value는 boolean)
+            actions: 현재 프레임의 액션들 딕셔너리 (key는 유닛 이름, value는 액션 배열)
         """
         if not self.running:
             return False
@@ -1769,10 +1773,10 @@ class PygameRenderer:
 
                 # 선택된 유닛의 범위를 자동으로 표시
                 if obj_name == self.selected_unit:
-                    # 선택된 유닛은 항상 시야와 공격 범위 표시
+                    # 선택된 유닛은 시야 범위만 표시 (공격 범위는 공격 시에만)
                     unit_show_ranges = {
                         "sight": True,
-                        "attack": True,
+                        "attack": False,  # 공격 범위는 공격 중일 때만 표시
                     }
                 else:
                     # 다른 유닛들은 UI 패널 설정에 따라 표시
@@ -1780,7 +1784,76 @@ class PygameRenderer:
                         "sight": self.ui_panel["show_sight_range"],
                         "attack": self.ui_panel["show_attack_range"],
                     }
-                self.draw_unit(obj_name, obj, unit_show_ranges, alpha)
+                # 해당 유닛의 액션 가져오기
+                unit_action = None
+                show_attack_flash = False
+                
+                if actions is not None and obj_name in actions:
+                    unit_action = actions[obj_name]
+                    
+                    # 공격이 새로 시작되었는지 확인
+                    try:
+                        if hasattr(unit_action, "__array__") or hasattr(unit_action, "__iter__"):
+                            action_array = np.array(unit_action)
+                            if len(action_array) >= 2:
+                                current_discrete_action = int(action_array[1])
+                                
+                                # 이전 액션 가져오기
+                                previous_action = self.previous_actions.get(obj_name, None)
+                                previous_discrete_action = None
+                                
+                                if previous_action is not None:
+                                    try:
+                                        prev_array = np.array(previous_action)
+                                        if len(prev_array) >= 2:
+                                            previous_discrete_action = int(prev_array[1])
+                                    except:
+                                        previous_discrete_action = None
+                                
+                                # 공격이 새로 시작되었는지 확인
+                                # (이전에 공격하지 않았고 현재 공격하는 경우)
+                                if current_discrete_action == UnitAction.ATTACK:
+                                    # 유닛이 살아있고 활성화되어 있는지 확인
+                                    is_alive = True
+                                    is_enabled = True
+                                    
+                                    if hasattr(obj.status, "is_alive"):
+                                        if hasattr(obj.status.is_alive, "__array__"):
+                                            is_alive = bool(np.array(obj.status.is_alive))
+                                        else:
+                                            is_alive = bool(obj.status.is_alive)
+                                    
+                                    if hasattr(obj.status, "is_disabled"):
+                                        if hasattr(obj.status.is_disabled, "__array__"):
+                                            is_enabled = not bool(np.array(obj.status.is_disabled))
+                                        else:
+                                            is_enabled = not bool(obj.status.is_disabled)
+                                    
+                                    # 이전 액션이 없는 경우 (첫 프레임) 또는 이전에 공격하지 않았던 경우
+                                    if (previous_discrete_action is None or 
+                                        previous_discrete_action != UnitAction.ATTACK):
+                                        # 살아있고 활성화된 유닛만 공격 플래시 시작
+                                        if is_alive and is_enabled:
+                                            # 공격 플래시를 15프레임 동안 지속 (약 0.25초)
+                                            # 공격한 시점의 회전 각도도 함께 저장
+                                            if hasattr(obj.transform.rotation, "__array__"):
+                                                attack_rotation = float(np.array(obj.transform.rotation))
+                                            else:
+                                                attack_rotation = float(obj.transform.rotation)
+                                            
+                                            self.attack_flash_timers[obj_name] = {
+                                                'frames': 15,
+                                                'rotation': attack_rotation
+                                            }
+
+                    except Exception:
+                        pass
+                
+                # 공격 플래시 타이머 확인
+                if obj_name in self.attack_flash_timers and self.attack_flash_timers[obj_name]['frames'] > 0:
+                    show_attack_flash = True
+                
+                self.draw_unit(obj_name, obj, unit_show_ranges, alpha, unit_action, show_attack_flash)
 
         # UI 그리기
         self.draw_ui(objects)
@@ -1813,6 +1886,16 @@ class PygameRenderer:
         self.draw_policy_selector()
 
         # 화면 업데이트
+        # 공격 플래시 타이머 업데이트
+        for unit_name in list(self.attack_flash_timers.keys()):
+            self.attack_flash_timers[unit_name]['frames'] -= 1
+            if self.attack_flash_timers[unit_name]['frames'] <= 0:
+                del self.attack_flash_timers[unit_name]
+        
+        # 이번 프레임의 액션을 다음 프레임을 위해 저장
+        if actions is not None:
+            self.previous_actions = actions.copy()
+        
         pygame.display.flip()
         self.clock.tick(self.fps)
 
@@ -1837,7 +1920,8 @@ class PygameRenderer:
             unit_radius: 유닛의 반지름
             attack_range_angle: 공격 각도의 절반 (기본값: π/4)
         """
-        if attack_range * self.world_scale * self.zoom < 10:
+        attack_screen_size = attack_range * self.world_scale * self.zoom
+        if attack_screen_size < 5:  # 최소 크기를 10에서 5로 완화
             return
 
         # 공격 범위의 스크린 크기 계산
@@ -1893,7 +1977,11 @@ class PygameRenderer:
                 surface_points.append((surface_x, surface_y))
 
             # 투명도에 따른 색상 조정
-            if alpha is not None and alpha < 255:
+            if alpha is not None and alpha >= 200:
+                # 공격 중일 때 더 강조된 색상 (빨간색 계열)
+                attack_color = (255, 50, 0, alpha)  # 강한 빨간색
+                border_color = (255, 0, 0, 255)     # 완전한 빨간색 테두리
+            elif alpha is not None and alpha < 255:
                 attack_color = (*self.colors["attack_range"][:3], alpha // 3)  # 더 투명하게
                 border_color = (*self.colors["attack_range"][:3], alpha // 2)
             else:
@@ -2404,7 +2492,9 @@ def render_loop(
                 agent: jnp.zeros((1, config.layer_dim)) for agent in env.ally_keys
             }
 
-        while renderer.render(state, show_ranges, obs, done):
+        current_actions = {}  # 현재 액션을 저장할 변수
+        
+        while renderer.render(state, show_ranges, obs, done, current_actions):
             # 리셋 요청 확인 및 처리
             reset_obs, reset_state = renderer.check_reset_request()
             if reset_obs is not None and reset_state is not None:
@@ -2459,6 +2549,9 @@ def render_loop(
                         action_key, key = jax.random.split(key)
                         actions[unit_name] = heuristic_policy(action_key, obs[unit_name])
 
+            # 현재 액션을 저장
+            current_actions = actions.copy()
+            
             # 게임 스텝 실행
             obs, state, reward, done, info = step(jax.random.key(0), state, actions)
             print(info["timestep"])
@@ -2509,7 +2602,7 @@ if __name__ == "__main__":
     heuristic_policy = jax.jit(functools.partial(heuristic_policy, num_agents=10, epsilon=0.01))
     env = BattleSimulator(max_n_ally=8, max_n_enemy=2)
     mappo = MAPPO(config, env, scenario)
-    mappo_state = mappo.load_state("C:/Users/user/Desktop/TABS/checkpoint/entropy_0", True)
+    mappo_state = mappo.load_state("C:/Users/JunhyeokOh/Desktop/TABS/baseline/action_clip", True)
 
     sample_action = jax.jit(mappo.sample_action)
 
