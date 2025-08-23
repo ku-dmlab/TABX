@@ -62,7 +62,7 @@ class PygameRenderer:
         self._preload_scenarios()
 
         # Policy selection
-        self.policy_names = ["Heuristic", "Idle"]
+        self.policy_names = ["Heuristic", "Idle", "MAPPO"]
         self.selected_policy_index = 0  # 기본적으로 Heuristic 정책 사용
 
         # 화면 설정
@@ -2374,7 +2374,9 @@ class PygameRenderer:
 
 
 # 사용 예시 함수
-def render_loop(state, fps=60, show_ranges=True, env=None, scenario=None, reset_fn=None):
+def render_loop(
+    state, fps=60, show_ranges=True, env=None, scenario=None, reset_fn=None, config=None
+):
     """
     실시간 렌더링 루프
 
@@ -2385,15 +2387,22 @@ def render_loop(state, fps=60, show_ranges=True, env=None, scenario=None, reset_
         env: 환경 객체
         scenario: 시나리오 객체
         reset_fn: 리셋 함수
+        config: MAPPO 설정 객체
     """
     renderer = PygameRenderer(fps=fps, env=env, scenario=scenario, reset_fn=reset_fn)
 
     try:
         # 초기 obs 생성
-
         obs = env.get_obs(state)
         key = jax.random.key(2)
         done = None  # 초기값 설정
+
+        # MAPPO policy hidden states 초기화
+        policy_hidden_states = {}
+        if config is not None and env is not None:
+            policy_hidden_states = {
+                agent: jnp.zeros((1, config.layer_dim)) for agent in env.ally_keys
+            }
 
         while renderer.render(state, show_ranges, obs, done):
             # 리셋 요청 확인 및 처리
@@ -2405,6 +2414,11 @@ def render_loop(state, fps=60, show_ranges=True, env=None, scenario=None, reset_
                 renderer.selected_unit = None
                 renderer.selected_unit_obs = None
                 renderer.obs_scroll_offset = 0
+                # MAPPO policy hidden states 초기화
+                if config is not None:
+                    policy_hidden_states = {
+                        agent: jnp.zeros((1, config.layer_dim)) for agent in env.ally_keys
+                    }
                 print("Environment reset completed!")
                 continue  # 이번 프레임은 리셋만 하고 다음 프레임으로
 
@@ -2426,6 +2440,20 @@ def render_loop(state, fps=60, show_ranges=True, env=None, scenario=None, reset_
                     elif selected_policy == "Idle":
                         # 아무것도 하지 않음 (IDLE 액션)
                         actions[unit_name] = jnp.array([0.0, UnitAction.IDLE])
+                    elif selected_policy == "MAPPO":
+                        if unit_name in policy_hidden_states:
+                            action_key, key = jax.random.split(key)
+                            sample_result = sample_action(
+                                mappo_state,
+                                policy_hidden_states[unit_name],
+                                obs[unit_name][None],
+                                action_key,
+                            )
+                            actions[unit_name] = sample_result["actions"].flatten()
+                            print(sample_result["actions"][0])
+                            policy_hidden_states[unit_name] = sample_result["next_hidden_state"]
+                        else:
+                            actions[unit_name] = heuristic_policy(action_key, obs[unit_name])
                     else:
                         # 기본값: Heuristic 정책
                         action_key, key = jax.random.split(key)
@@ -2433,6 +2461,7 @@ def render_loop(state, fps=60, show_ranges=True, env=None, scenario=None, reset_
 
             # 게임 스텝 실행
             obs, state, reward, done, info = step(jax.random.key(0), state, actions)
+            print(info["timestep"])
             # print(state["game_manager"].target)
 
             # 유저 컨트롤 액션 초기화 (한 프레임에만 적용)
@@ -2452,17 +2481,45 @@ if __name__ == "__main__":
     from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
     from src.maenv.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
     import functools
+    from src.baseline.mappo import MAPPO
+    from types import SimpleNamespace
 
-    default_tabs_conf = default_tabs_conf.replace(scenario_name="10farmers")
+    default_tabs_conf = default_tabs_conf.replace(scenario_name="8archer_vs_1mammoth_1healer")
     scenario = generate_scenario(default_tabs_conf)
 
-    # 테스트 유닛 생성
-    heuristic_policy = jax.jit(functools.partial(heuristic_policy, num_agents=20, epsilon=0.01))
-    env = BattleSimulator(num_agents=20)
+    config = SimpleNamespace(
+        seed=42,
+        action_dim=6,
+        obs_dim=148,
+        state_dim=148 * 8,
+        layer_dim=128,
+        lr=1e-3,
+        max_grad_norm=1.0,
+        n_env=50,
+    )
+    config.rollout_step = 512
+    config.n_env = 128
+    config.gamma = 0.99
+    config.lamda = 0.95
+    config.clip_value = 0.5
+    config.clip_ratio = 0.05
+    config.entropy_coef = 0.01
+    config.ppo_epochs = 5
+
+    heuristic_policy = jax.jit(functools.partial(heuristic_policy, num_agents=10, epsilon=0.01))
+    env = BattleSimulator(max_n_ally=8, max_n_enemy=2)
+    mappo = MAPPO(config, env, scenario)
+    mappo_state = mappo.load_state("C:/Users/user/Desktop/TABS/checkpoint/entropy_0", True)
+
+    sample_action = jax.jit(mappo.sample_action)
+
     reset = jax.jit(env.reset)
     # reset = env.reset
     obs, state = reset(jax.random.key(0), scenario)
     # state["game_manager"] = state["game_manager"].update_distance_matrix(state)
     step = jax.jit(env.step)
     # step = env.step
-    render_loop(state, env=env, scenario=scenario, reset_fn=reset)
+
+    policy_hidden_states = {agent: jnp.zeros((1, config.layer_dim)) for agent in env.ally_keys}
+
+    render_loop(state, env=env, scenario=scenario, reset_fn=reset, config=config)
