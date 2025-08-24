@@ -213,21 +213,24 @@ def generate_scenario(cfg: TABSConf):
     )
 
 
-def get_vectorized_scenario(scenario, n_ally, n_enemy):
+def get_vectorized_scenario(scenario, n_ally, n_enemy, unit_spacing = 6, side_gap = 5, field_margin = 5):
+
+    pos_max = jnp.repeat(
+            jnp.array(
+                [(scenario.battle_field.shape[1] + side_gap) * unit_spacing, (scenario.battle_field.shape[0]) * unit_spacing]
+            ).reshape(1, 2),
+            n_ally + n_enemy,
+            axis=0,
+        ) + field_margin
+
     vectorized_scenario = VectorizedScenario(
         positions=jnp.zeros((n_ally + n_enemy, 2)),
         rotations=jnp.zeros((n_ally + n_enemy, 1)),
         body_weights=jnp.full((n_ally + n_enemy, 1), 1.0),
         body_radiuss=jnp.full((n_ally + n_enemy, 1), 1.0),
         teams=jnp.zeros((n_ally + n_enemy, 1)).astype(jnp.int32),
-        pos_min=jnp.full((n_ally + n_enemy, 2), 0.0),
-        pos_max=jnp.repeat(
-            jnp.array(
-                [scenario.battle_field.shape[0] * 12, scenario.battle_field.shape[1] * 6]
-            ).reshape(1, 2),
-            n_ally + n_enemy,
-            axis=0,
-        ),
+        pos_min=-pos_max,
+        pos_max=pos_max,
         unit_ids=jnp.zeros((n_ally + n_enemy, 1)).astype(jnp.int32),
         healths=jnp.zeros((n_ally + n_enemy, 1)) + 1.0,
         attack_damages=jnp.zeros((n_ally + n_enemy, 1)),
@@ -248,11 +251,20 @@ def get_vectorized_scenario(scenario, n_ally, n_enemy):
         unit_idx = (battle_field > 0).argmax()
         unit_remain = unit_comp.sum() > 0
 
-        x, y = jnp.unravel_index(unit_idx, battle_field.shape)
+        """
+        column : x, row : y
+        |       | x = 0 | x = 1 | x = 2 | x = 3 | x = 4 |
+        | y = 0 | unit 1 | unit 1 | empty | empty | empty |
+        | y = 1 | unit 2 | unit 2 | empty | empty | empty |
+        | y = 2 | empty | empty | empty | empty | empty |
+        | y = 3 | empty | empty | empty | empty | empty |
+        """
 
-        deployed_unit_id = battle_field[x, y].astype(int) - 1
+        y, x = jnp.unravel_index(unit_idx, battle_field.shape)
+
+        deployed_unit_id = battle_field[y, x].astype(int) - 1
         positions = vectorized_scenario.positions.at[i].set(
-            jnp.stack((6 * (x + (1 - is_ally) * scenario.battle_field.shape[0] + 1), 6 * y))
+            jnp.stack((unit_spacing * (x + (1 - is_ally) * (scenario.battle_field.shape[1] + side_gap) - (scenario.battle_field.shape[1] + side_gap) / 2), unit_spacing * (y - scenario.battle_field.shape[0] / 2)))
             * unit_remain
             + vectorized_scenario.positions[i] * (1 - unit_remain)
         )
@@ -303,7 +315,7 @@ def get_vectorized_scenario(scenario, n_ally, n_enemy):
             < 0 * unit_remain + vectorized_scenario.attack_types[i] * (1 - unit_remain)
         )
 
-        next_battle_field = battle_field.at[x, y].set(
+        next_battle_field = battle_field.at[y, x].set(
             unit_remain * 0 + (1 - unit_remain) * (deployed_unit_id + 1)
         )
         next_unit_comp = unit_comp.at[deployed_unit_id].set(
@@ -345,7 +357,7 @@ def get_vectorized_scenario(scenario, n_ally, n_enemy):
             pos_max=pos_max,
         )
 
-        return (next_vectorized_scenario, next_scenario), (x, y)
+        return (next_vectorized_scenario, next_scenario), (y, x)
 
     ally_vectorize_body = functools.partial(vectorize_body, is_ally=True)
     enemy_vectorize_body = functools.partial(vectorize_body, is_ally=False)
