@@ -27,6 +27,7 @@ class UnitStatus(
             "is_alive",
             "attack_type",
             "is_disabled",
+            "speed",
         ],
     )
 ):
@@ -41,22 +42,7 @@ class UnitStatus(
     is_alive: chex.Array  # Boolean showing whether the unit is alive
     attack_type: chex.Array  # Type of attack the unit performs
     is_disabled: chex.Array  # Boolean showing whether the unit is disabled
-
-    def to_array(self):
-        return jnp.concatenate(
-            (
-                self.health,
-                self.max_health,
-                self.attack_damage,
-                self.attack_range,
-                self.attack_cooldown,
-                self.cooldown,
-                self.sight_angle,
-                self.is_alive,
-                self.attack_type,
-                self.is_disabled,
-            )
-        )
+    speed: chex.Array  # Speed of the unit
 
 
 move_table = jnp.array(
@@ -104,23 +90,6 @@ class DefaultUnit(
         chex.Array
     )  # Boolean showing whether the unit is currently performing an attack TODO : is it needed?
 
-    def to_array(self):
-        return jnp.concatenate(
-            (
-                self.transform.to_array(),
-                self.rigidbody.to_array(),
-                self.collider.to_array(),
-                self.team,
-                self.status.to_array(),
-                self.attacking,
-            )
-        )
-
-    # def __new__(cls, transform, rigidbody, collider, team, pos_limit, status, attacking):
-    #     return super().__new__(
-    #         cls, transform, rigidbody, collider, team, pos_limit, status, attacking
-    #     )
-
     def update(self, **kwargs):
         config = kwargs["config"]
         next_cooldown = jnp.where(self.attacking, 0.0, self.status.cooldown + config["dt"])
@@ -149,7 +118,9 @@ class DefaultUnit(
 
         notify(objects, "hit", (self, is_attack, target_id, target_attackable, can_attack))
 
-        move_action = move_table[discrete_action] * action_able  # if unit is dead, do not move
+        move_action = (
+            move_table[discrete_action] * action_able * self.status.speed
+        )  # if unit is dead, do not move
 
         cooldown = is_attack & can_attack
 
@@ -436,6 +407,7 @@ class BattleSimulator(BaseMAEnv):
                     is_disabled=jnp.array([False]),
                     attack_type=jnp.array([AttackType.DEFAULT]),
                     max_health=jnp.array([1.0]),
+                    speed=jnp.array([1.0]),
                 ),
                 attacking=jnp.array([False]),
             )
@@ -539,8 +511,8 @@ class BattleSimulator(BaseMAEnv):
 
     def get_spec_obs(self, state):
         """
-        own_feature : [health, max_health, absolute_x, absolute_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive]
-        other_feature : [health, max_health, relative_x, relative_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive, is_ally, is_attackable]
+        own_feature : [health, max_health, absolute_x, absolute_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive, speed]
+        other_feature : [health, max_health, relative_x, relative_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive, is_ally, is_attackable, speed]
         """
 
         keys = self.unit_keys
@@ -561,6 +533,7 @@ class BattleSimulator(BaseMAEnv):
         sight_angles = jnp.stack([state[unit].status.sight_angle for unit in keys]) / (jnp.pi * 2)
         teams = jnp.stack([state[unit].team for unit in keys])
         is_alives = jnp.stack([state[unit].status.is_alive for unit in keys])
+        speeds = jnp.stack([state[unit].status.speed for unit in keys])
 
         is_ally = teams[None] == teams[:, None]
 
@@ -589,6 +562,7 @@ class BattleSimulator(BaseMAEnv):
         repeated_mass = jnp.repeat(body_weights[None], repeats=n_unit, axis=0)
         repeated_sight_angle = jnp.repeat(sight_angles[None], repeats=n_unit, axis=0)
         repeated_cooldown = jnp.repeat(cooldowns[None], repeats=n_unit, axis=0)
+        repeated_speed = jnp.repeat(speeds[None], repeats=n_unit, axis=0)
 
         rolled_health = v_roll(repeated_health, roll_shifts)[:, 1:]
         rolled_max_health = v_roll(repeated_max_health, roll_shifts)[:, 1:]
@@ -601,6 +575,7 @@ class BattleSimulator(BaseMAEnv):
         rolled_mass = v_roll(repeated_mass, roll_shifts)[:, 1:]
         rolled_sight_angle = v_roll(repeated_sight_angle, roll_shifts)[:, 1:]
         rolled_cooldown = v_roll(repeated_cooldown, roll_shifts)[:, 1:]
+        rolled_speed = v_roll(repeated_speed, roll_shifts)[:, 1:]
 
         own_feature = jnp.concatenate(
             (
@@ -616,6 +591,7 @@ class BattleSimulator(BaseMAEnv):
                 body_weights,
                 sight_angles,
                 is_alives,
+                speeds,
             ),
             axis=1,
         )
@@ -637,6 +613,7 @@ class BattleSimulator(BaseMAEnv):
                     rolled_is_alive,
                     rolled_is_ally,
                     rolled_attackable_matrix,
+                    rolled_speed,
                 ),
                 axis=2,
             )
@@ -681,6 +658,7 @@ class BattleSimulator(BaseMAEnv):
                     is_disabled=vectorized_scenario.is_disabled[i],
                     attack_type=vectorized_scenario.attack_types[i],
                     max_health=vectorized_scenario.healths[i],
+                    speed=vectorized_scenario.speeds[i],
                 ),
                 attacking=jnp.array([False]),
             )

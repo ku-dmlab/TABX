@@ -3,19 +3,19 @@ import jax.numpy as jnp
 import jax
 
 
-
 def angle_wrap_to_pi(x):
     return (x + jnp.pi) % (2 * jnp.pi) - jnp.pi
 
+
 def heuristic_policy(key, obs, num_agents, epsilon=0.1):
-    own_status = obs[:13]
-    observation = obs[13:].reshape(num_agents - 1, -1)
+    own_status = obs[:14]
+    observation = obs[14:].reshape(num_agents - 1, -1)
 
     attack_damage = own_status[6]
     is_healer = attack_damage < 0
-    exist_attackable_target = jnp.sum(observation[:, -1]) > 0
+    exist_attackable_target = jnp.sum(observation[:, -2]) > 0
 
-    is_ally = (observation[:, -2]) > 0
+    is_ally = (observation[:, -3]) > 0
 
     visible_target = ((observation[:, 0]) > 0) & ((is_ally & is_healer) | (~is_ally & ~is_healer))
     exist_visible_target = jnp.sum(visible_target) > 0
