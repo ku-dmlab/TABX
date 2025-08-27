@@ -74,7 +74,7 @@ class UnitAction:
 class DefaultUnit(
     namedtuple(
         "DefaultUnit",
-        ["transform", "rigidbody", "collider", "team", "pos_min", "pos_max", "status", "attacking"],
+        ["transform", "rigidbody", "collider", "team", "pos_min", "pos_max", "status"],
     )
 ):
     transform: (
@@ -86,13 +86,10 @@ class DefaultUnit(
     pos_min: chex.Array  # The positional boundaries or limits within which the unit can move
     pos_max: chex.Array  # The positional boundaries or limits within which the unit can move
     status: UnitStatus  # The current status of the unit, including health, attack stats, and other attributes
-    attacking: (
-        chex.Array
-    )  # Boolean showing whether the unit is currently performing an attack TODO : is it needed?
 
     def update(self, **kwargs):
         config = kwargs["config"]
-        next_cooldown = jnp.where(self.attacking, 0.0, self.status.cooldown + config["dt"])
+        next_cooldown = self.status.cooldown + config["dt"]
         updated_object = physics_update(config, self)
 
         updated_transform = self.transform._replace(
@@ -154,7 +151,6 @@ class DefaultUnit(
         )
 
         # need to calculate cooldown of attacker
-        is_attack_by_self = attacker.status.id == self.status.id
 
         # damage = attacker.status.attack_damage * (
         #     attacker.status.attack_type == AttackType.DEFAULT
@@ -165,7 +161,7 @@ class DefaultUnit(
             lambda x, y: jnp.where(is_target, y, x), self.status, damaged_status
         )
 
-        return self._replace(status=new_status, attacking=is_attack_by_self)
+        return self._replace(status=new_status)
 
     def on_damage(self, damage) -> UnitStatus:
         return self.status._replace(
@@ -409,7 +405,6 @@ class BattleSimulator(BaseMAEnv):
                     max_health=jnp.array([1.0]),
                     speed=jnp.array([1.0]),
                 ),
-                attacking=jnp.array([False]),
             )
             for i, name in enumerate(self.unit_keys)
         }
@@ -660,7 +655,6 @@ class BattleSimulator(BaseMAEnv):
                     max_health=vectorized_scenario.healths[i],
                     speed=vectorized_scenario.speeds[i],
                 ),
-                attacking=jnp.array([False]),
             )
         state["game_manager"] = GameManager(
             attack_target=jnp.array([0]),
