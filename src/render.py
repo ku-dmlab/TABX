@@ -64,10 +64,13 @@ class PygameRenderer:
         # Policy selection
         self.policy_names = ["Heuristic", "Idle", "MAPPO"]
         self.selected_policy_index = 0  # 기본적으로 Heuristic 정책 사용
-        
+
         # 이전 프레임의 액션을 저장하여 공격 시작 감지
         self.previous_actions = {}
-        
+
+        # 이전 프레임의 유닛 상태를 저장하여 cooldown 변화 감지
+        self.previous_unit_states = {}
+
         # 공격 플래시 지속 시간 관리
         self.attack_flash_timers = {}  # 각 유닛별 공격 플래시 남은 프레임 수
 
@@ -248,6 +251,84 @@ class PygameRenderer:
         target_angle = math.atan2(dy, dx)
         return target_angle
 
+    def did_unit_just_attack(self, unit_name, unit):
+        """
+        유닛이 방금 공격했는지 확인하는 헬퍼 함수
+        이전 상태와 현재 상태의 cooldown 차이로 공격 발생을 감지
+        """
+        if unit_name not in self.previous_unit_states:
+            # 첫 프레임이므로 이전 상태 저장하고 False 반환
+            self._store_unit_state(unit_name, unit)
+            return False
+
+        # 현재 cooldown과 이전 cooldown 가져오기
+        current_cooldown = self._get_cooldown_value(unit)
+        previous_cooldown = self.previous_unit_states[unit_name]["cooldown"]
+
+        # 살아있고 활성화된 상태인지 확인
+        is_alive = self._is_unit_alive(unit)
+        is_enabled = self._is_unit_enabled(unit)
+
+        if not (is_alive and is_enabled):
+            # 현재 상태 업데이트하고 False 반환
+            self._store_unit_state(unit_name, unit)
+            return False
+
+        # 리셋 직후나 비정상적인 상황 방지
+        # cooldown 값이 비정상적으로 클 경우 (예: 리셋 직후 초기값) 무시
+        if previous_cooldown > 10.0 or current_cooldown > 10.0:
+            # 현재 상태 저장하고 False 반환
+            self._store_unit_state(unit_name, unit)
+            return False
+
+        # cooldown이 크게 감소했으면 공격이 발생한 것으로 판단
+        # physics dt는 일반적으로 0.2이므로 이보다 큰 차이면 공격으로 인식
+        dt_threshold = 0.15  # dt(0.2)보다 약간 작게 설정하여 오차 허용
+        cooldown_decrease = previous_cooldown - current_cooldown
+
+        # 공격이 발생했는지 판단 (양수이고 임계값보다 클 때만)
+        attack_occurred = cooldown_decrease > dt_threshold and cooldown_decrease > 0
+
+        # 현재 상태를 다음 프레임을 위해 저장
+        self._store_unit_state(unit_name, unit)
+
+        return attack_occurred
+
+    def _get_cooldown_value(self, unit):
+        """유닛에서 cooldown 값을 추출하는 헬퍼 함수"""
+        if hasattr(unit.status, "cooldown"):
+            if hasattr(unit.status.cooldown, "__array__"):
+                return float(np.array(unit.status.cooldown))
+            else:
+                return float(unit.status.cooldown)
+        return 0.0
+
+    def _is_unit_alive(self, unit):
+        """유닛이 살아있는지 확인하는 헬퍼 함수"""
+        if hasattr(unit.status, "is_alive"):
+            if hasattr(unit.status.is_alive, "__array__"):
+                return bool(np.array(unit.status.is_alive))
+            else:
+                return bool(unit.status.is_alive)
+        return True
+
+    def _is_unit_enabled(self, unit):
+        """유닛이 활성화되어 있는지 확인하는 헬퍼 함수"""
+        if hasattr(unit.status, "is_disabled"):
+            if hasattr(unit.status.is_disabled, "__array__"):
+                return not bool(np.array(unit.status.is_disabled))
+            else:
+                return not bool(unit.status.is_disabled)
+        return True
+
+    def _store_unit_state(self, unit_name, unit):
+        """유닛의 현재 상태를 저장하는 헬퍼 함수"""
+        self.previous_unit_states[unit_name] = {
+            "cooldown": self._get_cooldown_value(unit),
+            "is_alive": self._is_unit_alive(unit),
+            "is_enabled": self._is_unit_enabled(unit),
+        }
+
     def handle_events(self, objects):
         """이벤트 처리"""
         for event in pygame.event.get():
@@ -392,7 +473,9 @@ class PygameRenderer:
             if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
                 self.camera_x += move_speed
 
-    def draw_unit(self, unit_name, unit, show_ranges=None, alpha=255, action=None, show_attack_flash=False):
+    def draw_unit(
+        self, unit_name, unit, show_ranges=None, alpha=255, action=None, show_attack_flash=False
+    ):
         """개별 유닛을 그리기"""
         try:
             # JAX 배열에서 numpy 배열로 변환
@@ -437,7 +520,7 @@ class PygameRenderer:
                 sight_angle = float(unit.status.sight_angle)
 
             # show_attack_flash 파라미터로 공격 범위 표시 여부가 결정됨
-            
+
             # 생존 상태 확인
             is_alive = True
             if hasattr(unit.status, "is_alive"):
@@ -460,7 +543,7 @@ class PygameRenderer:
 
             # 유닛 몸체
             team_color = self.colors.get(f"team_{team}", (128, 128, 128))
-            
+
             # 죽은 유닛의 채도를 어둡게 만들기
             if not is_alive:
                 # 채도를 줄이고 어둡게 만들기 (RGB 값을 절반으로 줄임)
@@ -495,8 +578,13 @@ class PygameRenderer:
                 elif show_ranges is True:  # 이전 버전과의 호환성
                     self.draw_fan_sight_range(screen_pos, rotation, sight_angle, range_alpha)
 
-                # 공격 범위 표시는 아래 "공격 중 표시" 섹션에서 처리
-                # (중복 방지를 위해 여기서는 제거)
+                # 공격 범위 (UI 패널 설정에 따라, 실제 공격이 발생한 경우에만 표시)
+                if isinstance(show_ranges, dict) and show_ranges.get("attack", False):
+                    # 실제로 공격이 발생한 경우에만 공격 범위 표시
+                    if self.did_unit_just_attack(unit_name, unit):
+                        self.draw_rectangular_attack_range(
+                            screen_pos, rotation, attack_range, radius, range_alpha, sight_angle
+                        )
 
             # 선택된 유닛 표시
             if unit_name == self.selected_unit:
@@ -543,16 +631,22 @@ class PygameRenderer:
             if show_attack_flash and screen_radius > 2:
                 flash_info = self.attack_flash_timers.get(unit_name)
                 if flash_info:
+                    # 공격 플래시는 이미 공격이 발생했음을 나타내므로 조건 없이 표시
                     # 남은 프레임 수에 따라 알파 값 조정 (점점 흐려짐)
-                    flash_frames_left = flash_info['frames']
-                    attack_rotation = flash_info['rotation']  # 공격한 시점의 회전 각도 사용
+                    flash_frames_left = flash_info["frames"]
+                    attack_rotation = flash_info["rotation"]  # 공격한 시점의 회전 각도 사용
                     max_flash_frames = 15
                     alpha_ratio = flash_frames_left / max_flash_frames
                     flash_alpha = int(255 * alpha_ratio * 0.8)  # 최대 80% 투명도
-                    
+
                     # 공격 범위를 공격한 시점의 방향으로 고정하여 표시
                     self.draw_rectangular_attack_range(
-                        screen_pos, attack_rotation, attack_range, radius, flash_alpha, sight_angle
+                        screen_pos,
+                        attack_rotation,
+                        attack_range,
+                        radius,
+                        flash_alpha,
+                        sight_angle,
                     )
 
             # 체력바 (줌이 충분할 때만)
@@ -1787,73 +1881,38 @@ class PygameRenderer:
                 # 해당 유닛의 액션 가져오기
                 unit_action = None
                 show_attack_flash = False
-                
+
                 if actions is not None and obj_name in actions:
                     unit_action = actions[obj_name]
-                    
-                    # 공격이 새로 시작되었는지 확인
+
+                    # 실제 공격이 발생했는지 확인 (cooldown 변화로 감지)
                     try:
-                        if hasattr(unit_action, "__array__") or hasattr(unit_action, "__iter__"):
-                            action_array = np.array(unit_action)
-                            if len(action_array) >= 2:
-                                current_discrete_action = int(action_array[1])
-                                
-                                # 이전 액션 가져오기
-                                previous_action = self.previous_actions.get(obj_name, None)
-                                previous_discrete_action = None
-                                
-                                if previous_action is not None:
-                                    try:
-                                        prev_array = np.array(previous_action)
-                                        if len(prev_array) >= 2:
-                                            previous_discrete_action = int(prev_array[1])
-                                    except:
-                                        previous_discrete_action = None
-                                
-                                # 공격이 새로 시작되었는지 확인
-                                # (이전에 공격하지 않았고 현재 공격하는 경우)
-                                if current_discrete_action == UnitAction.ATTACK:
-                                    # 유닛이 살아있고 활성화되어 있는지 확인
-                                    is_alive = True
-                                    is_enabled = True
-                                    
-                                    if hasattr(obj.status, "is_alive"):
-                                        if hasattr(obj.status.is_alive, "__array__"):
-                                            is_alive = bool(np.array(obj.status.is_alive))
-                                        else:
-                                            is_alive = bool(obj.status.is_alive)
-                                    
-                                    if hasattr(obj.status, "is_disabled"):
-                                        if hasattr(obj.status.is_disabled, "__array__"):
-                                            is_enabled = not bool(np.array(obj.status.is_disabled))
-                                        else:
-                                            is_enabled = not bool(obj.status.is_disabled)
-                                    
-                                    # 이전 액션이 없는 경우 (첫 프레임) 또는 이전에 공격하지 않았던 경우
-                                    if (previous_discrete_action is None or 
-                                        previous_discrete_action != UnitAction.ATTACK):
-                                        # 살아있고 활성화된 유닛만 공격 플래시 시작
-                                        if is_alive and is_enabled:
-                                            # 공격 플래시를 15프레임 동안 지속 (약 0.25초)
-                                            # 공격한 시점의 회전 각도도 함께 저장
-                                            if hasattr(obj.transform.rotation, "__array__"):
-                                                attack_rotation = float(np.array(obj.transform.rotation))
-                                            else:
-                                                attack_rotation = float(obj.transform.rotation)
-                                            
-                                            self.attack_flash_timers[obj_name] = {
-                                                'frames': 15,
-                                                'rotation': attack_rotation
-                                            }
+                        if self.did_unit_just_attack(obj_name, obj):
+                            # 공격 플래시를 15프레임 동안 지속 (약 0.25초)
+                            # 공격한 시점의 회전 각도도 함께 저장
+                            if hasattr(obj.transform.rotation, "__array__"):
+                                attack_rotation = float(np.array(obj.transform.rotation))
+                            else:
+                                attack_rotation = float(obj.transform.rotation)
+
+                            self.attack_flash_timers[obj_name] = {
+                                "frames": 15,
+                                "rotation": attack_rotation,
+                            }
 
                     except Exception:
                         pass
-                
+
                 # 공격 플래시 타이머 확인
-                if obj_name in self.attack_flash_timers and self.attack_flash_timers[obj_name]['frames'] > 0:
+                if (
+                    obj_name in self.attack_flash_timers
+                    and self.attack_flash_timers[obj_name]["frames"] > 0
+                ):
                     show_attack_flash = True
-                
-                self.draw_unit(obj_name, obj, unit_show_ranges, alpha, unit_action, show_attack_flash)
+
+                self.draw_unit(
+                    obj_name, obj, unit_show_ranges, alpha, unit_action, show_attack_flash
+                )
 
         # UI 그리기
         self.draw_ui(objects)
@@ -1888,14 +1947,14 @@ class PygameRenderer:
         # 화면 업데이트
         # 공격 플래시 타이머 업데이트
         for unit_name in list(self.attack_flash_timers.keys()):
-            self.attack_flash_timers[unit_name]['frames'] -= 1
-            if self.attack_flash_timers[unit_name]['frames'] <= 0:
+            self.attack_flash_timers[unit_name]["frames"] -= 1
+            if self.attack_flash_timers[unit_name]["frames"] <= 0:
                 del self.attack_flash_timers[unit_name]
-        
+
         # 이번 프레임의 액션을 다음 프레임을 위해 저장
         if actions is not None:
             self.previous_actions = actions.copy()
-        
+
         pygame.display.flip()
         self.clock.tick(self.fps)
 
@@ -1980,7 +2039,7 @@ class PygameRenderer:
             if alpha is not None and alpha >= 200:
                 # 공격 중일 때 더 강조된 색상 (빨간색 계열)
                 attack_color = (255, 50, 0, alpha)  # 강한 빨간색
-                border_color = (255, 0, 0, 255)     # 완전한 빨간색 테두리
+                border_color = (255, 0, 0, 255)  # 완전한 빨간색 테두리
             elif alpha is not None and alpha < 255:
                 attack_color = (*self.colors["attack_range"][:3], alpha // 3)  # 더 투명하게
                 border_color = (*self.colors["attack_range"][:3], alpha // 2)
@@ -2437,6 +2496,9 @@ class PygameRenderer:
                 try:
                     import jax
 
+                    # 리셋과 함께 상태 초기화
+                    self._reset_internal_states()
+
                     # 선택된 시나리오 사용
                     if self.scenario_names and 0 <= self.selected_scenario_index < len(
                         self.scenario_names
@@ -2455,6 +2517,15 @@ class PygameRenderer:
                     print(f"Environment reset failed: {e}")
                     return None, None
         return None, None
+
+    def _reset_internal_states(self):
+        """리셋 시 내부 상태들을 초기화"""
+        self.previous_actions = {}
+        self.previous_unit_states = {}
+        self.attack_flash_timers = {}
+        print(
+            "Internal states reset: previous_actions, previous_unit_states, attack_flash_timers cleared"
+        )
 
     def close(self):
         """렌더러 종료"""
@@ -2493,7 +2564,7 @@ def render_loop(
             }
 
         current_actions = {}  # 현재 액션을 저장할 변수
-        
+
         while renderer.render(state, show_ranges, obs, done, current_actions):
             # 리셋 요청 확인 및 처리
             reset_obs, reset_state = renderer.check_reset_request()
@@ -2551,7 +2622,7 @@ def render_loop(
 
             # 현재 액션을 저장
             current_actions = actions.copy()
-            
+
             # 게임 스텝 실행
             obs, state, reward, done, info = step(jax.random.key(0), state, actions)
             print(info["timestep"])
@@ -2599,10 +2670,14 @@ if __name__ == "__main__":
     config.entropy_coef = 0.01
     config.ppo_epochs = 5
 
-    heuristic_policy = jax.jit(functools.partial(heuristic_policy, num_agents=10, epsilon=0.01))
     env = BattleSimulator(max_n_ally=8, max_n_enemy=2)
+    heuristic_policy = jax.jit(
+        functools.partial(
+            heuristic_policy, num_agents=env.max_n_ally + env.max_n_enemy, epsilon=0.01
+        )
+    )
     mappo = MAPPO(config, env, scenario)
-    mappo_state = mappo.load_state("C:/Users/JunhyeokOh/Desktop/TABS/baseline/action_clip", True)
+    # mappo_state = mappo.load_state("C:/Users/JunhyeokOh/Desktop/TABS/baseline/action_clip", True)
 
     sample_action = jax.jit(mappo.sample_action)
 
