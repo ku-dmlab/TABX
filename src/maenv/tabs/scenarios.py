@@ -219,8 +219,8 @@ def get_vectorized_scenario(scenario, n_ally, n_enemy, unit_spacing=6, side_gap=
         jnp.repeat(
             jnp.array(
                 [
-                    (scenario.battle_field.shape[0] + side_gap) * unit_spacing,
-                    (scenario.battle_field.shape[1]) * unit_spacing,
+                    (scenario.battle_field.shape[0] * 3 / 2 + side_gap / 2) * unit_spacing,
+                    (scenario.battle_field.shape[1] * 3 / 2) * unit_spacing,
                 ]
             ).reshape(1, 2),
             n_ally + n_enemy,
