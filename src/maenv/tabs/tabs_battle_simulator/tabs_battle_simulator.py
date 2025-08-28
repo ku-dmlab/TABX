@@ -348,7 +348,9 @@ class GameManager(
                 ((teams == team) & ~is_disabled) * max_hp
             ).sum()
 
-        team_hp_ratio = jax.vmap(team_hp)(jnp.arange(max_team))
+        team_hp_ratio = jnp.clip(
+            jax.vmap(team_hp)(jnp.arange(max_team)), 0.0, 1.0
+        )  # Clip to remove rewards for healing or damage that exceed max health but seems to be not happening
 
         return self._replace(
             last_team_hp_ratio=self.team_hp_ratio,
@@ -417,8 +419,8 @@ class BattleSimulator(BaseMAEnv):
             reward=jnp.array([0.0]),
             done=jnp.array([False]),
             timestep=jnp.array([0]),
-            team_hp_ratio=jnp.zeros(self.max_team),
-            last_team_hp_ratio=jnp.zeros(self.max_team),
+            team_hp_ratio=jnp.ones(self.max_team),
+            last_team_hp_ratio=jnp.ones(self.max_team),
         )
 
     def get_obs(self, state):
@@ -664,8 +666,8 @@ class BattleSimulator(BaseMAEnv):
             reward=jnp.array([0.0]),
             done=jnp.array([False]),
             timestep=jnp.array([0]),
-            team_hp_ratio=jnp.zeros(self.max_team),
-            last_team_hp_ratio=jnp.zeros(self.max_team),
+            team_hp_ratio=jnp.ones(self.max_team),
+            last_team_hp_ratio=jnp.ones(self.max_team),
         )
 
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
@@ -704,9 +706,11 @@ class BattleSimulator(BaseMAEnv):
         def is_team_done(team):
             return ((teams == team) & (~is_alives | is_disabled)).sum() == (teams == team).sum()
 
+        team_dones = jax.vmap(is_team_done)(jnp.arange(self.max_team)) > 0
+
         dones["__all__"] = jnp.array(
-            [(jax.vmap(is_team_done)(jnp.arange(self.max_team)) > 0).sum() == 1]
-        )
+            [team_dones.sum() >= self.max_team - 1]
+        )  # if all teams except one are eliminated
 
         state["game_manager"] = state["game_manager"].update_team_hp_ratio(
             state, teams, is_disabled, self.unit_keys, self.max_team
@@ -715,14 +719,22 @@ class BattleSimulator(BaseMAEnv):
         delta_hp = state["game_manager"].team_hp_ratio - state["game_manager"].last_team_hp_ratio
         reward_matrix = (jnp.identity(self.max_team) - 0.5) * 2.0
 
-        rewards = (delta_hp[None] * reward_matrix).sum(axis=-1, keepdims=True)
+        done_reward = (~team_dones * dones["__all__"])[
+            :, None
+        ]  # if all teams except one are eliminated, give reward 1.0
+
+        rewards = (delta_hp[None] * reward_matrix).sum(axis=-1, keepdims=True) + done_reward
 
         return (
             self.get_obs(state),
             state,
             rewards,
             dones,
-            {"timestep": state["game_manager"].timestep, "disabled_units": is_disabled},
+            {
+                "timestep": state["game_manager"].timestep,
+                "disabled_units": is_disabled,
+                "done_reward": done_reward,
+            },
         )
 
     def render(self, state):
