@@ -28,20 +28,11 @@ tfb = tfp.bijectors
 
 
 class MAPPO:
-    def __init__(self, config, env, fixed_scenario=None):
+    def __init__(self, config, env):
         self.config = config
         self.env = env
-        self.v_reset = jax.vmap(env.reset, in_axes=(0, 0))
+        self.v_reset = jax.vmap(lambda key: env.reset(key, None))
         self.v_step = jax.vmap(env.step, in_axes=(0, 0, 0))
-
-        if fixed_scenario is None:  # TODO: support dynamic scenario
-            raise "fixed_scenario is required"
-
-        # repeat scenario n_env times for each env
-
-        self.repeated_scenario = jax.tree.map(
-            lambda x: jnp.repeat(x[None], config.n_env, axis=0), fixed_scenario
-        )
 
     def sample_action(
         self,
@@ -86,9 +77,7 @@ class MAPPO:
         value, value_optimizer = get_model(train_state.value_state)
 
         reset_key, key = jax.random.split(key)
-        init_obs, init_env_state = self.v_reset(
-            jax.random.split(reset_key, self.config.n_env), self.repeated_scenario
-        )
+        init_obs, init_env_state = self.v_reset(jax.random.split(reset_key, self.config.n_env))
         init_policy_hidden_state = policy.initialize_carry(
             (self.env.max_n_ally,) + init_obs["unit_0"].shape
         )
@@ -130,19 +119,6 @@ class MAPPO:
             next_value_hidden_state, state_value = value(value_hidden_state, state)
             next_value_hidden_state = next_value_hidden_state * ~dones["__all__"]
 
-            reset_obs, reset_env_state = self.v_reset(
-                jax.random.split(reset_key, self.config.n_env), self.repeated_scenario
-            )
-
-            next_obs = jax.tree.map(
-                lambda x, y: jnp.select(dones["__all__"][:, 0], x, y), reset_obs, next_obs
-            )
-            next_env_states = jax.tree.map(
-                lambda x, y: jnp.select(dones["__all__"][:, 0], x, y),
-                reset_env_state,
-                next_env_states,
-            )
-
             sample_result.update(
                 {
                     "rewards": rewards,
@@ -180,6 +156,10 @@ class MAPPO:
         rollout_result["common_reward"] = common_reward
         rollout_result["dones"] = rollout_result["dones"]["__all__"]
         rollout_result["last_value"] = last_value
+
+        rollout_result["returned_episode_returns"] = last_env_state.returned_episode_returns
+        rollout_result["returned_episode_lengths"] = last_env_state.returned_episode_lengths
+        rollout_result["returned_episode_wins"] = last_env_state.returned_episode_wins
 
         train_state = train_state.replace(key=last_key)
         return train_state, rollout_result
