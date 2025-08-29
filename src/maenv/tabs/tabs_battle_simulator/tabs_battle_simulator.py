@@ -364,7 +364,7 @@ class BattleSimulator(BaseMAEnv):
         max_n_ally: int = 4,
         max_n_enemy: int = 4,
         physics_config: Dict[str, float] = EasyDict(
-            {"dt": 0.2, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
+            {"dt": 0.5, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
         ),
         obs_type: str = "unit_spec",
         max_team: int = 2,
