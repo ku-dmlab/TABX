@@ -17,6 +17,8 @@ dependencies = [
     "matplotlib>=3.10.3",
     "easydict>=1.13",
     "nvidia-cublas-cu12>=12.9.1.4",
+    "tyro>=0.9.29",
+    "tqdm>=4.67.1",
 ]
 
 [project.scripts]

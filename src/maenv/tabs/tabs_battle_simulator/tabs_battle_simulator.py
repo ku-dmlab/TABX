@@ -27,6 +27,7 @@ class UnitStatus(
             "is_alive",
             "attack_type",
             "is_disabled",
+            "speed",
         ],
     )
 ):
@@ -41,22 +42,7 @@ class UnitStatus(
     is_alive: chex.Array  # Boolean showing whether the unit is alive
     attack_type: chex.Array  # Type of attack the unit performs
     is_disabled: chex.Array  # Boolean showing whether the unit is disabled
-
-    def to_array(self):
-        return jnp.concatenate(
-            (
-                self.health,
-                self.max_health,
-                self.attack_damage,
-                self.attack_range,
-                self.attack_cooldown,
-                self.cooldown,
-                self.sight_angle,
-                self.is_alive,
-                self.attack_type,
-                self.is_disabled,
-            )
-        )
+    speed: chex.Array  # Speed of the unit
 
 
 move_table = jnp.array(
@@ -88,7 +74,7 @@ class UnitAction:
 class DefaultUnit(
     namedtuple(
         "DefaultUnit",
-        ["transform", "rigidbody", "collider", "team", "pos_min", "pos_max", "status", "attacking"],
+        ["transform", "rigidbody", "collider", "team", "pos_min", "pos_max", "status"],
     )
 ):
     transform: (
@@ -100,30 +86,10 @@ class DefaultUnit(
     pos_min: chex.Array  # The positional boundaries or limits within which the unit can move
     pos_max: chex.Array  # The positional boundaries or limits within which the unit can move
     status: UnitStatus  # The current status of the unit, including health, attack stats, and other attributes
-    attacking: (
-        chex.Array
-    )  # Boolean showing whether the unit is currently performing an attack TODO : is it needed?
-
-    def to_array(self):
-        return jnp.concatenate(
-            (
-                self.transform.to_array(),
-                self.rigidbody.to_array(),
-                self.collider.to_array(),
-                self.team,
-                self.status.to_array(),
-                self.attacking,
-            )
-        )
-
-    # def __new__(cls, transform, rigidbody, collider, team, pos_limit, status, attacking):
-    #     return super().__new__(
-    #         cls, transform, rigidbody, collider, team, pos_limit, status, attacking
-    #     )
 
     def update(self, **kwargs):
         config = kwargs["config"]
-        next_cooldown = jnp.where(self.attacking, 0.0, self.status.cooldown + config["dt"])
+        next_cooldown = self.status.cooldown + config["dt"]
         updated_object = physics_update(config, self)
 
         updated_transform = self.transform._replace(
@@ -149,14 +115,19 @@ class DefaultUnit(
 
         notify(objects, "hit", (self, is_attack, target_id, target_attackable, can_attack))
 
-        move_action = move_table[discrete_action] * action_able  # if unit is dead, do not move
+        move_action = (
+            move_table[discrete_action] * action_able * self.status.speed
+        )  # if unit is dead, do not move
 
         cooldown = is_attack & can_attack
 
         return self._replace(
             rigidbody=self.rigidbody._replace(velocity=move_action),
             transform=self.transform._replace(
-                rotation=(self.transform.rotation + action[0].reshape() * action_able)
+                rotation=(
+                    self.transform.rotation
+                    + jnp.clip(action[0].reshape(), -jnp.pi / 12, jnp.pi / 12) * action_able
+                )
                 % (2 * jnp.pi)
             ),
             status=self.status._replace(
@@ -180,7 +151,6 @@ class DefaultUnit(
         )
 
         # need to calculate cooldown of attacker
-        is_attack_by_self = attacker.status.id == self.status.id
 
         # damage = attacker.status.attack_damage * (
         #     attacker.status.attack_type == AttackType.DEFAULT
@@ -191,7 +161,7 @@ class DefaultUnit(
             lambda x, y: jnp.where(is_target, y, x), self.status, damaged_status
         )
 
-        return self._replace(status=new_status, attacking=is_attack_by_self)
+        return self._replace(status=new_status)
 
     def on_damage(self, damage) -> UnitStatus:
         return self.status._replace(
@@ -210,6 +180,8 @@ class GameManager(
             "attackable_matrix",
             "visible_matrix",
             "distance_matrix",
+            "team_hp_ratio",
+            "last_team_hp_ratio",
         ],
     )
 ):
@@ -220,6 +192,8 @@ class GameManager(
     attackable_matrix: chex.Array
     visible_matrix: chex.Array
     distance_matrix: chex.Array
+    team_hp_ratio: chex.Array
+    last_team_hp_ratio: chex.Array
 
     def get_units_in_attack_range(
         self,
@@ -365,19 +339,45 @@ class GameManager(
             timestep=self.timestep + 1,
         )
 
+    def update_team_hp_ratio(self, state, teams, is_disabled, unit_keys, max_team):
+        hp = jnp.stack([state[unit].status.health for unit in unit_keys])
+        max_hp = jnp.stack([state[unit].status.max_health for unit in unit_keys])
+
+        def team_hp(team):
+            return (((teams == team) & ~is_disabled) * hp).sum() / (
+                ((teams == team) & ~is_disabled) * max_hp
+            ).sum()
+
+        team_hp_ratio = jnp.clip(
+            jax.vmap(team_hp)(jnp.arange(max_team)), 0.0, 1.0
+        )  # Clip to remove rewards for healing or damage that exceed max health but seems to be not happening
+
+        return self._replace(
+            last_team_hp_ratio=self.team_hp_ratio,
+            team_hp_ratio=team_hp_ratio,
+        )
+
 
 class BattleSimulator(BaseMAEnv):
     def __init__(
         self,
-        num_agents: int = 4,
+        max_n_ally: int = 4,
+        max_n_enemy: int = 4,
         physics_config: Dict[str, float] = EasyDict(
-            {"dt": 0.2, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
+            {"dt": 0.5, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
         ),
         obs_type: str = "unit_spec",
+        max_team: int = 2,
     ):
-        super().__init__(num_agents, physics_config)
+        super().__init__(max_n_ally + max_n_enemy, physics_config)
         self.obs_type = obs_type
-        self.unit_keys = [f"unit_{i}" for i in range(num_agents)]
+        self.ally_keys = [f"unit_{i}" for i in range(max_n_ally)]
+        self.enemy_keys = [f"unit_{i}" for i in range(max_n_ally, max_n_ally + max_n_enemy)]
+        self.unit_keys = self.ally_keys + self.enemy_keys
+        self.max_team = max_team
+
+        self.max_n_ally = max_n_ally
+        self.max_n_enemy = max_n_enemy
 
         self.empty_state = {
             name: DefaultUnit(
@@ -405,8 +405,8 @@ class BattleSimulator(BaseMAEnv):
                     is_disabled=jnp.array([False]),
                     attack_type=jnp.array([AttackType.DEFAULT]),
                     max_health=jnp.array([1.0]),
+                    speed=jnp.array([1.0]),
                 ),
-                attacking=jnp.array([False]),
             )
             for i, name in enumerate(self.unit_keys)
         }
@@ -419,6 +419,8 @@ class BattleSimulator(BaseMAEnv):
             reward=jnp.array([0.0]),
             done=jnp.array([False]),
             timestep=jnp.array([0]),
+            team_hp_ratio=jnp.ones(self.max_team),
+            last_team_hp_ratio=jnp.ones(self.max_team),
         )
 
     def get_obs(self, state):
@@ -506,8 +508,8 @@ class BattleSimulator(BaseMAEnv):
 
     def get_spec_obs(self, state):
         """
-        own_feature : [health, max_health, absolute_x, absolute_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive]
-        other_feature : [health, max_health, relative_x, relative_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive, is_ally, is_attackable]
+        own_feature : [health, max_health, absolute_x, absolute_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive, speed]
+        other_feature : [health, max_health, relative_x, relative_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive, is_ally, is_attackable, speed]
         """
 
         keys = self.unit_keys
@@ -528,6 +530,7 @@ class BattleSimulator(BaseMAEnv):
         sight_angles = jnp.stack([state[unit].status.sight_angle for unit in keys]) / (jnp.pi * 2)
         teams = jnp.stack([state[unit].team for unit in keys])
         is_alives = jnp.stack([state[unit].status.is_alive for unit in keys])
+        speeds = jnp.stack([state[unit].status.speed for unit in keys])
 
         is_ally = teams[None] == teams[:, None]
 
@@ -556,6 +559,7 @@ class BattleSimulator(BaseMAEnv):
         repeated_mass = jnp.repeat(body_weights[None], repeats=n_unit, axis=0)
         repeated_sight_angle = jnp.repeat(sight_angles[None], repeats=n_unit, axis=0)
         repeated_cooldown = jnp.repeat(cooldowns[None], repeats=n_unit, axis=0)
+        repeated_speed = jnp.repeat(speeds[None], repeats=n_unit, axis=0)
 
         rolled_health = v_roll(repeated_health, roll_shifts)[:, 1:]
         rolled_max_health = v_roll(repeated_max_health, roll_shifts)[:, 1:]
@@ -568,6 +572,7 @@ class BattleSimulator(BaseMAEnv):
         rolled_mass = v_roll(repeated_mass, roll_shifts)[:, 1:]
         rolled_sight_angle = v_roll(repeated_sight_angle, roll_shifts)[:, 1:]
         rolled_cooldown = v_roll(repeated_cooldown, roll_shifts)[:, 1:]
+        rolled_speed = v_roll(repeated_speed, roll_shifts)[:, 1:]
 
         own_feature = jnp.concatenate(
             (
@@ -583,6 +588,7 @@ class BattleSimulator(BaseMAEnv):
                 body_weights,
                 sight_angles,
                 is_alives,
+                speeds,
             ),
             axis=1,
         )
@@ -604,6 +610,7 @@ class BattleSimulator(BaseMAEnv):
                     rolled_is_alive,
                     rolled_is_ally,
                     rolled_attackable_matrix,
+                    rolled_speed,
                 ),
                 axis=2,
             )
@@ -616,7 +623,7 @@ class BattleSimulator(BaseMAEnv):
 
     def reset(self, key, senario: Scenario):
         vectorized_scenario: VectorizedScenario = get_vectorized_scenario(
-            senario, self.num_agents // 2
+            senario, self.max_n_ally, self.max_n_enemy
         )
 
         state = {}
@@ -648,8 +655,8 @@ class BattleSimulator(BaseMAEnv):
                     is_disabled=vectorized_scenario.is_disabled[i],
                     attack_type=vectorized_scenario.attack_types[i],
                     max_health=vectorized_scenario.healths[i],
+                    speed=vectorized_scenario.speeds[i],
                 ),
-                attacking=jnp.array([False]),
             )
         state["game_manager"] = GameManager(
             attack_target=jnp.array([0]),
@@ -659,6 +666,8 @@ class BattleSimulator(BaseMAEnv):
             reward=jnp.array([0.0]),
             done=jnp.array([False]),
             timestep=jnp.array([0]),
+            team_hp_ratio=jnp.ones(self.max_team),
+            last_team_hp_ratio=jnp.ones(self.max_team),
         )
 
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
@@ -683,12 +692,50 @@ class BattleSimulator(BaseMAEnv):
             state[sprite] = state[sprite].act(state, action[sprite])
 
         # alive processing after action step, for independent unit sequence
+        dones = {}
         for sprite in self.unit_keys:
             state[sprite] = state[sprite]._replace(
                 status=state[sprite].status._replace(is_alive=(state[sprite].status.health > 0))
             )
+            dones[sprite] = ~state[sprite].status.is_alive
 
-        return self.get_obs(state), state, 0.0, False, {"timestep": 0}
+        is_alives = jnp.stack([state[unit].status.is_alive for unit in self.unit_keys])
+        teams = jnp.stack([state[unit].team for unit in self.unit_keys])
+        is_disabled = jnp.stack([state[unit].status.is_disabled for unit in self.unit_keys])
+
+        def is_team_done(team):
+            return ((teams == team) & (~is_alives | is_disabled)).sum() == (teams == team).sum()
+
+        team_dones = jax.vmap(is_team_done)(jnp.arange(self.max_team)) > 0
+
+        dones["__all__"] = jnp.array(
+            [team_dones.sum() >= self.max_team - 1]
+        )  # if all teams except one are eliminated
+
+        state["game_manager"] = state["game_manager"].update_team_hp_ratio(
+            state, teams, is_disabled, self.unit_keys, self.max_team
+        )
+
+        delta_hp = state["game_manager"].team_hp_ratio - state["game_manager"].last_team_hp_ratio
+        reward_matrix = (jnp.identity(self.max_team) - 0.5) * 2.0
+
+        done_reward = (~team_dones * dones["__all__"])[
+            :, None
+        ]  # if all teams except one are eliminated, give reward 1.0
+
+        rewards = (delta_hp[None] * reward_matrix).sum(axis=-1, keepdims=True) + done_reward
+
+        return (
+            self.get_obs(state),
+            state,
+            rewards,
+            dones,
+            {
+                "timestep": state["game_manager"].timestep,
+                "disabled_units": is_disabled,
+                "done_reward": done_reward,
+            },
+        )
 
     def render(self, state):
         return None
