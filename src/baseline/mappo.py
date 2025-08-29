@@ -332,6 +332,9 @@ class MAPPO:
                 "ratio_max": train_result["ratio_max"].max(),
                 "ratio_min": train_result["ratio_min"].min(),
                 "rewards": rollout_result["common_reward"].sum() / self.config.n_env,
+                "returned_episode_returns": rollout_result["returned_episode_returns"],
+                "returned_episode_lengths": rollout_result["returned_episode_lengths"],
+                "returned_episode_wins": rollout_result["returned_episode_wins"],
             }
 
             return (train_state,), ppo_result
