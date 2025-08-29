@@ -71,7 +71,7 @@ default_tabs_conf = TABSConf(
 
 
 def get_scenario_name_list():
-    return ["10farmers", "1theking", "4archer_1mammoth", "8archer_vs_1mammoth_1healer"]
+    return ["10farmers", "1theking", "4archer_1mammoth", "8archer_vs_1mammoth_1healer_1archer"]
 
 
 def generate_scenario(cfg: TABSConf):
@@ -158,13 +158,14 @@ def generate_scenario(cfg: TABSConf):
         enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
             jnp.ones((h, w), dtype=jnp.float32)
         )
-    elif cfg.scenario_name == "8archer_vs_1mammoth_1healer":
+    elif cfg.scenario_name == "8archer_vs_1mammoth_1healer_1archer":
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 2000
         ally_unit_comp = ally_unit_comp.at[UnitID.Archer - 1].set(8)
         enemy_unit_comp = enemy_unit_comp.at[UnitID.Mammoth - 1].set(1)
         enemy_unit_comp = enemy_unit_comp.at[UnitID.Healer - 1].set(1)
+        enemy_unit_comp = enemy_unit_comp.at[UnitID.Archer - 1].set(1)
         battle_field = jnp.array(
             [
                 [0, 0, 0, 0, 0],
@@ -177,8 +178,8 @@ def generate_scenario(cfg: TABSConf):
         enemy_battle_field = jnp.array(
             [
                 [0, 0, UnitID.Mammoth, 0, 0],
-                [0, 0, UnitID.Healer, 0, 0],
                 [0, 0, 0, 0, 0],
+                [0, UnitID.Healer, 0, UnitID.Archer, 0],
                 [0, 0, 0, 0, 0],
             ],
             dtype=jnp.float32,
