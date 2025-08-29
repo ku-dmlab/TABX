@@ -36,8 +36,6 @@ if [[ "$1" == "-h" || "$1" == "--help" ]]; then
 fi
 
 # Define common parameters
-seeds=(0)
-scenarios=("8archer_vs_1mammoth_1healer")
 
 # Define hyperparameter pools for different experiment types
 # Each pool defines the parameters to search over
@@ -46,9 +44,9 @@ declare -A hyperparameter_pools
 
 # Quick test pool - small search space for testing
 hyperparameter_pools["quick_test"]="
-scenario=(8archer_vs_1mammoth_1healer)
-clip_ratio=(0.05 0.1 0.2)
-entropy_coef=(0.01 0.1 0.001)
+scenario=(8archer_vs_1mammoth_1healer_1archer)
+clip_ratio=(0.05 0.1)
+entropy_coef=(0.001 0.0005)
 "
 
 
