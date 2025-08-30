@@ -99,7 +99,7 @@ class TABSUnitComb(BaseMAEnv):
             purchase_valid, state.current_unit_list + 1, state.current_unit_list
         )
         new_budgets = jnp.where(purchase_valid, state.budget - state.all_price, state.budget)
-        budget = new_budgets[action].astype(jnp.int32)
+        budget = new_budgets[action].astype(jnp.int32)[None]
 
         action_mask = (
             jnp.where(budget >= state.all_price, True, False)
@@ -113,7 +113,7 @@ class TABSUnitComb(BaseMAEnv):
             action_mask=action_mask.astype(jnp.float32),
         )
         # NOTE: Reward would be computed by the result of battle with this unit combination.
-        reward = 0.0
+        reward = None
 
         # Episodes will continue until no more units can be purchased.
         done = jnp.where(
