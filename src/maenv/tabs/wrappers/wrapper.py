@@ -119,10 +119,12 @@ class BattleSimulatorLogWrapper(BattleSimulatorWrapper):
     """
     Wrapper for BattleSimulator that logs the episode returns, lengths, and wins.
 
-    Note: When auto reset is not used, returned_episode_returns and lengths may not be accurate.
+    Note: When done but no reset occurs, returned_episode_returns and lengths may not be accurate. Set reset_when_done to False if you don't want to reset when done.
     """
-    def __init__(self, env: BattleSimulator):
+    def __init__(self, env: BattleSimulator, reset_when_done: bool = True):
         super().__init__(env)
+
+        self.reset_when_done = reset_when_done
 
     def reset(self, key, senario: Scenario):
         obs, state = self.env.reset(key, senario)
@@ -143,21 +145,39 @@ class BattleSimulatorLogWrapper(BattleSimulatorWrapper):
 
         ep_done = done["__all__"]
 
-        new_episode_return = state.episode_returns + reward
-        net_epsiode_length = state.episode_lengths + 1
+        if self.reset_when_done:
 
-        log_state = LogEnvState(
-            env_state=next_state,
-            episode_returns=new_episode_return * (1 - ep_done),
-            episode_lengths=net_epsiode_length * (1 - ep_done),
-            returned_episode_returns=state.returned_episode_returns * (1 - ep_done)
-            + new_episode_return * ep_done,
-            returned_episode_lengths=state.returned_episode_lengths * (1 - ep_done)
-            + net_epsiode_length * ep_done,
-            returned_episode_wins=info["done_reward"] * ep_done
-            + state.returned_episode_wins * (1 - ep_done),
-        )
+            new_episode_return = state.episode_returns + reward
+            net_epsiode_length = state.episode_lengths + 1
 
+            log_state = LogEnvState(
+                env_state=next_state,
+                episode_returns=new_episode_return * (1 - ep_done),
+                episode_lengths=net_epsiode_length * (1 - ep_done),
+                returned_episode_returns=state.returned_episode_returns * (1 - ep_done)
+                + new_episode_return * ep_done,
+                returned_episode_lengths=state.returned_episode_lengths * (1 - ep_done)
+                + net_epsiode_length * ep_done,
+                returned_episode_wins=info["done_reward"] * ep_done
+                + state.returned_episode_wins * (1 - ep_done),
+            )
+
+        else:
+            new_episode_return = state.episode_returns + reward * (1 - ep_done)
+            net_epsiode_length = state.episode_lengths + 1 * (1 - ep_done)
+
+            log_state = LogEnvState(
+                env_state=next_state,
+                episode_returns=new_episode_return,
+                episode_lengths=net_epsiode_length,
+                returned_episode_returns=state.returned_episode_returns,
+                returned_episode_lengths=state.returned_episode_lengths,
+                returned_episode_wins=info["done_reward"].astype(jnp.float32),
+            )
+
+
+        info["episode_returns"] = log_state.episode_returns
+        info["episode_lengths"] = log_state.episode_lengths
         info["returned_episode_returns"] = log_state.returned_episode_returns
         info["returned_episode_lengths"] = log_state.returned_episode_lengths
         info["returned_episode_wins"] = log_state.returned_episode_wins
