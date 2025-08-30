@@ -1,11 +1,12 @@
 from typing import Dict, Any
 from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import BattleSimulator
+from src.maenv.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
 from src.maenv.tabs.scenarios import Scenario
 import jax.numpy as jnp
 import chex
 import jax
 from flax import struct
-
+from typing import List
 
 class BattleSimulatorWrapper:
     def __getattr__(self, name: str):
@@ -15,7 +16,59 @@ class BattleSimulatorWrapper:
         self.env = env
 
 
+class BattleSimulatorHeuristicWrapper(BattleSimulatorWrapper):
+    """
+    Wrapper for BattleSimulator that adds heuristic policy to the units.
+    heuristic_units: List[str] | str, epsilon: float = 0.1
+    heuristic_units: "all" | "enemy" | List[str]
+    epsilon: float = 0.1
+    - all: all units
+    - enemy: enemy units
+    - List[str]: list of units
+    """
+    def __init__(self, env: BattleSimulator, heuristic_units: List[str] | str, epsilon: float = 0.1):
+        super().__init__(env)
+
+        if isinstance(heuristic_units, str):
+            if heuristic_units == "all":
+                self.heuristic_units = self.env.ally_keys + self.env.enemy_keys
+            elif heuristic_units == "enemy":
+                self.heuristic_units = self.env.enemy_keys
+            else:
+                raise ValueError(f"Invalid heuristic units: {heuristic_units}")
+        elif isinstance(heuristic_units, list):
+            self.heuristic_units = heuristic_units
+        else:
+            raise ValueError(f"Invalid heuristic units: {heuristic_units}")
+
+        self.epsilon = epsilon
+
+    
+    def reset(self, key, senario: Scenario):
+        obs, state = self.env.reset(key, senario)
+        return obs, state
+    
+    def step(self, key, state, action):
+
+        obs = self.env.get_obs(state)
+        # add actions based on heuristic policy
+        for unit in self.heuristic_units:
+            heuristic_key, key = jax.random.split(key)
+            action[unit] = heuristic_policy(heuristic_key, obs[unit], self.env.num_agents, self.epsilon)
+
+
+        obs, next_state, reward, done, info = self.env.step(key, state, action)
+        return obs, next_state, reward, done, info
+    
+    
+
 class BattleSimulatorAutoResetWrapper(BattleSimulatorWrapper):
+    """
+    Wrapper for BattleSimulator that adds automatic reset functionality.
+    fixed_scenario: Scenario = None
+    - None: random scenario
+    - Scenario: fixed scenario if you want to use a fixed scenario. If you want to use an explicit scenario when resetting, set to None.
+    """
     def __init__(self, env: BattleSimulator, fixed_senario: Scenario = None):
         super().__init__(env)
         self.fixed_senario = fixed_senario
@@ -63,6 +116,11 @@ class LogEnvState:
 
 # ref : https://github.com/FLAIROx/JaxMARL/blob/main/jaxmarl/wrappers/baselines.py
 class BattleSimulatorLogWrapper(BattleSimulatorWrapper):
+    """
+    Wrapper for BattleSimulator that logs the episode returns, lengths, and wins.
+
+    Note: When auto reset is not used, returned_episode_returns and lengths may not be accurate.
+    """
     def __init__(self, env: BattleSimulator):
         super().__init__(env)
 
