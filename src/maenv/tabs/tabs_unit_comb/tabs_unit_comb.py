@@ -22,7 +22,8 @@ class State:
 class TABSUnitComb(BaseMAEnv):
     def __init__(self, cfg: TABSConf) -> None:
         self.max_num_units = cfg.max_num_units
-        self.max_agents = cfg.max_agents
+        self.max_n_ally = cfg.max_n_ally
+        self.max_n_enemy = cfg.max_n_enemy
 
         self.action_space = Discrete(num_categories=self.max_num_units)  # unit id
         self.observation_space = Box(
@@ -90,7 +91,7 @@ class TABSUnitComb(BaseMAEnv):
         mask = mask.at[action].set(True)
 
         valid_max_agent = jnp.where(
-            jnp.sum(state.current_unit_list) + 1 <= self.max_agents, 1, 0
+            jnp.sum(state.current_unit_list) + 1 <= self.max_n_ally, 1, 0
         ).astype(jnp.bool_)
         purchase_valid = state.all_price <= state.budget
         purchase_valid = purchase_valid & mask & valid_max_agent

@@ -29,8 +29,6 @@ class State:
 class TABSUnitDeploy(BaseMAEnv):
     def __init__(self, cfg: TABSConf) -> None:
         self.max_num_units = cfg.max_num_units
-        self.max_agents = cfg.max_agents
-
         self.max_field_height = cfg.max_field_height
         self.max_field_width = cfg.max_field_width
         self.battle_field = jnp.zeros(
@@ -41,7 +39,7 @@ class TABSUnitDeploy(BaseMAEnv):
         self.action_space = Discrete(num_categories=max_field_size)
         self.observation_space = Box(
             low=0,
-            high=self.max_agents,
+            high=cfg.max_n_ally,
             shape=(1 + self.max_num_units + 2 * self.max_num_units * max_field_size + self.max_num_units * 7,),
             dtype=jnp.float32,
         )
@@ -197,6 +195,6 @@ class TABSUnitDeploy(BaseMAEnv):
         reward = None
 
         # Episode will continue until no more units can be deployed.
-        done = jnp.where(state.remaining_units.sum(), 0, 1)
+        done = jnp.where(state.remaining_units.sum(keepdims=True), 0, 1)
 
         return self.get_obs(state), state, reward, done, {}
