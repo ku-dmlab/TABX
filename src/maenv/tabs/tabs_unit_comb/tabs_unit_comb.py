@@ -9,7 +9,7 @@ from src.maenv.tabs.scenarios import Scenario, TABSConf
 
 @struct.dataclass
 class State:
-    budget: int
+    budget: chex.Array
     all_price: chex.Array
     all_spec: chex.Array
     current_unit_list: chex.Array
@@ -26,7 +26,10 @@ class TABSUnitComb(BaseMAEnv):
 
         self.action_space = Discrete(num_categories=self.max_num_units)  # unit id
         self.observation_space = Box(
-            low=0, high=self.max_agents, shape=(1 + self.max_num_units * 3), dtype=jnp.float32
+            low=0,
+            high=jnp.inf,
+            shape=(1 + self.max_num_units * 3 + self.max_num_units**2),
+            dtype=jnp.float32,
         )
 
     def get_obs(self, state):
@@ -41,7 +44,7 @@ class TABSUnitComb(BaseMAEnv):
 
         return jnp.concatenate(
             (
-                jnp.array([state.budget]),
+                state.budget,
                 state.current_unit_list,
                 state.all_price,
                 state.all_spec.flatten(),
@@ -54,7 +57,7 @@ class TABSUnitComb(BaseMAEnv):
         self.num_units = jnp.sum(scenario.unit_comp_mask)
         # assert scenario.budget >= self._min_budget
         chex.assert_equal(scenario.enemy_unit_comp.shape, (self.max_num_units,))
-        action_mask = (
+        action_mask = 1 - (
             jnp.where(scenario.budget >= scenario.price, True, False) * scenario.unit_comp_mask
         )
 
@@ -63,7 +66,7 @@ class TABSUnitComb(BaseMAEnv):
                 scenario.health,
                 scenario.body_radius,
                 scenario.body_weight,
-                scenario.velocity,
+                scenario.speed,
                 scenario.attack_damage,
                 scenario.attack_range,
                 scenario.attack_cooldown,
