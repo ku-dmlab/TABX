@@ -28,7 +28,7 @@ class TABSUnitComb(BaseMAEnv):
         self.observation_space = Box(
             low=0,
             high=jnp.inf,
-            shape=(1 + self.max_num_units * 3 + self.max_num_units**2),
+            shape=(1 + self.max_num_units * 3 + self.max_num_units**2, ),
             dtype=jnp.float32,
         )
 
