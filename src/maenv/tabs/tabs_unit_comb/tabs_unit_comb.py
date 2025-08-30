@@ -113,7 +113,7 @@ class TABSUnitComb(BaseMAEnv):
             action_mask=action_mask.astype(jnp.float32),
         )
         # NOTE: Reward would be computed by the result of battle with this unit combination.
-        reward = None
+        reward = 0.0
 
         # Episodes will continue until no more units can be purchased.
         done = jnp.where(
