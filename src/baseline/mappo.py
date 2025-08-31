@@ -103,6 +103,7 @@ class MAPPO:
             for i, agent in enumerate(self.env.ally_keys):
                 actions[agent] = sample_result["actions"][i]
 
+            #TODO: instead use wrapper
             for i, agent in enumerate(self.env.enemy_keys):
                 emeny_action_key, emeny_key = jax.random.split(enemy_key)
                 actions[agent] = jax.vmap(heuristic_policy, in_axes=(None, 0, None))(
@@ -254,7 +255,7 @@ class MAPPO:
                 discrete_distribution.entropy().mean() + continuous_distribution.entropy().mean()
             )
 
-            return -loss + self.config.entropy_coef * entropy, {
+            return -loss - self.config.entropy_coef * entropy, {
                 "policy_loss": loss,
                 "entropy": entropy,
                 "ratio": ratio,
@@ -304,7 +305,7 @@ class MAPPO:
             )
 
             gae = gae.transpose(1, 0, 2)
-            returns = returns.transpose(1, 0, 2)
+            returns = returns.transpose(1, 0, 2) # instead of transpose, use vmap with out_axes=1
             rollout_result.update(
                 {
                     "advantages": (gae - gae.mean()) / (gae.std() + 1e-8),
