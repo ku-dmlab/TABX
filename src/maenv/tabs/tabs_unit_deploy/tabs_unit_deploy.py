@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import jax
 import jax.numpy as jnp
 import chex
@@ -18,20 +16,19 @@ class State:
     unit_comp_mask: chex.Array  # Avail unit types
     battle_field: chex.Array  # (H_max x W_max) matrix facing enemies
     battle_field_occupied: chex.Array  # (H_max x W_max) matrix including occupied space
-    battle_field_mask: (
+    action_mask: (
         chex.Array
     )  # (H_max x W_max) matrix representing available deployment spots for the next unit
     enemy_battle_field: chex.Array  # (H_max x W_max) matrix facing allies
     enemy_battle_field_mask: chex.Array  # (H_max x W_max) mask for available enemy battle field
     space_occupied_spec: chex.Array
+    all_spec: chex.Array
     scenario: Scenario
 
 
 class TABSUnitDeploy(BaseMAEnv):
     def __init__(self, cfg: TABSConf) -> None:
         self.max_num_units = cfg.max_num_units
-        self.max_agents = cfg.max_agents
-
         self.max_field_height = cfg.max_field_height
         self.max_field_width = cfg.max_field_width
         self.battle_field = jnp.zeros(
@@ -42,8 +39,8 @@ class TABSUnitDeploy(BaseMAEnv):
         self.action_space = Discrete(num_categories=max_field_size)
         self.observation_space = Box(
             low=0,
-            high=self.max_agents,
-            shape=(1 + self.max_num_units + 2 * self.max_num_units * max_field_size,),
+            high=cfg.max_n_ally,
+            shape=(1 + self.max_num_units + 2 * self.max_num_units * max_field_size + self.max_num_units * 7,),
             dtype=jnp.float32,
         )
 
@@ -52,16 +49,17 @@ class TABSUnitDeploy(BaseMAEnv):
     def get_obs(self, state: State) -> chex.Array:
         """
         Return observation includes:
-            - The unit id to be deploy next.
+            - The unit id to be deployed next.
             - The list of units still available for deployment, including the next unit id.
             - The current state of the deployed units on the battlefield.
+            - All units' spec
         """
 
         enemy_battle_field = convert_unit_layer(state.enemy_battle_field, self.max_num_units)
         ally_battle_field = convert_unit_layer(state.battle_field, self.max_num_units)
 
         battle_field = jnp.vstack((enemy_battle_field, ally_battle_field))
-        obs = jnp.concatenate((state.next_unit, state.remaining_units, battle_field.flatten()))
+        obs = jnp.concatenate((state.next_unit, state.remaining_units, battle_field.flatten(), state.all_spec.flatten()))
 
         return obs
 
@@ -119,28 +117,44 @@ class TABSUnitDeploy(BaseMAEnv):
             next_unit, scenario.battle_field_mask, scenario.space_occupied
         )
 
+        all_spec = jnp.vstack(
+            (
+                scenario.health,
+                scenario.body_radius,
+                scenario.body_weight,
+                scenario.speed,
+                scenario.attack_damage,
+                scenario.attack_range,
+                scenario.attack_cooldown,
+            )
+        )
+
         state = State(
             next_unit=next_unit,
             remaining_units=scenario.ally_unit_comp,
             unit_comp_mask=scenario.unit_comp_mask,
             battle_field=battle_field,  # ally battle field
             battle_field_occupied=battle_field,
-            battle_field_mask=battle_field_mask.astype(jnp.float32),  # ally battle field mask
+            action_mask=1 - battle_field_mask.astype(jnp.float32).flatten(),  # ally battle field mask, use flatten() to be consistent with action shape
             enemy_battle_field=enemy_battle_field,
             enemy_battle_field_mask=enemy_battle_field_mask,
             space_occupied_spec=scenario.space_occupied,
+            all_spec=all_spec,
             scenario=scenario,
         )
         return self.get_obs(state), state
 
     def step_env(self, key, state, action):
         # Deploy the next unit
-        h, w = action // self.max_field_width, action % self.max_field_width
+        h, w = jnp.unravel_index(action, (self.max_field_height, self.max_field_width))
+        # h, w = action // self.max_field_width, action % self.max_field_width # instead, use jnp.unravel_index
         try_deploy = jnp.zeros_like(state.battle_field, dtype=jnp.bool_)
         try_deploy = try_deploy.at[h, w].set(True)
 
         # Get the condition for deployment
-        cond_deploy = try_deploy & state.battle_field_mask.astype(jnp.bool_)
+
+        battle_field_mask = 1 - state.action_mask.reshape(self.max_field_height, self.max_field_width)
+        cond_deploy = try_deploy & battle_field_mask.astype(jnp.bool_) & (state.remaining_units[state.next_unit - 1] > 0) # check if the remaining units is greater than 0
         battle_field = jnp.where(
             cond_deploy, state.next_unit[0], state.battle_field
         )  # Deployed battle field
@@ -161,26 +175,26 @@ class TABSUnitDeploy(BaseMAEnv):
             state.next_unit[0],
             state.battle_field_occupied,
         )
-        battle_field_mask = jnp.where(
+        next_battle_field_mask = jnp.where(
             cond_deploy.any(),
             self._get_deploy_mask(next_unit, jnp.logical_not(occupied), state.space_occupied_spec)
             & jnp.logical_not(battle_field_occupied),
-            state.battle_field_mask,
+            battle_field_mask,
         )
 
         # Update state
         state = state.replace(
             next_unit=next_unit,
-            remaining_units=remaining_units.flatten(),
+            remaining_units=jnp.clip(remaining_units.flatten()),
             battle_field=battle_field.astype(jnp.float32),
             battle_field_occupied=battle_field_occupied.astype(jnp.float32),
-            battle_field_mask=battle_field_mask.astype(jnp.float32),
+            action_mask=1 - next_battle_field_mask.astype(jnp.float32).flatten(),
         )
 
         # NOTE: Reward would be computed by the result of battle with this unit deployment.
         reward = None
 
         # Episode will continue until no more units can be deployed.
-        done = jnp.where(state.remaining_units.sum(), 0, 1)
+        done = jnp.where(state.remaining_units.sum(keepdims=True), 0, 1)
 
         return self.get_obs(state), state, reward, done, {}

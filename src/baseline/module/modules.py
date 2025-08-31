@@ -2,6 +2,48 @@ from flax import nnx
 import jax.numpy as jnp
 
 
+class Value(nnx.Module):
+    def __init__(self, state_dim, layer_dim=64, rngs=nnx.Rngs(0)):
+        self.layer = nnx.Sequential(
+            nnx.Linear(state_dim, layer_dim, rngs=rngs),
+            nnx.LayerNorm(layer_dim, rngs=rngs),
+            nnx.relu,
+            nnx.Linear(layer_dim, layer_dim, rngs=rngs),
+            nnx.LayerNorm(layer_dim, rngs=rngs),
+            nnx.relu,
+            nnx.Linear(
+                layer_dim,
+                1,
+                rngs=rngs,
+                kernel_init=nnx.initializers.orthogonal(jnp.sqrt(0.001)),
+            ),
+        )
+
+    def __call__(self, state):
+        return self.layer(state)
+
+
+class Policy(nnx.Module):
+    def __init__(self, state_dim, action_dim, layer_dim=64, rngs=nnx.Rngs(0)):
+        self.layer = nnx.Sequential(
+            nnx.Linear(state_dim, layer_dim, rngs=rngs),
+            nnx.LayerNorm(layer_dim, rngs=rngs),
+            nnx.relu,
+            nnx.Linear(layer_dim, layer_dim, rngs=rngs),
+            nnx.LayerNorm(layer_dim, rngs=rngs),
+            nnx.relu,
+            nnx.Linear(
+                layer_dim,
+                action_dim,
+                rngs=rngs,
+                kernel_init=nnx.initializers.orthogonal(jnp.sqrt(0.001)),
+            ),
+        )
+
+    def __call__(self, state):
+        return self.layer(state)
+
+
 class RNNValue(nnx.Module):
     def __init__(self, state_dim, layer_dim=64, rngs=nnx.Rngs(0)):
         self.layer = nnx.Sequential(
