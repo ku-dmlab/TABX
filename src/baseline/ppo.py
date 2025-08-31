@@ -161,6 +161,10 @@ class PPO:
                 "policy_loss": loss,
                 "entropy": entropy,
                 "ratio": ratio,
+                "is_nan_log_diff": is_nan_log_diff,
+                "max_advantage": batch["advantages"].max(),
+                "min_advantage": batch["advantages"].min(),
+                "mean_advantage": batch["advantages"].mean(),
             }
 
         value, value_optimizer = get_model(train_state.value_state)
@@ -185,6 +189,10 @@ class PPO:
                 "ratio_max": info["ratio"].max(),
                 "ratio_min": info["ratio"].min(),
                 "ratio_mean": info["ratio"].mean(),
+                "is_nan_log_diff": info["is_nan_log_diff"].mean(),
+                "max_advantage": info["max_advantage"],
+                "min_advantage": info["min_advantage"],
+                "mean_advantage": info["mean_advantage"],
             }
         )
 
@@ -200,7 +208,7 @@ class PPO:
 
             return (train_state,), info
 
-        train_state, info = jax.lax.scan(train_body, (train_state,), None, self.config.ppo_epochs)
+        (train_state, ), info = jax.lax.scan(train_body, (train_state,), None, self.config.ppo_epochs)
 
         info["policy_loss"] = info["policy_loss"].mean()
         info["entropy"] = info["entropy"].mean()
@@ -209,6 +217,10 @@ class PPO:
         info["ratio_min"] = info["ratio_min"].min()
         info["ratio_mean"] = info["ratio_mean"].mean()
         info["v_loss"] = info["v_loss"].mean()
+        info["is_nan_log_diff"] = info["is_nan_log_diff"].mean()
+        info["max_advantage"] = info["max_advantage"].max()
+        info["min_advantage"] = info["min_advantage"].min()
+        info["mean_advantage"] = info["mean_advantage"].mean()
 
         return train_state, info
             
