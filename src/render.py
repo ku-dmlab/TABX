@@ -1,5 +1,5 @@
 from src.maenv.environments.base_maenv import BaseMAEnv
-from src.maenv.tabs.tabs_battle_simulator.battle_simulator import (
+from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import (
     DefaultUnit,
     UnitStatus,
     GameManager,
@@ -11,198 +11,25 @@ from typing import Dict
 import jax.numpy as jnp
 
 
-class TABS(BaseMAEnv):
-    def __init__(
-        self,
-        num_agents: int = 4,
-        physics_config: Dict[str, float] = EasyDict(
-            {"dt": 0.2, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
-        ),
-    ):
-        super().__init__(num_agents, physics_config)
-
-    def get_obs(self, state):
-        return jnp.zeros((1, 1))
-
-    def reset(self, key):
-        unit1 = DefaultUnit(
-            transform=Transform(position=jnp.array([0.0, 8.0]), rotation=jnp.array([jnp.pi / 4])),
-            rigidbody=RigidBody(
-                mass=jnp.array([50.0]),
-                velocity=jnp.array([0.0, 0.0]),
-                acceleration=jnp.array([0.0, 0.0]),
-                is_kinematic=jnp.array([False]),
-            ),
-            collider=CircleCollider(radius=jnp.array([4.25])),
-            team=jnp.array([0]),
-            pos_limit=jnp.array([-10.0, 10.0]),
-            status=UnitStatus(
-                id=jnp.array([0]),
-                health=jnp.array([100.0]),
-                attack_damage=jnp.array([100.0]),
-                attack_range=jnp.array([2]),
-                attack_cooldown=jnp.array([4.0]),
-                cooldown=jnp.array([4.0]),
-                sight_angle=jnp.array([jnp.pi / 2]),
-                is_alive=jnp.array([True]),
-                attack_type=jnp.array([AttackType.DEFAULT]),
-                max_health=jnp.array([2526.0]),
-            ),
-            attacking=jnp.array([False]),
-        )
-
-        unit2 = DefaultUnit(
-            transform=Transform(
-                position=jnp.array([5.0, 3.0]), rotation=jnp.array([2.3 + jnp.pi / 4])
-            ),
-            rigidbody=RigidBody(
-                mass=jnp.array([1.0]),
-                velocity=jnp.array([0.0, 0.0]),
-                acceleration=jnp.array([0.0, 0.0]),
-                is_kinematic=jnp.array([False]),
-            ),
-            collider=CircleCollider(radius=jnp.array([1.0])),
-            team=jnp.array([0]),
-            pos_limit=jnp.array([-10.0, 10.0]),
-            status=UnitStatus(
-                id=jnp.array([1]),
-                health=jnp.array([80.0]),
-                attack_damage=jnp.array([1.5]),
-                attack_range=jnp.array([10]),
-                attack_cooldown=jnp.array([1.5]),
-                cooldown=jnp.array([10.0]),
-                sight_angle=jnp.array([jnp.pi / 2]),
-                is_alive=jnp.array([True]),
-                attack_type=jnp.array([AttackType.DEFAULT]),
-                max_health=jnp.array([100.0]),
-            ),
-            attacking=jnp.array([True]),
-        )
-        unit3 = DefaultUnit(
-            transform=Transform(position=jnp.array([-5.0, -3.0]), rotation=jnp.array([2.3])),
-            rigidbody=RigidBody(
-                mass=jnp.array([1.0]),
-                velocity=jnp.array([0.0, 0.0]),
-                acceleration=jnp.array([0.0, 0.0]),
-                is_kinematic=jnp.array([False]),
-            ),
-            collider=CircleCollider(radius=jnp.array([1.0])),
-            team=jnp.array([1]),
-            pos_limit=jnp.array([-10.0, 10.0]),
-            status=UnitStatus(
-                id=jnp.array([2]),
-                health=jnp.array([80.0]),
-                attack_damage=jnp.array([1.5]),
-                attack_range=jnp.array([10.0]),
-                attack_cooldown=jnp.array([1.5]),
-                cooldown=jnp.array([3.0]),
-                sight_angle=jnp.array([jnp.pi / 2]),
-                is_alive=jnp.array([True]),
-                attack_type=jnp.array([AttackType.DEFAULT]),
-                max_health=jnp.array([100.0]),
-            ),
-            attacking=jnp.array([True]),
-        )
-        unit4 = DefaultUnit(
-            transform=Transform(position=jnp.array([-5.0, 3.0]), rotation=jnp.array([2.3])),
-            rigidbody=RigidBody(
-                mass=jnp.array([1.0]),
-                velocity=jnp.array([0.0, 0.0]),
-                acceleration=jnp.array([0.0, 0.0]),
-                is_kinematic=jnp.array([False]),
-            ),
-            collider=CircleCollider(radius=jnp.array([1.0])),
-            team=jnp.array([1]),
-            pos_limit=jnp.array([-10.0, 10.0]),
-            status=UnitStatus(
-                id=jnp.array([3]),
-                health=jnp.array([80.0]),
-                attack_damage=jnp.array([1.5]),
-                attack_range=jnp.array([10.0]),
-                attack_cooldown=jnp.array([1.5]),
-                cooldown=jnp.array([3.0]),
-                sight_angle=jnp.array([jnp.pi / 2]),
-                is_alive=jnp.array([True]),
-                attack_type=jnp.array([AttackType.HEALING]),
-                max_health=jnp.array([100.0]),
-            ),
-            attacking=jnp.array([True]),
-        )
-
-        # 3x3 더미 매트릭스 생성 (3개 유닛 가정)
-        dummy_target = jnp.array(
-            [[False, True, False], [True, False, True], [False, True, False]]
-        ).flatten()
-
-        dummy_visible = jnp.array(
-            [[True, True, False], [True, True, True], [False, True, True]]
-        ).flatten()
-
-        game_manager = GameManager(
-            reward=jnp.array([0.0]),
-            done=jnp.array([False]),
-            timestep=jnp.array([0]),
-            attack_target=dummy_target,
-            attackable_matrix=None,
-            visible_matrix=dummy_visible,
-            distance_matrix=jnp.array([[0.0, 1.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 0.0]]),
-        )
-
-        state = {
-            "unit1": unit1,
-            "unit2": unit2,
-            "unit3": unit3,
-            "unit4": unit4,
-            "game_manager": game_manager,
-        }
-
-        return self.get_obs(state), state
-
-    def step(self, key, state, action):
-        state["game_manager"] = state["game_manager"].update_distance_matrix(state)
-
-        for sprite in state.keys():
-            if hasattr(state[sprite], "update"):
-                state[sprite] = state[sprite].update(config=self.physics_config)
-
-        collider_filter = {
-            "unit1": ["unit2", "unit3", "unit4"],
-            "unit2": ["unit1", "unit3", "unit4"],
-            "unit3": ["unit1", "unit2", "unit4"],
-            "unit4": ["unit1", "unit2", "unit3"],
-        }
-
-        state = physics_step(self.physics_config, state, list(state.keys()), collider_filter)
-        # action processing
-        units = [key for key in state if "unit" in key]
-
-        for sprite in units:
-            state[sprite] = state[sprite].act(state, action[sprite])
-
-        # alive processing after action step, for independent unit sequence
-        for sprite in units:
-            state[sprite] = state[sprite]._replace(
-                status=state[sprite].status._replace(is_alive=(state[sprite].status.health > 0))
-            )
-
-        return self.get_obs(state), state, 0.0, False, {"timestep": 0}
-
-    def render(self, state):
-        return None
-
-
 import pygame
-import jax.numpy as jnp
 import numpy as np
-from typing import Dict, Any
 import math
-from src.maenv.tabs.tabs_battle_simulator.battle_simulator import UnitAction
+from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import UnitAction
 
 
 class PygameRenderer:
     """실시간으로 게임 객체들을 렌더링하는 pygame 렌더러"""
 
-    def __init__(self, width=800, height=600, fps=60, world_scale=20):
+    def __init__(
+        self,
+        width=1920,
+        height=1080,
+        fps=60,
+        world_scale=20,
+        env=None,
+        scenario=None,
+        reset_fn=None,
+    ):
         """
         초기화
 
@@ -211,6 +38,9 @@ class PygameRenderer:
             height: 창 높이
             fps: 프레임 레이트
             world_scale: 게임 월드 좌표를 픽셀로 변환하는 스케일
+            env: 환경 객체 (env.reset()을 위해 필요)
+            scenario: 시나리오 객체 (reset할 때 사용)
+            reset_fn: 리셋 함수 (env.reset 또는 jit된 버전)
         """
         pygame.init()
 
@@ -218,6 +48,31 @@ class PygameRenderer:
         self.height = height
         self.fps = fps
         self.world_scale = world_scale
+
+        # Environment components for reset functionality
+        self.env = env
+        self.scenario = scenario
+        self.reset_fn = reset_fn
+        self.reset_requested = False
+
+        # Scenario selection
+        self.available_scenarios = {}
+        self.scenario_names = []
+        self.selected_scenario_index = 0
+        self._preload_scenarios()
+
+        # Policy selection
+        self.policy_names = ["Heuristic", "Idle", "MAPPO"]
+        self.selected_policy_index = 0  # 기본적으로 Heuristic 정책 사용
+
+        # 이전 프레임의 액션을 저장하여 공격 시작 감지
+        self.previous_actions = {}
+
+        # 이전 프레임의 유닛 상태를 저장하여 cooldown 변화 감지
+        self.previous_unit_states = {}
+
+        # 공격 플래시 지속 시간 관리
+        self.attack_flash_timers = {}  # 각 유닛별 공격 플래시 남은 프레임 수
 
         # 화면 설정
         self.screen = pygame.display.set_mode((width, height))
@@ -236,7 +91,7 @@ class PygameRenderer:
             "cooldown_bg": (150, 150, 150),  # 쿨다운바 배경
             "cooldown_fg": (255, 255, 100),  # 쿨다운바 전경 (노란색)
             "cooldown_ready": (100, 255, 100),  # 공격 준비됨 (초록색)
-            "attack_range": (255, 255, 0, 50),  # 공격 범위 (반투명 노란색)
+            "attack_range": (255, 100, 0, 80),  # 공격 범위 (반투명 주황색, 더 진하게)
             "sight_range": (0, 255, 255, 30),  # 시야 범위 (반투명 청록색)
             "attacking": (255, 255, 255, 100),  # 공격 중 표시
             "selected": (255, 255, 255),  # 선택된 유닛 표시
@@ -271,15 +126,19 @@ class PygameRenderer:
         self.selected_unit = None
         self.mouse_pos = (0, 0)
         self.user_controlled_actions = {}  # 유저가 컨트롤하는 유닛들의 액션 저장
+        self.selected_unit_obs = None  # 선택된 유닛의 obs 배열 저장
+        self.obs_scroll_offset = 0  # obs 배열 스크롤 오프셋
 
         # UI 토글 설정
         self.ui_panel = {
-            "show_sight_range": True,
-            "show_attack_range": True,
-            "show_visible_matrix": True,
-            "show_distance_matrix": True,
-            "show_unit_info": True,
-            "show_grid": True,
+            "show_sight_range": False,  # 시야 범위 표시
+            "show_attack_range": False,  # 공격 범위 표시
+            "show_visible_matrix": False,  # 가시성 매트릭스 표시
+            "show_distance_matrix": False,  # 거리 매트릭스 표시
+            "show_unit_info": False,  # 유닛 정보 표시
+            "show_grid": False,  # 격자 표시
+            "show_obs_array": False,  # obs 배열은 너무 크므로 기본적으로 비활성화
+            "show_done_status": True,  # done 상태만 표시
         }
 
         # UI 패널 설정
@@ -297,6 +156,38 @@ class PygameRenderer:
         self.update_game_area()
 
         self.running = True
+
+    def _preload_scenarios(self):
+        """모든 시나리오를 미리 로드"""
+        try:
+            from src.maenv.tabs.scenarios import (
+                get_scenario_name_list,
+                generate_scenario,
+                default_tabs_conf,
+            )
+
+            self.scenario_names = get_scenario_name_list()
+
+            # 현재 시나리오가 목록에 있으면 해당 인덱스로 설정
+            if self.scenario:
+                # 현재 scenario의 이름을 추정 (scenario 객체에서 직접 가져올 수 없으므로)
+                # default_tabs_conf에서 scenario_name을 확인
+                current_scenario_name = getattr(self.scenario, "scenario_name", None)
+                if current_scenario_name and current_scenario_name in self.scenario_names:
+                    self.selected_scenario_index = self.scenario_names.index(current_scenario_name)
+                else:
+                    # 첫 번째 시나리오를 기본으로 설정
+                    self.selected_scenario_index = 0
+
+            # 모든 시나리오 생성
+            for scenario_name in self.scenario_names:
+                conf = default_tabs_conf.replace(scenario_name=scenario_name)
+                self.available_scenarios[scenario_name] = generate_scenario(conf)
+
+        except Exception as e:
+            print(f"Failed to preload scenarios: {e}")
+            self.scenario_names = []
+            self.available_scenarios = {}
 
     def update_game_area(self):
         """패널 상태에 따라 게임 영역 업데이트"""
@@ -360,6 +251,84 @@ class PygameRenderer:
         target_angle = math.atan2(dy, dx)
         return target_angle
 
+    def did_unit_just_attack(self, unit_name, unit):
+        """
+        유닛이 방금 공격했는지 확인하는 헬퍼 함수
+        이전 상태와 현재 상태의 cooldown 차이로 공격 발생을 감지
+        """
+        if unit_name not in self.previous_unit_states:
+            # 첫 프레임이므로 이전 상태 저장하고 False 반환
+            self._store_unit_state(unit_name, unit)
+            return False
+
+        # 현재 cooldown과 이전 cooldown 가져오기
+        current_cooldown = self._get_cooldown_value(unit)
+        previous_cooldown = self.previous_unit_states[unit_name]["cooldown"]
+
+        # 살아있고 활성화된 상태인지 확인
+        is_alive = self._is_unit_alive(unit)
+        is_enabled = self._is_unit_enabled(unit)
+
+        if not (is_alive and is_enabled):
+            # 현재 상태 업데이트하고 False 반환
+            self._store_unit_state(unit_name, unit)
+            return False
+
+        # 리셋 직후나 비정상적인 상황 방지
+        # cooldown 값이 비정상적으로 클 경우 (예: 리셋 직후 초기값) 무시
+        if previous_cooldown > 10.0 or current_cooldown > 10.0:
+            # 현재 상태 저장하고 False 반환
+            self._store_unit_state(unit_name, unit)
+            return False
+
+        # cooldown이 크게 감소했으면 공격이 발생한 것으로 판단
+        # physics dt는 일반적으로 0.2이므로 이보다 큰 차이면 공격으로 인식
+        dt_threshold = 0.15  # dt(0.2)보다 약간 작게 설정하여 오차 허용
+        cooldown_decrease = previous_cooldown - current_cooldown
+
+        # 공격이 발생했는지 판단 (양수이고 임계값보다 클 때만)
+        attack_occurred = cooldown_decrease > dt_threshold and cooldown_decrease > 0
+
+        # 현재 상태를 다음 프레임을 위해 저장
+        self._store_unit_state(unit_name, unit)
+
+        return attack_occurred
+
+    def _get_cooldown_value(self, unit):
+        """유닛에서 cooldown 값을 추출하는 헬퍼 함수"""
+        if hasattr(unit.status, "cooldown"):
+            if hasattr(unit.status.cooldown, "__array__"):
+                return float(np.array(unit.status.cooldown))
+            else:
+                return float(unit.status.cooldown)
+        return 0.0
+
+    def _is_unit_alive(self, unit):
+        """유닛이 살아있는지 확인하는 헬퍼 함수"""
+        if hasattr(unit.status, "is_alive"):
+            if hasattr(unit.status.is_alive, "__array__"):
+                return bool(np.array(unit.status.is_alive))
+            else:
+                return bool(unit.status.is_alive)
+        return True
+
+    def _is_unit_enabled(self, unit):
+        """유닛이 활성화되어 있는지 확인하는 헬퍼 함수"""
+        if hasattr(unit.status, "is_disabled"):
+            if hasattr(unit.status.is_disabled, "__array__"):
+                return not bool(np.array(unit.status.is_disabled))
+            else:
+                return not bool(unit.status.is_disabled)
+        return True
+
+    def _store_unit_state(self, unit_name, unit):
+        """유닛의 현재 상태를 저장하는 헬퍼 함수"""
+        self.previous_unit_states[unit_name] = {
+            "cooldown": self._get_cooldown_value(unit),
+            "is_alive": self._is_unit_alive(unit),
+            "is_enabled": self._is_unit_enabled(unit),
+        }
+
     def handle_events(self, objects):
         """이벤트 처리"""
         for event in pygame.event.get():
@@ -377,18 +346,42 @@ class PygameRenderer:
                     # TAB키로 패널 토글
                     self.panel_visible = not self.panel_visible
                     self.update_game_area()
+                elif event.key == pygame.K_r:
+                    # R키로 환경 리셋
+                    if self.reset_fn and self.scenario:
+                        try:
+                            # 환경 리셋 요청 플래그 설정
+                            self.reset_requested = True
+                        except Exception as e:
+                            print(f"Failed to reset environment: {e}")
+                    # obs 스크롤도 함께 리셋
+                    self.obs_scroll_offset = 0
             elif event.type == pygame.MOUSEWHEEL:
-                # 마우스 휠로 줌
-                zoom_factor = 1.1
-                if event.y > 0:
-                    self.zoom *= zoom_factor
+                # obs 배열이 표시되고 있을 때는 스크롤로 obs 배열 탐색
+                if self.ui_panel["show_obs_array"] and self.selected_unit_obs is not None:
+                    scroll_speed = 3  # 한 번에 스크롤할 줄 수
+                    if event.y > 0:
+                        self.obs_scroll_offset = max(0, self.obs_scroll_offset - scroll_speed)
+                    else:
+                        self.obs_scroll_offset += scroll_speed
                 else:
-                    self.zoom /= zoom_factor
-                self.zoom = max(0.1, min(5.0, self.zoom))
+                    # 일반적인 경우 줌
+                    zoom_factor = 1.1
+                    if event.y > 0:
+                        self.zoom *= zoom_factor
+                    else:
+                        self.zoom /= zoom_factor
+                    self.zoom = max(0.1, min(5.0, self.zoom))
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # 왼쪽 마우스 버튼
+                    # 시나리오 선택기 클릭 확인 (최우선)
+                    if self.handle_scenario_selector_click(event.pos):
+                        pass
+                    # 정책 선택기 클릭 확인
+                    elif self.handle_policy_selector_click(event.pos):
+                        pass
                     # 토글 버튼 클릭 확인
-                    if self.handle_toggle_button_click(event.pos):
+                    elif self.handle_toggle_button_click(event.pos):
                         pass
                     # UI 패널 클릭 확인 (패널이 보일 때만)
                     elif (
@@ -405,12 +398,17 @@ class PygameRenderer:
 
                         if clicked_unit:
                             # 유닛을 클릭한 경우 선택
-                            self.selected_unit = clicked_unit
-                            print(f"Selected unit: {clicked_unit}")
+                            if self.selected_unit != clicked_unit:  # 다른 유닛을 선택한 경우
+                                self.selected_unit = clicked_unit
+                                self.selected_unit_obs = None  # 새로운 유닛이므로 obs 초기화
+                                self.obs_scroll_offset = 0  # 스크롤 오프셋 리셋
+
                         else:
                             # 땅을 클릭한 경우 선택 해제
                             self.selected_unit = None
-                            print("Unit deselected")
+                            self.selected_unit_obs = None
+                            self.obs_scroll_offset = 0  # 스크롤 오프셋도 리셋
+
             elif event.type == pygame.MOUSEMOTION:
                 self.mouse_pos = event.pos
 
@@ -457,7 +455,6 @@ class PygameRenderer:
                     action = UnitAction.RIGHT
                 elif keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]:
                     action = UnitAction.ATTACK
-                    print("attack")
 
                 # 유저 컨트롤 액션 저장
                 self.user_controlled_actions[self.selected_unit] = jnp.array(
@@ -476,7 +473,9 @@ class PygameRenderer:
             if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
                 self.camera_x += move_speed
 
-    def draw_unit(self, unit_name, unit, show_ranges=None, alpha=255):
+    def draw_unit(
+        self, unit_name, unit, show_ranges=None, alpha=255, action=None, show_attack_flash=False
+    ):
         """개별 유닛을 그리기"""
         try:
             # JAX 배열에서 numpy 배열로 변환
@@ -520,13 +519,15 @@ class PygameRenderer:
             else:
                 sight_angle = float(unit.status.sight_angle)
 
-            # 공격 중인지 확인
-            attacking = False
-            if hasattr(unit, "attacking"):
-                if hasattr(unit.attacking, "__array__"):
-                    attacking = bool(np.array(unit.attacking))
+            # show_attack_flash 파라미터로 공격 범위 표시 여부가 결정됨
+
+            # 생존 상태 확인
+            is_alive = True
+            if hasattr(unit.status, "is_alive"):
+                if hasattr(unit.status.is_alive, "__array__"):
+                    is_alive = bool(np.array(unit.status.is_alive))
                 else:
-                    attacking = bool(unit.attacking)
+                    is_alive = bool(unit.status.is_alive)
 
             screen_pos = self.world_to_screen(pos)
             screen_radius = int(radius * self.world_scale * self.zoom)
@@ -542,6 +543,11 @@ class PygameRenderer:
 
             # 유닛 몸체
             team_color = self.colors.get(f"team_{team}", (128, 128, 128))
+
+            # 죽은 유닛의 채도를 어둡게 만들기
+            if not is_alive:
+                # 채도를 줄이고 어둡게 만들기 (RGB 값을 절반으로 줄임)
+                team_color = tuple(int(c * 0.4) for c in team_color)
 
             if alpha < 255:
                 # 투명도가 적용된 경우, 별도 surface에 그린 후 알파 블렌딩
@@ -572,15 +578,13 @@ class PygameRenderer:
                 elif show_ranges is True:  # 이전 버전과의 호환성
                     self.draw_fan_sight_range(screen_pos, rotation, sight_angle, range_alpha)
 
-                # 공격 범위 (직사각형) - TABS 스타일
-                if isinstance(show_ranges, dict) and show_ranges.get("attack", True):
-                    self.draw_rectangular_attack_range(
-                        screen_pos, rotation, attack_range, radius, range_alpha, sight_angle
-                    )
-                elif show_ranges is True:  # 이전 버전과의 호환성
-                    self.draw_rectangular_attack_range(
-                        screen_pos, rotation, attack_range, radius, range_alpha, sight_angle
-                    )
+                # 공격 범위 (UI 패널 설정에 따라, 실제 공격이 발생한 경우에만 표시)
+                if isinstance(show_ranges, dict) and show_ranges.get("attack", False):
+                    # 실제로 공격이 발생한 경우에만 공격 범위 표시
+                    if self.did_unit_just_attack(unit_name, unit):
+                        self.draw_rectangular_attack_range(
+                            screen_pos, rotation, attack_range, radius, range_alpha, sight_angle
+                        )
 
             # 선택된 유닛 표시
             if unit_name == self.selected_unit:
@@ -623,21 +627,27 @@ class PygameRenderer:
                 else:
                     pygame.draw.line(self.screen, (255, 255, 255), screen_pos, direction_end, 2)
 
-            # 공격 중 표시
-            if attacking and screen_radius > 2:
-                attack_surface = pygame.Surface(
-                    (screen_radius * 3, screen_radius * 3), pygame.SRCALPHA
-                )
-                pygame.draw.circle(
-                    attack_surface,
-                    self.colors["attacking"],
-                    (screen_radius * 1.5, screen_radius * 1.5),
-                    screen_radius * 1.5,
-                )
-                self.screen.blit(
-                    attack_surface,
-                    (screen_pos[0] - screen_radius * 1.5, screen_pos[1] - screen_radius * 1.5),
-                )
+            # 공격 플래시 표시 - 직사각형 공격 범위로 표시 (여러 프레임 지속)
+            if show_attack_flash and screen_radius > 2:
+                flash_info = self.attack_flash_timers.get(unit_name)
+                if flash_info:
+                    # 공격 플래시는 이미 공격이 발생했음을 나타내므로 조건 없이 표시
+                    # 남은 프레임 수에 따라 알파 값 조정 (점점 흐려짐)
+                    flash_frames_left = flash_info["frames"]
+                    attack_rotation = flash_info["rotation"]  # 공격한 시점의 회전 각도 사용
+                    max_flash_frames = 15
+                    alpha_ratio = flash_frames_left / max_flash_frames
+                    flash_alpha = int(255 * alpha_ratio * 0.8)  # 최대 80% 투명도
+
+                    # 공격 범위를 공격한 시점의 방향으로 고정하여 표시
+                    self.draw_rectangular_attack_range(
+                        screen_pos,
+                        attack_rotation,
+                        attack_range,
+                        radius,
+                        flash_alpha,
+                        sight_angle,
+                    )
 
             # 체력바 (줌이 충분할 때만)
             if self.zoom > 0.5 and screen_radius > 5:
@@ -795,15 +805,62 @@ class PygameRenderer:
 
             # 유닛 이름 및 정보 (줌이 충분할 때만)
             if self.zoom > 1.0 and screen_radius > 10:
-                # 유닛 이름
-                name_text = self.small_font.render(unit_name, True, (255, 255, 255))
+                # 유닛 타입 이름 가져오기
+                unit_type_names = [
+                    "",
+                    "Farmer",
+                    "Archer",
+                    "TheKing",
+                    "BombThrower",
+                    "Mammoth",
+                    "Deadeye",
+                    "Healer",
+                ]
+
+                # unit_id 가져오기
+                if hasattr(unit.status.unit_id, "__array__"):
+                    unit_id = int(np.array(unit.status.unit_id))
+                else:
+                    unit_id = int(unit.status.unit_id)
+
+                # unit_id가 유효한 범위인지 확인
+                if 0 <= unit_id < len(unit_type_names):
+                    display_name = f"{unit_name} ({unit_type_names[unit_id]})"
+                else:
+                    display_name = unit_name
+
+                name_text = self.small_font.render(display_name, True, (255, 255, 255))
                 name_rect = name_text.get_rect(
                     center=(screen_pos[0], screen_pos[1] + screen_radius + 15)
                 )
                 self.screen.blit(name_text, name_rect)
 
-        except Exception as e:
-            print(f"Error drawing unit {unit_name}: {e}")
+            # disabled 상태 확인 및 표시
+            is_disabled = False
+            if hasattr(unit.status, "is_disabled"):
+                if hasattr(unit.status.is_disabled, "__array__"):
+                    is_disabled = bool(np.array(unit.status.is_disabled))
+                else:
+                    is_disabled = bool(unit.status.is_disabled)
+
+            # disabled 유닛에 "DISABLED" 텍스트 표시
+            if is_disabled and screen_radius > 5:
+                disabled_text = self.font.render("DISABLED", True, (255, 50, 50))  # 빨간색 텍스트
+                disabled_rect = disabled_text.get_rect(
+                    center=(screen_pos[0], screen_pos[1] + screen_radius + 35)  # 유닛 이름 아래
+                )
+
+                # 텍스트 배경 (가독성을 위해)
+                bg_rect = disabled_rect.inflate(6, 4)
+                bg_surface = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+                bg_surface.fill((0, 0, 0, 200))  # 반투명 검정 배경
+                self.screen.blit(bg_surface, bg_rect)
+
+                # 텍스트 표시
+                self.screen.blit(disabled_text, disabled_rect)
+
+        except Exception:
+            pass
 
     def draw_target_matrix(self, objects):
         """Target matrix 시각화"""
@@ -884,16 +941,24 @@ class PygameRenderer:
                     )
                     self.screen.blit(text_surface, text_rect)
 
-        # 축 라벨 그리기
+                # 축 라벨 그리기 - battle_simulator와 동일한 순서로 unit key 생성
+        unit_keys = []
+        for i in range(n_units):
+            unit_key = f"unit_{i}"
+            if unit_key in objects:
+                unit_keys.append(unit_key)
+
         for i in range(n_units):
             # Y축 라벨 (왼쪽)
-            label_text = self.small_font.render(f"U{i + 1}", True, self.colors["target_text"])
+            unit_suffix = unit_keys[i].split("_")[-1] if i < len(unit_keys) else str(i)
+            label_text = self.small_font.render(f"{unit_suffix}", True, self.colors["target_text"])
             self.screen.blit(
                 label_text, (start_x - 20, start_y + i * matrix_size + matrix_size // 2 - 8)
             )
 
             # X축 라벨 (위쪽)
-            label_text = self.small_font.render(f"U{i + 1}", True, self.colors["target_text"])
+            unit_suffix = unit_keys[i].split("_")[-1] if i < len(unit_keys) else str(i)
+            label_text = self.small_font.render(f"{unit_suffix}", True, self.colors["target_text"])
             text_rect = label_text.get_rect(
                 center=(start_x + i * matrix_size + matrix_size // 2, start_y - 5)
             )
@@ -927,9 +992,13 @@ class PygameRenderer:
         # 선택된 유닛이 있으면 해당 유닛의 시야만 표시
         selected_unit_index = None
         if self.selected_unit:
-            # 유닛 이름에서 인덱스 추출 (unit1 -> 0, unit2 -> 1, ...)
-            unit_keys = [key for key in objects.keys() if key.startswith("unit")]
-            unit_keys.sort()  # unit1, unit2, unit3 순서로 정렬
+            # 유닛 키 목록을 battle_simulator와 동일한 방식으로 생성
+            unit_keys = []
+            for i in range(n_units):
+                unit_key = f"unit_{i}"
+                if unit_key in objects:
+                    unit_keys.append(unit_key)
+
             if self.selected_unit in unit_keys:
                 selected_unit_index = unit_keys.index(self.selected_unit)
 
@@ -1009,21 +1078,32 @@ class PygameRenderer:
                     )
                     self.screen.blit(text_surface, text_rect)
 
-        # 축 라벨 그리기
+                # 축 라벨 그리기 - battle_simulator와 동일한 순서로 unit key 생성
+        unit_keys = []
+        for i in range(n_units):
+            unit_key = f"unit_{i}"
+            if unit_key in objects:
+                unit_keys.append(unit_key)
+
         for i in range(n_units):
             # Y축 라벨 (왼쪽) - 선택된 유닛은 하이라이트
             if selected_unit_index is not None and i == selected_unit_index:
                 label_color = self.colors["visible_selected_true"]  # 선택된 유닛은 밝은 색
-                label_text = self.small_font.render(f"U{i + 1}*", True, label_color)
+                # unit key에서 숫자만 추출하여 표시
+                unit_suffix = unit_keys[i].split("_")[-1] if i < len(unit_keys) else str(i)
+                label_text = self.small_font.render(f"{unit_suffix}*", True, label_color)
             else:
                 label_color = self.colors["visible_text"]
-                label_text = self.small_font.render(f"U{i + 1}", True, label_color)
+                # unit key에서 숫자만 추출하여 표시
+                unit_suffix = unit_keys[i].split("_")[-1] if i < len(unit_keys) else str(i)
+                label_text = self.small_font.render(f"{unit_suffix}", True, label_color)
             self.screen.blit(
                 label_text, (start_x - 20, start_y + i * matrix_size + matrix_size // 2 - 8)
             )
 
             # X축 라벨 (위쪽)
-            label_text = self.small_font.render(f"U{i + 1}", True, self.colors["visible_text"])
+            unit_suffix = unit_keys[i].split("_")[-1] if i < len(unit_keys) else str(i)
+            label_text = self.small_font.render(f"{unit_suffix}", True, self.colors["visible_text"])
             text_rect = label_text.get_rect(
                 center=(start_x + i * matrix_size + matrix_size // 2, start_y - 5)
             )
@@ -1041,6 +1121,7 @@ class PygameRenderer:
                 "WASD/Arrow Keys: Move Unit",
                 "Ctrl: Attack",
                 "Mouse: Rotation Direction",
+                "R: Reset Environment",
                 "Tab: Toggle UI Panel",
                 "Left Click Unit: Select",
                 "Left Click Ground: Deselect",
@@ -1052,6 +1133,7 @@ class PygameRenderer:
                 "WASD/Arrow Keys: Move Camera",
                 "Mouse Wheel: Zoom",
                 "Space: Reset Camera",
+                "R: Reset Environment",
                 "Tab: Toggle UI Panel",
                 "Left Click Unit: Select",
                 "ESC: Exit",
@@ -1101,6 +1183,308 @@ class PygameRenderer:
         # Visible matrix 그리기
         if self.ui_panel["show_visible_matrix"]:
             self.draw_visible_matrix(objects)
+
+    def draw_obs_array(self):
+        """선택된 유닛의 obs 배열을 화면에 표시 (스크롤 가능)"""
+        if not self.selected_unit or self.selected_unit_obs is None:
+            return
+
+        # obs 배열 표시 패널 설정
+        panel_width = 500  # 폭을 늘려서 더 많은 정보 표시
+        panel_height = min(700, self.height - 20)  # 화면 높이에 맞춰 조정
+        panel_x = (self.game_width - panel_width) // 2  # 게임 화면 중앙에 배치
+        panel_y = 10
+
+        # 반투명 배경 그리기
+        panel_surface = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
+        panel_surface.fill((0, 0, 0, 220))  # 조금 더 어둡게
+        self.screen.blit(panel_surface, (panel_x, panel_y))
+
+        # 테두리 그리기
+        pygame.draw.rect(
+            self.screen, (150, 150, 150), (panel_x, panel_y, panel_width, panel_height), 2
+        )
+
+        # 제목 그리기
+        import time
+
+        current_time = time.time()
+        title_text = f"{self.selected_unit} Observation Array"
+        title_surface = self.font.render(title_text, True, (255, 255, 255))
+        title_rect = title_surface.get_rect(center=(panel_x + panel_width // 2, panel_y + 20))
+        self.screen.blit(title_surface, title_rect)
+
+        # 업데이트 시간 표시 (디버깅용)
+        time_text = f"Last updated: {current_time:.2f}"
+        time_surface = self.small_font.render(time_text, True, (150, 150, 150))
+        self.screen.blit(time_surface, (panel_x + 10, panel_y + 30))
+
+        # obs 배열을 텍스트로 표시
+        try:
+            import numpy as np
+
+            obs_array = np.array(self.selected_unit_obs)
+
+            # obs 배열의 구조 정보 표시
+            info_y = panel_y + 60  # 업데이트 시간 표시 공간 확보
+            info_texts = [
+                f"Selected Unit: {self.selected_unit}",
+                f"Array Shape: {obs_array.shape}",
+                f"Array Size: {obs_array.size}",
+                f"Data Type: {obs_array.dtype}",
+                f"Scroll Offset: {self.obs_scroll_offset}",
+                "",
+                "Array Values (scroll with mouse wheel):",
+            ]
+
+            for text in info_texts:
+                if text:  # 빈 문자열이 아닌 경우에만 렌더링
+                    text_surface = self.small_font.render(text, True, (200, 200, 200))
+                    self.screen.blit(text_surface, (panel_x + 10, info_y))
+                info_y += 16
+
+            # 스크롤 가능한 배열 값들 표시
+            content_start_y = info_y
+            content_height = panel_height - (content_start_y - panel_y) - 100  # 통계 정보 공간 확보
+            line_height = 16
+            max_visible_lines = content_height // line_height
+
+            # 스크롤 오프셋 범위 제한
+            max_scroll = max(0, len(obs_array) - max_visible_lines)
+            self.obs_scroll_offset = max(0, min(self.obs_scroll_offset, max_scroll))
+
+            # 표시할 요소들의 범위 계산
+            start_idx = self.obs_scroll_offset
+            end_idx = min(start_idx + max_visible_lines, len(obs_array))
+
+            for i in range(start_idx, end_idx):
+                display_y = content_start_y + (i - start_idx) * line_height
+
+                # 인덱스를 3자리로 포맷팅하여 더 많은 요소 표시 가능
+                value_text = f"[{i:3d}]: {obs_array[i]:.6f}"
+
+                # 값의 크기에 따라 색상 변경
+                if abs(obs_array[i]) > 1.0:
+                    color = (255, 200, 200)  # 큰 값은 빨간색 계열
+                elif abs(obs_array[i]) > 0.1:
+                    color = (200, 255, 200)  # 중간 값은 초록색 계열
+                else:
+                    color = (200, 200, 255)  # 작은 값은 파란색 계열
+
+                text_surface = self.small_font.render(value_text, True, color)
+                self.screen.blit(text_surface, (panel_x + 10, display_y))
+
+            # 스크롤 인디케이터 표시
+            if len(obs_array) > max_visible_lines:
+                scroll_info_y = content_start_y + max_visible_lines * line_height + 10
+                scroll_text = f"Showing {start_idx}-{end_idx - 1} of {len(obs_array)} elements"
+                scroll_surface = self.small_font.render(scroll_text, True, (150, 150, 150))
+                self.screen.blit(scroll_surface, (panel_x + 10, scroll_info_y))
+
+                # 스크롤바 그리기
+                scrollbar_x = panel_x + panel_width - 20
+                scrollbar_y = content_start_y
+                scrollbar_height = max_visible_lines * line_height
+                scrollbar_width = 10
+
+                # 스크롤바 배경
+                pygame.draw.rect(
+                    self.screen,
+                    (80, 80, 80),
+                    (scrollbar_x, scrollbar_y, scrollbar_width, scrollbar_height),
+                )
+
+                # 스크롤바 핸들
+                if max_scroll > 0:
+                    handle_height = max(20, scrollbar_height * max_visible_lines // len(obs_array))
+                    handle_y = (
+                        scrollbar_y
+                        + (scrollbar_height - handle_height) * self.obs_scroll_offset // max_scroll
+                    )
+                    pygame.draw.rect(
+                        self.screen,
+                        (150, 150, 150),
+                        (scrollbar_x, handle_y, scrollbar_width, handle_height),
+                    )
+
+            # 통계 정보 표시
+            stats_y = panel_y + panel_height - 80
+            stats_texts = [
+                f"Min: {obs_array.min():.6f}",
+                f"Max: {obs_array.max():.6f}",
+                f"Mean: {obs_array.mean():.6f}",
+                f"Std: {obs_array.std():.6f}",
+            ]
+
+            for text in stats_texts:
+                text_surface = self.small_font.render(text, True, (255, 255, 100))
+                self.screen.blit(text_surface, (panel_x + 10, stats_y))
+                stats_y += 16
+
+            # 조작 안내 표시
+            help_y = panel_y + panel_height - 20
+            help_text = "Mouse wheel: scroll, R: reset scroll"
+            help_surface = self.small_font.render(help_text, True, (180, 180, 180))
+            self.screen.blit(help_surface, (panel_x + 10, help_y))
+
+        except Exception as e:
+            # 에러 발생시 에러 메시지 표시
+            error_text = f"Error displaying obs array: {str(e)}"
+            error_surface = self.small_font.render(error_text, True, (255, 100, 100))
+            self.screen.blit(error_surface, (panel_x + 10, panel_y + 50))
+
+    def draw_done_status(self, done):
+        """done 상태를 화면에 표시"""
+        try:
+            # 유닛 개수에 따라 동적으로 패널 높이 계산
+            unit_keys = [key for key in done.keys() if key != "__all__" and key.startswith("unit")]
+            base_height = 120  # 제목, 게임 상태, 통계 정보를 위한 기본 높이
+            unit_height = len(unit_keys) * 20  # 각 유닛당 20픽셀
+            calculated_height = base_height + unit_height
+
+            # 최소/최대 높이 제한
+            min_height = 200
+            max_height = self.height - 250  # 화면 높이에서 여유 공간 확보
+            panel_height = max(min_height, min(calculated_height, max_height))
+
+            # done 상태 패널 설정
+            panel_width = 300
+            panel_x = 10
+            panel_y = self.height - panel_height - 220  # unit_info 패널 위에 배치
+
+            # 반투명 배경 그리기
+            panel_surface = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
+            panel_surface.fill((0, 0, 0, 200))  # 반투명 검정
+            self.screen.blit(panel_surface, (panel_x, panel_y))
+
+            # 테두리 그리기
+            pygame.draw.rect(
+                self.screen, (120, 120, 120), (panel_x, panel_y, panel_width, panel_height), 2
+            )
+
+            # 제목 그리기
+            title_text = self.font.render("Done Status", True, (255, 255, 255))
+            title_rect = title_text.get_rect(center=(panel_x + panel_width // 2, panel_y + 20))
+            self.screen.blit(title_text, title_rect)
+
+            # done 정보 표시
+            text_y = panel_y + 45
+            line_height = 20
+
+            # __all__ 상태를 먼저 표시 (전체 게임 완료 상태)
+            if "__all__" in done:
+                all_done = bool(done["__all__"])
+                all_color = (100, 255, 100) if all_done else (255, 100, 100)
+                all_status = "COMPLETED" if all_done else "RUNNING"
+
+                all_text = f"Game Status: {all_status}"
+                all_surface = self.font.render(all_text, True, all_color)
+                self.screen.blit(all_surface, (panel_x + 10, text_y))
+                text_y += line_height + 10
+
+                # 구분선 그리기
+                pygame.draw.line(
+                    self.screen,
+                    (100, 100, 100),
+                    (panel_x + 10, text_y - 5),
+                    (panel_x + panel_width - 10, text_y - 5),
+                    1,
+                )
+
+            # 유닛별 done 상태 표시
+            unit_title = self.small_font.render("Unit Status:", True, (255, 255, 255))
+            self.screen.blit(unit_title, (panel_x + 10, text_y))
+            text_y += line_height
+
+            # 유닛 키들을 정렬해서 일관된 순서로 표시
+            unit_keys.sort()
+
+            # 통계 정보를 위한 공간 계산
+            stats_space = 60  # 통계 정보를 위한 공간
+            available_height = panel_y + panel_height - text_y - stats_space
+            max_units_display = available_height // line_height
+
+            displayed_units = 0
+            for unit_key in unit_keys:
+                if displayed_units >= max_units_display:
+                    # 남은 유닛 수 표시
+                    remaining = len(unit_keys) - displayed_units
+                    more_text = self.small_font.render(
+                        f"... and {remaining} more units", True, (150, 150, 150)
+                    )
+                    self.screen.blit(more_text, (panel_x + 10, text_y))
+                    break
+
+                unit_done = bool(done[unit_key])
+
+                # done 상태에 따른 색상 설정
+                if unit_done:
+                    unit_color = (100, 255, 100)  # 초록색 (완료)
+                    status_symbol = "✓"
+                else:
+                    unit_color = (255, 100, 100)  # 빨간색 (진행중)
+                    status_symbol = "●"
+
+                # 유닛 이름 단축 (unit_0 -> 0)
+                unit_display = unit_key.replace("unit_", "")
+
+                unit_text = (
+                    f"{status_symbol} Unit {unit_display}: {'DONE' if unit_done else 'ACTIVE'}"
+                )
+                unit_surface = self.small_font.render(unit_text, True, unit_color)
+                self.screen.blit(unit_surface, (panel_x + 10, text_y))
+                text_y += line_height
+                displayed_units += 1
+
+            # 통계 정보 추가
+            if unit_keys:
+                stats_y = panel_y + panel_height - 40
+
+                # 구분선 그리기
+                pygame.draw.line(
+                    self.screen,
+                    (100, 100, 100),
+                    (panel_x + 10, stats_y - 5),
+                    (panel_x + panel_width - 10, stats_y - 5),
+                    1,
+                )
+
+                done_count = sum(1 for key in unit_keys if done[key])
+                total_count = len(unit_keys)
+
+                stats_text = f"Completed: {done_count}/{total_count} units"
+                stats_surface = self.small_font.render(stats_text, True, (200, 200, 200))
+                self.screen.blit(stats_surface, (panel_x + 10, stats_y))
+
+                # 진행률 바 그리기
+                progress_y = stats_y + 20
+                progress_width = panel_width - 20
+                progress_height = 8
+
+                # 배경 바
+                pygame.draw.rect(
+                    self.screen,
+                    (80, 80, 80),
+                    (panel_x + 10, progress_y, progress_width, progress_height),
+                )
+
+                # 진행률 바
+                if total_count > 0:
+                    progress_ratio = done_count / total_count
+                    progress_fill_width = int(progress_width * progress_ratio)
+                    progress_color = (100, 255, 100) if progress_ratio == 1.0 else (255, 200, 100)
+
+                    pygame.draw.rect(
+                        self.screen,
+                        progress_color,
+                        (panel_x + 10, progress_y, progress_fill_width, progress_height),
+                    )
+
+        except Exception as e:
+            # 에러 발생시 간단한 에러 메시지 표시
+            error_text = f"Done Status Error: {str(e)}"
+            error_surface = self.small_font.render(error_text, True, (255, 100, 100))
+            self.screen.blit(error_surface, (10, 200))
 
     def draw_unit_info(self, objects):
         """선택된 유닛의 상세 정보를 왼쪽 아래에 표시"""
@@ -1174,13 +1558,10 @@ class PygameRenderer:
             else:
                 attack_cooldown = float(unit.status.attack_cooldown)
 
-            # 공격 중인지 확인
+            # 공격했는지 확인 (쿨다운이 매우 낮을 때 = 방금 공격함)
             attacking = False
-            if hasattr(unit, "attacking"):
-                if hasattr(unit.attacking, "__array__"):
-                    attacking = bool(np.array(unit.attacking))
-                else:
-                    attacking = bool(unit.attacking)
+            if attack_cooldown > 0:
+                attacking = cooldown < (attack_cooldown * 0.1)
 
             # 생존 상태 확인
             is_alive = True  # 기본값
@@ -1376,19 +1757,35 @@ class PygameRenderer:
             pygame.draw.line(self.screen, color, end_pos, (arrow_x1, arrow_y1), thickness)
             pygame.draw.line(self.screen, color, end_pos, (arrow_x2, arrow_y2), thickness)
 
-    def render(self, objects: Dict[str, Any], show_ranges=True):
+    def render(self, objects, show_ranges=True, obs=None, done=None, actions=None):
         """
         객체들을 렌더링
 
         Args:
             objects: 게임 객체들의 딕셔너리 (key는 이름, value는 unit 객체)
             show_ranges: 공격/시야 범위를 표시할지 여부
+            obs: 관찰값 딕셔너리 (key는 유닛 이름, value는 obs 배열)
+            done: done 상태 딕셔너리 (key는 유닛 이름과 __all__, value는 boolean)
+            actions: 현재 프레임의 액션들 딕셔너리 (key는 유닛 이름, value는 액션 배열)
         """
         if not self.running:
             return False
 
         # 이벤트 처리
         self.handle_events(objects)
+
+        # obs가 제공되고 선택된 유닛이 있을 때 obs 배열 저장
+        if obs and self.selected_unit:
+            if self.selected_unit in obs:
+                # 항상 최신 obs로 업데이트 (실시간 변화 반영)
+                new_obs = obs[self.selected_unit]
+                self.selected_unit_obs = new_obs
+
+                # 디버깅: 첫 번째 유닛 선택 시 obs 딕셔너리 구조 출력
+                if not hasattr(self, "_debug_printed"):
+                    self._debug_printed = True
+            else:
+                self.selected_unit_obs = None
 
         # 화면 클리어
         self.screen.fill(self.colors["background"])
@@ -1404,29 +1801,28 @@ class PygameRenderer:
             if hasattr(game_manager, "visible_matrix"):
                 try:
                     visible_matrix = np.array(game_manager.visible_matrix)
-                    print(
-                        f"DEBUG: Raw visible_matrix shape: {visible_matrix.shape}, ndim: {visible_matrix.ndim}"
-                    )
+
                     if visible_matrix.ndim == 1:
                         # 유닛 개수 추정
                         n_units = sum(1 for key in objects.keys() if key.startswith("unit"))
                         if len(visible_matrix) == n_units * n_units:
                             visible_matrix = visible_matrix.reshape(n_units, n_units)
-                            print(f"DEBUG: Reshaped to 2D: {visible_matrix.shape}")
+
                         else:
-                            print(
-                                f"DEBUG: Size mismatch - expected {n_units * n_units}, got {len(visible_matrix)}"
-                            )
+                            pass
                     elif visible_matrix.ndim == 2:
-                        print(f"DEBUG: Already 2D: {visible_matrix.shape}")
+                        pass
                     else:
-                        print(f"DEBUG: Unsupported dimensions: {visible_matrix.ndim}")
                         visible_matrix = None
 
                     if visible_matrix is not None and visible_matrix.ndim == 2:
-                        # 유닛 키 목록 정렬
-                        unit_keys = [key for key in objects.keys() if key.startswith("unit")]
-                        unit_keys.sort()
+                        # 유닛 키 목록을 battle_simulator와 동일한 방식으로 생성
+                        # battle_simulator에서는 self.unit_keys를 사용하므로 같은 순서로 만들어야 함
+                        unit_keys = []
+                        for i in range(visible_matrix.shape[0]):
+                            unit_key = f"unit_{i}"
+                            if unit_key in objects:
+                                unit_keys.append(unit_key)
 
                         if self.selected_unit in unit_keys:
                             selected_index = unit_keys.index(self.selected_unit)
@@ -1435,23 +1831,17 @@ class PygameRenderer:
                                 "selected_index": selected_index,
                                 "unit_keys": unit_keys,
                             }
-                            print(
-                                f"DEBUG: visibility_info created for {self.selected_unit} (index {selected_index})"
-                            )
-                            print(f"DEBUG: unit_keys: {unit_keys}")
-                            print(f"DEBUG: visible_matrix shape: {visible_matrix.shape}")
-                            print(f"DEBUG: visible_matrix:\n{visible_matrix}")
+
                         else:
-                            print(
-                                f"DEBUG: selected_unit {self.selected_unit} not found in unit_keys {unit_keys}"
-                            )
+                            pass
+
                 except Exception:
                     pass
 
         # 유닛들 그리기
-        print(f"DEBUG: visibility_info is {'None' if visibility_info is None else 'available'}")
+
         if visibility_info:
-            print(f"DEBUG: selected_unit: {self.selected_unit}")
+            pass
 
         for obj_name, obj in objects.items():
             if "unit" in obj_name.lower() and hasattr(obj, "transform"):
@@ -1461,23 +1851,68 @@ class PygameRenderer:
                     # 선택된 유닛이 있고, 현재 유닛이 선택된 유닛이 아닌 경우
                     if obj_name in visibility_info["unit_keys"]:
                         target_index = visibility_info["unit_keys"].index(obj_name)
+                        # visible_matrix에서 matrix[i, j]는 unit i가 unit j를 볼 수 있는지를 나타냄
+                        # 따라서 selected_unit이 target_unit을 볼 수 있는지 확인하려면
+                        # matrix[selected_index, target_index]를 확인해야 함
                         can_see = visibility_info["matrix"][
                             visibility_info["selected_index"], target_index
                         ]
-                        print(f"DEBUG: {self.selected_unit} -> {obj_name}: can_see={can_see}")
-                        if not can_see:
-                            # 선택된 유닛이 현재 유닛을 볼 수 없는 경우
-                            alpha = 80  # 투명하게 표시
-                            print(f"DEBUG: Setting {obj_name} to transparent (alpha={alpha})")
-                        else:
-                            print(f"DEBUG: {obj_name} remains opaque")
 
-                # show_ranges를 개별 토글로 대체
-                unit_show_ranges = {
-                    "sight": self.ui_panel["show_sight_range"],
-                    "attack": self.ui_panel["show_attack_range"],
-                }
-                self.draw_unit(obj_name, obj, unit_show_ranges, alpha)
+                        if can_see:
+                            # 선택된 유닛이 현재 유닛을 볼 수 있는 경우
+                            alpha = 200  # 반투명하게 표시 (조금 흐리게)
+                        else:
+                            # 선택된 유닛이 현재 유닛을 볼 수 없는 경우
+                            alpha = 60  # 더 투명하게 표시 (거의 투명)
+
+                # 선택된 유닛의 범위를 자동으로 표시
+                if obj_name == self.selected_unit:
+                    # 선택된 유닛은 시야 범위만 표시 (공격 범위는 공격 시에만)
+                    unit_show_ranges = {
+                        "sight": True,
+                        "attack": False,  # 공격 범위는 공격 중일 때만 표시
+                    }
+                else:
+                    # 다른 유닛들은 UI 패널 설정에 따라 표시
+                    unit_show_ranges = {
+                        "sight": self.ui_panel["show_sight_range"],
+                        "attack": self.ui_panel["show_attack_range"],
+                    }
+                # 해당 유닛의 액션 가져오기
+                unit_action = None
+                show_attack_flash = False
+
+                if actions is not None and obj_name in actions:
+                    unit_action = actions[obj_name]
+
+                    # 실제 공격이 발생했는지 확인 (cooldown 변화로 감지)
+                    try:
+                        if self.did_unit_just_attack(obj_name, obj):
+                            # 공격 플래시를 15프레임 동안 지속 (약 0.25초)
+                            # 공격한 시점의 회전 각도도 함께 저장
+                            if hasattr(obj.transform.rotation, "__array__"):
+                                attack_rotation = float(np.array(obj.transform.rotation))
+                            else:
+                                attack_rotation = float(obj.transform.rotation)
+
+                            self.attack_flash_timers[obj_name] = {
+                                "frames": 15,
+                                "rotation": attack_rotation,
+                            }
+
+                    except Exception:
+                        pass
+
+                # 공격 플래시 타이머 확인
+                if (
+                    obj_name in self.attack_flash_timers
+                    and self.attack_flash_timers[obj_name]["frames"] > 0
+                ):
+                    show_attack_flash = True
+
+                self.draw_unit(
+                    obj_name, obj, unit_show_ranges, alpha, unit_action, show_attack_flash
+                )
 
         # UI 그리기
         self.draw_ui(objects)
@@ -1490,12 +1925,36 @@ class PygameRenderer:
         if self.ui_panel["show_distance_matrix"]:
             self.draw_distance_matrix_visualization(objects)
 
+        # obs 배열 표시
+        if self.ui_panel["show_obs_array"]:
+            self.draw_obs_array()
+
+        # done 상태 표시
+        if self.ui_panel["show_done_status"] and done is not None:
+            self.draw_done_status(done)
+
         # UI 패널과 토글 버튼 그리기 (가장 마지막에)
         self.draw_toggle_button()
         if self.panel_visible:
             self.draw_ui_panel()
 
+        # 시나리오 선택기 그리기 (가장 위에 표시)
+        self.draw_scenario_selector()
+
+        # 정책 선택기 그리기 (시나리오 선택기 아래)
+        self.draw_policy_selector()
+
         # 화면 업데이트
+        # 공격 플래시 타이머 업데이트
+        for unit_name in list(self.attack_flash_timers.keys()):
+            self.attack_flash_timers[unit_name]["frames"] -= 1
+            if self.attack_flash_timers[unit_name]["frames"] <= 0:
+                del self.attack_flash_timers[unit_name]
+
+        # 이번 프레임의 액션을 다음 프레임을 위해 저장
+        if actions is not None:
+            self.previous_actions = actions.copy()
+
         pygame.display.flip()
         self.clock.tick(self.fps)
 
@@ -1520,7 +1979,8 @@ class PygameRenderer:
             unit_radius: 유닛의 반지름
             attack_range_angle: 공격 각도의 절반 (기본값: π/4)
         """
-        if attack_range * self.world_scale * self.zoom < 10:
+        attack_screen_size = attack_range * self.world_scale * self.zoom
+        if attack_screen_size < 5:  # 최소 크기를 10에서 5로 완화
             return
 
         # 공격 범위의 스크린 크기 계산
@@ -1576,7 +2036,11 @@ class PygameRenderer:
                 surface_points.append((surface_x, surface_y))
 
             # 투명도에 따른 색상 조정
-            if alpha is not None and alpha < 255:
+            if alpha is not None and alpha >= 200:
+                # 공격 중일 때 더 강조된 색상 (빨간색 계열)
+                attack_color = (255, 50, 0, alpha)  # 강한 빨간색
+                border_color = (255, 0, 0, 255)  # 완전한 빨간색 테두리
+            elif alpha is not None and alpha < 255:
                 attack_color = (*self.colors["attack_range"][:3], alpha // 3)  # 더 투명하게
                 border_color = (*self.colors["attack_range"][:3], alpha // 2)
             else:
@@ -1808,6 +2272,127 @@ class PygameRenderer:
         text_rect = text_surface.get_rect(center=button_rect.center)
         self.screen.blit(text_surface, text_rect)
 
+    def draw_scenario_selector(self):
+        """화면 가운데 위에 시나리오 선택 UI 그리기"""
+        if not self.scenario_names:
+            return
+
+        # UI 설정
+        selector_height = 50
+        button_width = 150
+        button_height = 30
+        button_spacing = 10
+        total_width = (
+            len(self.scenario_names) * button_width
+            + (len(self.scenario_names) - 1) * button_spacing
+        )
+
+        # 화면 가운데 위에 배치
+        start_x = (self.game_width - total_width) // 2
+        start_y = 10
+
+        # 배경 그리기
+        bg_rect = pygame.Rect(start_x - 10, start_y - 5, total_width + 20, selector_height)
+        bg_surface = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+        bg_surface.fill((0, 0, 0, 180))
+        self.screen.blit(bg_surface, bg_rect)
+        pygame.draw.rect(self.screen, (100, 100, 100), bg_rect, 2)
+
+        # 제목 그리기
+        title_text = self.font.render("Scenario:", True, (255, 255, 255))
+        title_rect = title_text.get_rect()
+        title_rect.centerx = start_x + total_width // 2
+        title_rect.y = start_y
+        self.screen.blit(title_text, title_rect)
+
+        # 시나리오 버튼들 그리기
+        button_y = start_y + 25
+        self.scenario_button_rects = {}
+
+        for i, scenario_name in enumerate(self.scenario_names):
+            button_x = start_x + i * (button_width + button_spacing)
+            button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
+
+            # 선택된 시나리오는 다른 색상으로 표시
+            if i == self.selected_scenario_index:
+                button_color = (80, 150, 80)  # 선택된 버튼은 초록색
+                text_color = (255, 255, 255)
+            else:
+                button_color = (60, 60, 60)  # 선택되지 않은 버튼은 회색
+                text_color = (200, 200, 200)
+
+            # 버튼 배경
+            pygame.draw.rect(self.screen, button_color, button_rect)
+            pygame.draw.rect(self.screen, (150, 150, 150), button_rect, 2)
+
+            # 버튼 텍스트
+            text_surface = self.small_font.render(scenario_name, True, text_color)
+            text_rect = text_surface.get_rect(center=button_rect.center)
+            self.screen.blit(text_surface, text_rect)
+
+            # 클릭 감지를 위해 저장
+            self.scenario_button_rects[scenario_name] = button_rect
+
+    def draw_policy_selector(self):
+        """시나리오 선택기 아래에 정책 선택 UI 그리기"""
+        if not self.policy_names:
+            return
+
+        # UI 설정
+        selector_height = 40
+        button_width = 120
+        button_height = 25
+        button_spacing = 10
+        total_width = (
+            len(self.policy_names) * button_width + (len(self.policy_names) - 1) * button_spacing
+        )
+
+        # 시나리오 선택기 아래에 배치
+        start_x = (self.game_width - total_width) // 2
+        start_y = 70  # 시나리오 선택기 아래
+
+        # 배경 그리기
+        bg_rect = pygame.Rect(start_x - 10, start_y - 5, total_width + 20, selector_height)
+        bg_surface = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
+        bg_surface.fill((0, 0, 0, 160))
+        self.screen.blit(bg_surface, bg_rect)
+        pygame.draw.rect(self.screen, (80, 80, 80), bg_rect, 2)
+
+        # 제목 그리기
+        title_text = self.small_font.render("AI Policy:", True, (255, 255, 255))
+        title_rect = title_text.get_rect()
+        title_rect.centerx = start_x + total_width // 2
+        title_rect.y = start_y
+        self.screen.blit(title_text, title_rect)
+
+        # 정책 버튼들 그리기
+        button_y = start_y + 18
+        self.policy_button_rects = {}
+
+        for i, policy_name in enumerate(self.policy_names):
+            button_x = start_x + i * (button_width + button_spacing)
+            button_rect = pygame.Rect(button_x, button_y, button_width, button_height)
+
+            # 선택된 정책은 다른 색상으로 표시
+            if i == self.selected_policy_index:
+                button_color = (80, 80, 150)  # 선택된 버튼은 파란색
+                text_color = (255, 255, 255)
+            else:
+                button_color = (50, 50, 50)  # 선택되지 않은 버튼은 진한 회색
+                text_color = (180, 180, 180)
+
+            # 버튼 배경
+            pygame.draw.rect(self.screen, button_color, button_rect)
+            pygame.draw.rect(self.screen, (120, 120, 120), button_rect, 1)
+
+            # 버튼 텍스트
+            text_surface = self.small_font.render(policy_name, True, text_color)
+            text_rect = text_surface.get_rect(center=button_rect.center)
+            self.screen.blit(text_surface, text_rect)
+
+            # 클릭 감지를 위해 저장
+            self.policy_button_rects[policy_name] = button_rect
+
     def draw_ui_panel(self):
         """우측 UI 패널 그리기"""
         # 패널 배경
@@ -1830,6 +2415,8 @@ class PygameRenderer:
             ("show_distance_matrix", "Distance Matrix"),
             ("show_unit_info", "Unit Info"),
             ("show_grid", "Grid"),
+            ("show_obs_array", "Obs Array"),
+            ("show_done_status", "Done Status"),
         ]
 
         for i, (key, label) in enumerate(options):
@@ -1842,6 +2429,42 @@ class PygameRenderer:
         for key, rect in self.checkbox_rects.items():
             if rect.collidepoint(mouse_pos):
                 self.ui_panel[key] = not self.ui_panel[key]
+                return True
+        return False
+
+    def handle_scenario_selector_click(self, mouse_pos):
+        """시나리오 선택기 클릭 처리"""
+        if not hasattr(self, "scenario_button_rects"):
+            return False
+
+        for i, (scenario_name, rect) in enumerate(self.scenario_button_rects.items()):
+            if rect.collidepoint(mouse_pos):
+                # 시나리오 변경
+                old_index = self.selected_scenario_index
+                self.selected_scenario_index = i
+
+                if old_index != self.selected_scenario_index:
+                    print(f"Scenario changed to: {scenario_name}")
+                    # 자동으로 선택된 시나리오로 리셋
+                    self.reset_requested = True
+
+                return True
+        return False
+
+    def handle_policy_selector_click(self, mouse_pos):
+        """정책 선택기 클릭 처리"""
+        if not hasattr(self, "policy_button_rects"):
+            return False
+
+        for i, (policy_name, rect) in enumerate(self.policy_button_rects.items()):
+            if rect.collidepoint(mouse_pos):
+                # 정책 변경
+                old_index = self.selected_policy_index
+                self.selected_policy_index = i
+
+                if old_index != self.selected_policy_index:
+                    print(f"AI Policy changed to: {policy_name}")
+
                 return True
         return False
 
@@ -1859,38 +2482,150 @@ class PygameRenderer:
             return True
         return False
 
+    def get_selected_policy(self):
+        """현재 선택된 정책 이름 반환"""
+        if 0 <= self.selected_policy_index < len(self.policy_names):
+            return self.policy_names[self.selected_policy_index]
+        return "Heuristic"  # 기본값
+
+    def check_reset_request(self):
+        """환경 리셋 요청 확인 및 처리"""
+        if self.reset_requested:
+            self.reset_requested = False
+            if self.reset_fn and self.available_scenarios:
+                try:
+                    import jax
+
+                    # 리셋과 함께 상태 초기화
+                    self._reset_internal_states()
+
+                    # 선택된 시나리오 사용
+                    if self.scenario_names and 0 <= self.selected_scenario_index < len(
+                        self.scenario_names
+                    ):
+                        selected_scenario_name = self.scenario_names[self.selected_scenario_index]
+                        selected_scenario = self.available_scenarios[selected_scenario_name]
+
+                        obs, state = self.reset_fn(jax.random.key(0), selected_scenario)
+                        return obs, state
+                    else:
+                        # 기본 시나리오 사용 (fallback)
+                        obs, state = self.reset_fn(jax.random.key(0), self.scenario)
+                        return obs, state
+
+                except Exception as e:
+                    print(f"Environment reset failed: {e}")
+                    return None, None
+        return None, None
+
+    def _reset_internal_states(self):
+        """리셋 시 내부 상태들을 초기화"""
+        self.previous_actions = {}
+        self.previous_unit_states = {}
+        self.attack_flash_timers = {}
+        print(
+            "Internal states reset: previous_actions, previous_unit_states, attack_flash_timers cleared"
+        )
+
     def close(self):
         """렌더러 종료"""
         pygame.quit()
 
 
 # 사용 예시 함수
-def render_loop(state, fps=60, show_ranges=True):
+def render_loop(
+    state, fps=60, show_ranges=True, env=None, scenario=None, reset_fn=None, config=None
+):
     """
     실시간 렌더링 루프
 
     Args:
-        objects: 게임 객체들의 딕셔너리
+        state: 게임 상태
         fps: 프레임 레이트
         show_ranges: 공격/시야 범위 표시 여부
+        env: 환경 객체
+        scenario: 시나리오 객체
+        reset_fn: 리셋 함수
+        config: MAPPO 설정 객체
     """
-    renderer = PygameRenderer(fps=fps)
+    renderer = PygameRenderer(fps=fps, env=env, scenario=scenario, reset_fn=reset_fn)
 
     try:
-        while renderer.render(state, show_ranges):
+        # 초기 obs 생성
+        obs = env.get_obs(state)
+        key = jax.random.key(2)
+        done = None  # 초기값 설정
+
+        # MAPPO policy hidden states 초기화
+        policy_hidden_states = {}
+        if config is not None and env is not None:
+            policy_hidden_states = {
+                agent: jnp.zeros((1, config.layer_dim)) for agent in env.ally_keys
+            }
+
+        current_actions = {}  # 현재 액션을 저장할 변수
+
+        while renderer.render(state, show_ranges, obs, done, current_actions):
+            # 리셋 요청 확인 및 처리
+            reset_obs, reset_state = renderer.check_reset_request()
+            if reset_obs is not None and reset_state is not None:
+                obs = reset_obs
+                state = reset_state
+                # 선택된 유닛 초기화
+                renderer.selected_unit = None
+                renderer.selected_unit_obs = None
+                renderer.obs_scroll_offset = 0
+                # MAPPO policy hidden states 초기화
+                if config is not None:
+                    policy_hidden_states = {
+                        agent: jnp.zeros((1, config.layer_dim)) for agent in env.ally_keys
+                    }
+                print("Environment reset completed!")
+                continue  # 이번 프레임은 리셋만 하고 다음 프레임으로
+
             # 액션 준비
             actions = {}
 
             # 유저가 컨트롤하는 유닛들의 액션 사용
-            for unit_name in ["unit1", "unit2", "unit3", "unit4"]:
+            for unit_name in env.unit_keys:
                 if unit_name in renderer.user_controlled_actions:
                     actions[unit_name] = renderer.user_controlled_actions[unit_name]
                 else:
-                    # 유저가 컨트롤하지 않는 유닛은 랜덤 액션
-                    actions[unit_name] = jnp.array([0.0, 5])
+                    # 선택된 정책에 따라 액션 결정
+                    selected_policy = renderer.get_selected_policy()
+
+                    if selected_policy == "Heuristic":
+                        action_key, key = jax.random.split(key)
+                        # Heuristic 정책 사용
+                        actions[unit_name] = heuristic_policy(action_key, obs[unit_name])
+                    elif selected_policy == "Idle":
+                        # 아무것도 하지 않음 (IDLE 액션)
+                        actions[unit_name] = jnp.array([0.0, UnitAction.IDLE])
+                    elif selected_policy == "MAPPO":
+                        if unit_name in policy_hidden_states:
+                            action_key, key = jax.random.split(key)
+                            sample_result = sample_action(
+                                mappo_state,
+                                policy_hidden_states[unit_name],
+                                obs[unit_name][None],
+                                action_key,
+                            )
+                            actions[unit_name] = sample_result["actions"].flatten()
+                            print(sample_result["actions"][0])
+                            policy_hidden_states[unit_name] = sample_result["next_hidden_state"]
+                        else:
+                            actions[unit_name] = heuristic_policy(action_key, obs[unit_name])
+                    else:
+                        # 기본값: Heuristic 정책
+                        action_key, key = jax.random.split(key)
+                        actions[unit_name] = heuristic_policy(action_key, obs[unit_name])
+
+            # 현재 액션을 저장
+            current_actions = actions.copy()
 
             # 게임 스텝 실행
             obs, state, reward, done, info = step(jax.random.key(0), state, actions)
+            print(info["timestep"])
             # print(state["game_manager"].target)
 
             # 유저 컨트롤 액션 초기화 (한 프레임에만 적용)
@@ -1905,16 +2640,54 @@ if __name__ == "__main__":
     import jax
     import jax.numpy as jnp
     from src.maenv.physics import Transform, RigidBody, CircleCollider
-    from src.maenv.tabs.tabs_battle_simulator.battle_simulator import DefaultUnit, UnitStatus
+    from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import BattleSimulator
+    from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
+    from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
+    from src.maenv.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
+    import functools
+    from src.baseline.mappo import MAPPO
+    from types import SimpleNamespace
 
-    # 테스트 유닛 생성
-    env = TABS()
-    obs, state = env.reset(jax.random.key(0))
+    default_tabs_conf = default_tabs_conf.replace(scenario_name="8archer_vs_1mammoth_1healer")
+    scenario = generate_scenario(default_tabs_conf)
+
+    config = SimpleNamespace(
+        seed=42,
+        action_dim=6,
+        obs_dim=148,
+        state_dim=148 * 8,
+        layer_dim=128,
+        lr=1e-3,
+        max_grad_norm=1.0,
+        n_env=50,
+    )
+    config.rollout_step = 512
+    config.n_env = 128
+    config.gamma = 0.99
+    config.lamda = 0.95
+    config.clip_value = 0.5
+    config.clip_ratio = 0.05
+    config.entropy_coef = 0.01
+    config.ppo_epochs = 5
+
+    env = BattleSimulator(max_n_ally=8, max_n_enemy=2)
+    heuristic_policy = jax.jit(
+        functools.partial(
+            heuristic_policy, num_agents=env.max_n_ally + env.max_n_enemy, epsilon=0.01
+        )
+    )
+    mappo = MAPPO(config, env, scenario)
+    # mappo_state = mappo.load_state("C:/Users/JunhyeokOh/Desktop/TABS/baseline/action_clip", True)
+
+    sample_action = jax.jit(mappo.sample_action)
+
+    reset = jax.jit(env.reset)
+    # reset = env.reset
+    obs, state = reset(jax.random.key(0), scenario)
+    # state["game_manager"] = state["game_manager"].update_distance_matrix(state)
     step = jax.jit(env.step)
     # step = env.step
 
-    print("Starting test renderer...")
-    print(
-        "Controls: WASD to move camera, mouse wheel to zoom, space to reset, TAB to toggle UI panel, ESC to exit"
-    )
-    render_loop(state)
+    policy_hidden_states = {agent: jnp.zeros((1, config.layer_dim)) for agent in env.ally_keys}
+
+    render_loop(state, env=env, scenario=scenario, reset_fn=reset, config=config)

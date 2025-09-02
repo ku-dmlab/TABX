@@ -4,8 +4,7 @@ import chex
 from flax import struct
 import jax.numpy as jnp
 
-sight_angle = 60.0
-sight_radius = 10.0
+sight_angle = jnp.pi / 2
 non_target_balance = 0.5
 
 
@@ -16,15 +15,12 @@ class Unit:
     health: chex.Array
     body_radius: chex.Array
     body_weight: chex.Array
-    velocity: chex.Array
+    speed: chex.Array
     attack_damage: chex.Array
     attack_range: chex.Array  # WM
     attack_cooldown: chex.Array  # sec
     sight_angle: chex.Array
-    sight_radius: chex.Array
     space_occupied: chex.Array  # area of rectangle shape
-    alive: chex.Array
-    team: chex.Array  # 1: alley, 0: enemy
 
 
 def get_all_unit_names() -> List:
@@ -37,12 +33,11 @@ def get_unit_spec(unit: Unit) -> Dict[str, chex.Array]:
         "health": unit.health,
         "body_radius": unit.body_radius,
         "body_weight": unit.body_weight,
-        "velocity": unit.velocity,
+        "speed": unit.speed,
         "attack_damage": unit.attack_damage,
         "attack_range": unit.attack_range,
         "attack_cooldown": unit.attack_cooldown,
         "sight_angle": unit.sight_angle,
-        "sight_radius": unit.sight_radius,
         "space_occupied": unit.space_occupied,
     }
 
@@ -67,27 +62,25 @@ def get_all_unit_spec() -> chex.Array:
     healths = jnp.array([unit.health for unit in all_units]).flatten()
     body_radiuses = jnp.array([unit.body_radius for unit in all_units]).flatten()
     body_weights = jnp.array([unit.body_weight for unit in all_units]).flatten()
-    velocities = jnp.array([unit.velocity for unit in all_units]).flatten()
+    speeds = jnp.array([unit.speed for unit in all_units]).flatten()
     attack_damages = jnp.array([unit.attack_damage for unit in all_units]).flatten()
+    attack_ranges = jnp.array([unit.attack_range for unit in all_units]).flatten()
     attack_cooldown = jnp.array([unit.attack_cooldown for unit in all_units]).flatten()
     sight_angles = jnp.array([unit.sight_angle for unit in all_units]).flatten()
-    sight_radiuses = jnp.array([unit.sight_radius for unit in all_units]).flatten()
     space_occupied = jnp.array([unit.space_occupied for unit in all_units]).flatten()
 
-    return jnp.vstack(
-        (
-            prices,
-            healths,
-            body_radiuses,
-            body_weights,
-            velocities,
-            attack_damages,
-            attack_cooldown,
-            sight_angles,
-            sight_radiuses,
-            space_occupied,
-        )
-    )
+    return {
+        "prices": prices,
+        "healths": healths,
+        "body_radiuses": body_radiuses,
+        "body_weights": body_weights,
+        "speeds": speeds,
+        "attack_damages": attack_damages,
+        "attack_ranges": attack_ranges,
+        "attack_cooldown": attack_cooldown,
+        "sight_angles": sight_angles,
+        "space_occupied": space_occupied,
+    }
 
 
 class UnitID:
@@ -107,15 +100,12 @@ class Farmer(Unit):
     health = jnp.array([60])
     body_radius = jnp.array([1.0])
     body_weight = jnp.array([1.0])
-    velocity = jnp.array([1.0])
-    attack_damage = jnp.array([60])
+    speed = jnp.array([1.1])
+    attack_damage = jnp.array([12])
     attack_range = jnp.array([2.5])
     attack_cooldown = jnp.array([2.5])
     sight_angle = jnp.array([sight_angle])
-    sight_radius = jnp.array([sight_radius])
     space_occupied = jnp.array([1])
-    alive = jnp.array([1])
-    team = jnp.array([1])
 
 
 @struct.dataclass
@@ -125,15 +115,12 @@ class Archer(Unit):
     health = jnp.array([40])
     body_radius = jnp.array([1.0])
     body_weight = jnp.array([1.0])
-    velocity = jnp.array([1.0])
-    attack_damage = jnp.array([190])
+    speed = jnp.array([1.0])
+    attack_damage = jnp.array([38])
     attack_range = jnp.array([30.0])
     attack_cooldown = jnp.array([8])
     sight_angle = jnp.array([sight_angle])
-    sight_radius = jnp.array([sight_radius])
     space_occupied = jnp.array([1])
-    alive = jnp.array([1])
-    team = jnp.array([1])
 
 
 @struct.dataclass
@@ -143,15 +130,12 @@ class TheKing(Unit):
     health = jnp.array([2377])
     body_radius = jnp.array([1.47])
     body_weight = jnp.array([10.0])
-    velocity = jnp.array([1.0])
-    attack_damage = jnp.array([330])
+    speed = jnp.array([1.2])
+    attack_damage = jnp.array([66])
     attack_range = jnp.array([3.2])
     attack_cooldown = jnp.array([2.5])
     sight_angle = jnp.array([sight_angle])
-    sight_radius = jnp.array([sight_radius])
     space_occupied = jnp.array([1])
-    alive = jnp.array([1])
-    team = jnp.array([1])
 
 
 @struct.dataclass
@@ -161,15 +145,12 @@ class BombThrower(Unit):
     health = jnp.array([150])
     body_radius = jnp.array([1.0])
     body_weight = jnp.array([1.0])
-    velocity = jnp.array([1.0])
-    attack_damage = jnp.array([160])
+    speed = jnp.array([1.0])
+    attack_damage = jnp.array([32])
     attack_range = jnp.array([15])
     attack_cooldown = jnp.array([10.0])
     sight_angle = jnp.array([sight_angle])
-    sight_radius = jnp.array([sight_radius])
     space_occupied = jnp.array([1])
-    alive = jnp.array([1])
-    team = jnp.array([1])
 
 
 @struct.dataclass
@@ -179,15 +160,12 @@ class Mammoth(Unit):
     health = jnp.array([2526])
     body_radius = jnp.array([4.25])
     body_weight = jnp.array([50.0])
-    velocity = jnp.array([1.2])
-    attack_damage = jnp.array([100])  # NOTE: arbitrary value
+    speed = jnp.array([1.3])
+    attack_damage = jnp.array([20])  # NOTE: arbitrary value
     attack_range = jnp.array([3])
     attack_cooldown = jnp.array([4.0])
     sight_angle = jnp.array([sight_angle])
-    sight_radius = jnp.array([sight_radius])
     space_occupied = jnp.array([4])
-    alive = jnp.array([1])
-    team = jnp.array([1])
 
 
 @struct.dataclass
@@ -197,15 +175,12 @@ class Deadeye(Unit):
     health = jnp.array([75])
     body_radius = jnp.array([1.0])
     body_weight = jnp.array([1.0])
-    velocity = jnp.array([1.0])
-    attack_damage = jnp.array([650])
+    speed = jnp.array([1.0])
+    attack_damage = jnp.array([130])
     attack_range = jnp.array([40])
     attack_cooldown = jnp.array([5.0])
     sight_angle = jnp.array([sight_angle])
-    sight_radius = jnp.array([sight_radius])
     space_occupied = jnp.array([1])
-    alive = jnp.array([1])
-    team = jnp.array([1])
 
 
 @struct.dataclass
@@ -215,12 +190,9 @@ class Healer(Unit):
     health = jnp.array([25])
     body_radius = jnp.array([1.0])
     body_weight = jnp.array([1.0])
-    velocity = jnp.array([1.0])
-    attack_damage = jnp.array([35])
+    speed = jnp.array([1.0])
+    attack_damage = jnp.array([-7])
     attack_range = jnp.array([10.0])
     attack_cooldown = jnp.array([1])
     sight_angle = jnp.array([sight_angle])
-    sight_radius = jnp.array([sight_radius + 1])
     space_occupied = jnp.array([1])
-    alive = jnp.array([1])
-    team = jnp.array([1])

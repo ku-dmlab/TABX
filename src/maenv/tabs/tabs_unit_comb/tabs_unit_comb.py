@@ -9,24 +9,28 @@ from src.maenv.tabs.scenarios import Scenario, TABSConf
 
 @struct.dataclass
 class State:
-    budget: int
+    budget: chex.Array
     all_price: chex.Array
     all_spec: chex.Array
     current_unit_list: chex.Array
     enemy_unit_comp: chex.Array
     unit_comp_mask: chex.Array
-    action_mask: chex.Array
+    unavail_action: chex.Array
     scenario: Scenario
 
 
 class TABSUnitComb(BaseMAEnv):
     def __init__(self, cfg: TABSConf) -> None:
         self.max_num_units = cfg.max_num_units
-        self.max_agents = cfg.max_agents
+        self.max_n_ally = cfg.max_n_ally
+        self.max_n_enemy = cfg.max_n_enemy
 
         self.action_space = Discrete(num_categories=self.max_num_units)  # unit id
         self.observation_space = Box(
-            low=0, high=self.max_agents, shape=(1 + self.max_num_units * 3), dtype=jnp.float32
+            low=0,
+            high=jnp.inf,
+            shape=(1 + self.max_num_units * 10,),
+            dtype=jnp.float32,
         )
 
     def get_obs(self, state):
@@ -41,7 +45,7 @@ class TABSUnitComb(BaseMAEnv):
 
         return jnp.concatenate(
             (
-                jnp.array([state.budget]),
+                state.budget,
                 state.current_unit_list,
                 state.all_price,
                 state.all_spec.flatten(),
@@ -54,16 +58,16 @@ class TABSUnitComb(BaseMAEnv):
         self.num_units = jnp.sum(scenario.unit_comp_mask)
         # assert scenario.budget >= self._min_budget
         chex.assert_equal(scenario.enemy_unit_comp.shape, (self.max_num_units,))
-        action_mask = (
+        unavail_action = 1 - (
             jnp.where(scenario.budget >= scenario.price, True, False) * scenario.unit_comp_mask
-        )
+        ).astype(jnp.float32)
 
         all_spec = jnp.vstack(
             (
                 scenario.health,
                 scenario.body_radius,
                 scenario.body_weight,
-                scenario.velocity,
+                scenario.speed,
                 scenario.attack_damage,
                 scenario.attack_range,
                 scenario.attack_cooldown,
@@ -77,17 +81,17 @@ class TABSUnitComb(BaseMAEnv):
             current_unit_list=jnp.zeros(self.max_num_units, dtype=jnp.int32),
             enemy_unit_comp=scenario.enemy_unit_comp,
             unit_comp_mask=scenario.unit_comp_mask,
-            action_mask=action_mask.astype(jnp.float32),
+            unavail_action=unavail_action,
             scenario=scenario,
         )
         return self.get_obs(state), state
 
-    def step_env(self, key, state, action):
+    def step(self, key, state, action):
         mask = jnp.zeros(self.max_num_units, dtype=jnp.bool_)
         mask = mask.at[action].set(True)
 
         valid_max_agent = jnp.where(
-            jnp.sum(state.current_unit_list) + 1 <= self.max_agents, 1, 0
+            jnp.sum(state.current_unit_list) + 1 <= self.max_n_ally, 1, 0
         ).astype(jnp.bool_)
         purchase_valid = state.all_price <= state.budget
         purchase_valid = purchase_valid & mask & valid_max_agent
@@ -96,18 +100,19 @@ class TABSUnitComb(BaseMAEnv):
             purchase_valid, state.current_unit_list + 1, state.current_unit_list
         )
         new_budgets = jnp.where(purchase_valid, state.budget - state.all_price, state.budget)
-        budget = new_budgets[action].astype(jnp.int32)
+        budget = new_budgets[action].astype(jnp.int32)[None]
 
-        action_mask = (
+        unavail_action = 1 - (
             jnp.where(budget >= state.all_price, True, False)
             * state.unit_comp_mask
             * valid_max_agent
-        )
+        ).astype(jnp.float32)
+
         # Update state
         state = state.replace(
             budget=budget,
             current_unit_list=new_unit_list.astype(jnp.int32),
-            action_mask=action_mask.astype(jnp.float32),
+            unavail_action=unavail_action,
         )
         # NOTE: Reward would be computed by the result of battle with this unit combination.
         reward = None

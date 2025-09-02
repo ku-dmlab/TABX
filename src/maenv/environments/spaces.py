@@ -96,6 +96,35 @@ class Box(Space):
         return range_cond
 
 
+class DiscreteContinuous(Space):
+    """
+    Minimal jittable class for continuous and discrete gymnax spaces.
+    """
+
+    def __init__(
+        self,
+        num_categories: int,
+        low: float,
+        high: float,
+        shape: Tuple[int],
+        dtype: jnp.dtype = jnp.float32,
+    ):
+        self.continuous = Box(low=low, high=high, shape=shape)
+        self.discrete = Discrete(num_categories=num_categories)
+        self.shape = (1 + sum(shape),)
+        self.dtype = dtype
+
+    def sample(self, rng: chex.PRNGKey) -> chex.Array:
+        """Sample random action uniformly"""
+        cont_rng, disc_rng = jax.random.split(rng)
+        cont_sample = self.continuous.sample(cont_rng)
+        disc_sample = self.discrete.sample(disc_rng)
+        return jnp.concatenate((cont_sample.flatten(), jnp.array([disc_sample])))
+
+    def contains(self, x: chex.Array) -> bool:
+        return self.discrete.contains(x[0]) or self.continuous.contains(x[1:])
+
+
 class Dict(Space):
     """Minimal jittable class for dictionary of simpler jittable spaces."""
 

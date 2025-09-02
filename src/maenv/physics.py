@@ -141,7 +141,7 @@ def resolve_collision_pure_concise(config, object_a, object_b):
         new_transform_b = object_b.transform._replace(position=p_b + correction_b)
         new_rb_b = rb_b._replace(velocity=new_vel_b, mass=rb_b.mass, acceleration=rb_b.acceleration)
 
-        return object_a._replace(transform=new_transform_a, rigidbody=new_rb_a), object_b._replace(
+        return object_a.replace(transform=new_transform_a, rigidbody=new_rb_a), object_b.replace(
             transform=new_transform_b, rigidbody=new_rb_b
         )
 
@@ -184,8 +184,13 @@ def physics_step(config, objects, physics_sprites_target, collider_filter):
             else:
                 continue
 
+            disabled = False
+
             obj_a = objects[physics_sprites_target[i]]
             obj_b = objects[physics_sprites_target[j]]
+
+            if hasattr(obj_a, "status") and hasattr(obj_b, "status"):
+                disabled = obj_a.status.is_disabled | obj_b.status.is_disabled
 
             new_a, new_b, is_collision = resolve_collision_pure_concise(config, obj_a, obj_b)
             if hasattr(new_a, "on_collision"):
@@ -193,18 +198,22 @@ def physics_step(config, objects, physics_sprites_target, collider_filter):
             if hasattr(new_b, "on_collision"):
                 new_b = new_b.on_collision(objects, is_collision, physics_sprites_target[i])
 
-            objects[physics_sprites_target[i]] = new_a
-            objects[physics_sprites_target[j]] = new_b
+            objects[physics_sprites_target[i]] = jax.tree.map(
+                lambda x, y: jnp.where(disabled, y, x), new_a, obj_a
+            )
+            objects[physics_sprites_target[j]] = jax.tree.map(
+                lambda x, y: jnp.where(disabled, y, x), new_b, obj_b
+            )
 
     return objects
 
 
 def physics_update(config, object):
-    rigidbody = object.rigidbody
+    rigidbody: namedtuple = object.rigidbody
     rigidbody = rigidbody._replace(
         velocity=(rigidbody.velocity + rigidbody.acceleration * config.dt)
         * (1 - rigidbody.is_kinematic)
     )
-    transform = object.transform
+    transform: namedtuple = object.transform
     transform = transform._replace(position=transform.position + rigidbody.velocity * config.dt)
-    return object._replace(transform=transform, rigidbody=rigidbody)
+    return object.replace(transform=transform, rigidbody=rigidbody)

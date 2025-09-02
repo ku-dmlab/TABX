@@ -1,14 +1,15 @@
 from typing import NamedTuple
-import jax.numpy as jnp
+
+import chex
 
 
 class Transition(NamedTuple):
-    done: jnp.ndarray
-    action: jnp.ndarray
-    reward: jnp.ndarray
-    obs: jnp.ndarray
-    info: jnp.ndarray
-    avail_action: jnp.ndarray
+    done: chex.Array
+    action: chex.Array
+    reward: chex.Array
+    obs: chex.Array
+    info: chex.Array
+    unavail_action: chex.Array
 
 
 def notify(sprites, event, info):
