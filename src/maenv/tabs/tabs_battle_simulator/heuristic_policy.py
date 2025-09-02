@@ -1,6 +1,7 @@
-from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import UnitAction
-import jax.numpy as jnp
 import jax
+import jax.numpy as jnp
+
+from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import UnitAction
 
 
 def angle_wrap_to_pi(x):
@@ -59,5 +60,5 @@ def heuristic_policy(key, obs, num_agents, epsilon=0.1):
 
     actions = jnp.stack([rotate_action, discrete_action])
 
-    is_random = jax.random.bernoulli(key, 1 - epsilon)
-    return actions * is_random + random_actions * ~is_random
+    is_random = jax.random.bernoulli(key, epsilon)
+    return actions * ~is_random + random_actions * is_random

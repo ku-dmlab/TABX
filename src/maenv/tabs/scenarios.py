@@ -1,4 +1,3 @@
-from typing import Optional
 import chex
 from flax import struct
 import jax.numpy as jnp
