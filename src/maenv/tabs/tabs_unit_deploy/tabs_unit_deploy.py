@@ -16,7 +16,7 @@ class State:
     unit_comp_mask: chex.Array  # Avail unit types
     battle_field: chex.Array  # (H_max x W_max) matrix facing enemies
     battle_field_occupied: chex.Array  # (H_max x W_max) matrix including occupied space
-    action_mask: (
+    unavail_action: (
         chex.Array
     )  # (H_max x W_max) matrix representing available deployment spots for the next unit
     enemy_battle_field: chex.Array  # (H_max x W_max) matrix facing allies
@@ -40,7 +40,12 @@ class TABSUnitDeploy(BaseMAEnv):
         self.observation_space = Box(
             low=0,
             high=cfg.max_n_ally,
-            shape=(1 + self.max_num_units + 2 * self.max_num_units * max_field_size + self.max_num_units * 7,),
+            shape=(
+                1
+                + self.max_num_units
+                + 2 * self.max_num_units * max_field_size
+                + self.max_num_units * 7,
+            ),
             dtype=jnp.float32,
         )
 
@@ -59,7 +64,14 @@ class TABSUnitDeploy(BaseMAEnv):
         ally_battle_field = convert_unit_layer(state.battle_field, self.max_num_units)
 
         battle_field = jnp.vstack((enemy_battle_field, ally_battle_field))
-        obs = jnp.concatenate((state.next_unit, state.remaining_units, battle_field.flatten(), state.all_spec.flatten()))
+        obs = jnp.concatenate(
+            (
+                state.next_unit,
+                state.remaining_units,
+                battle_field.flatten(),
+                state.all_spec.flatten(),
+            )
+        )
 
         return obs
 
@@ -113,9 +125,9 @@ class TABSUnitDeploy(BaseMAEnv):
             [jnp.argmax(scenario.ally_unit_comp * scenario.unit_comp_mask != 0) + 1]
         )  # ID starts from 1
         battle_field = jnp.zeros_like(scenario.battle_field)
-        battle_field_mask = self._get_deploy_mask(
+        unavail_action = 1 - self._get_deploy_mask(
             next_unit, scenario.battle_field_mask, scenario.space_occupied
-        )
+        ).astype(jnp.float32)
 
         all_spec = jnp.vstack(
             (
@@ -135,7 +147,7 @@ class TABSUnitDeploy(BaseMAEnv):
             unit_comp_mask=scenario.unit_comp_mask,
             battle_field=battle_field,  # ally battle field
             battle_field_occupied=battle_field,
-            action_mask=1 - battle_field_mask.astype(jnp.float32).flatten(),  # ally battle field mask, use flatten() to be consistent with action shape
+            unavail_action=unavail_action.flatten(),  # ally battle field mask, use flatten() to be consistent with action shape
             enemy_battle_field=enemy_battle_field,
             enemy_battle_field_mask=enemy_battle_field_mask,
             space_occupied_spec=scenario.space_occupied,
@@ -144,17 +156,22 @@ class TABSUnitDeploy(BaseMAEnv):
         )
         return self.get_obs(state), state
 
-    def step_env(self, key, state, action):
+    def step(self, key, state, action):
         # Deploy the next unit
         h, w = jnp.unravel_index(action, (self.max_field_height, self.max_field_width))
-        # h, w = action // self.max_field_width, action % self.max_field_width # instead, use jnp.unravel_index
         try_deploy = jnp.zeros_like(state.battle_field, dtype=jnp.bool_)
         try_deploy = try_deploy.at[h, w].set(True)
 
         # Get the condition for deployment
 
-        battle_field_mask = 1 - state.action_mask.reshape(self.max_field_height, self.max_field_width)
-        cond_deploy = try_deploy & battle_field_mask.astype(jnp.bool_) & (state.remaining_units[state.next_unit - 1] > 0) # check if the remaining units is greater than 0
+        battle_field_mask = 1 - state.unavail_action.reshape(
+            self.max_field_height, self.max_field_width
+        )
+        cond_deploy = (
+            try_deploy
+            & battle_field_mask.astype(jnp.bool_)
+            & (state.remaining_units[state.next_unit - 1] > 0)
+        )  # check if the remaining units is greater than 0
         battle_field = jnp.where(
             cond_deploy, state.next_unit[0], state.battle_field
         )  # Deployed battle field
@@ -175,12 +192,12 @@ class TABSUnitDeploy(BaseMAEnv):
             state.next_unit[0],
             state.battle_field_occupied,
         )
-        next_battle_field_mask = jnp.where(
+        unavail_action = 1 - jnp.where(
             cond_deploy.any(),
             self._get_deploy_mask(next_unit, jnp.logical_not(occupied), state.space_occupied_spec)
             & jnp.logical_not(battle_field_occupied),
             battle_field_mask,
-        )
+        ).astype(jnp.float32)
 
         # Update state
         state = state.replace(
@@ -188,7 +205,7 @@ class TABSUnitDeploy(BaseMAEnv):
             remaining_units=jnp.clip(remaining_units.flatten()),
             battle_field=battle_field.astype(jnp.float32),
             battle_field_occupied=battle_field_occupied.astype(jnp.float32),
-            action_mask=1 - next_battle_field_mask.astype(jnp.float32).flatten(),
+            unavail_action=unavail_action.flatten(),
         )
 
         # NOTE: Reward would be computed by the result of battle with this unit deployment.

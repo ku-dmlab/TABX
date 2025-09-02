@@ -1,7 +1,6 @@
-from typing import Tuple, Dict, Optional, Any
-import chex
+from typing import Tuple, Dict, Any
 
-import jax
+import chex
 
 
 class BaseMAEnv:
@@ -18,27 +17,6 @@ class BaseMAEnv:
         raise NotImplementedError
 
     def step(
-        self,
-        key: chex.PRNGKey,
-        state: chex.Array,
-        action: chex.Array,
-        reset_state: Optional[chex.Array] = None,
-    ) -> Tuple[Dict[str, chex.Array], Dict[str, Any]]:
-        key, key_reset = jax.random.split(key)
-        obs_st, states_st, reward, done, info = self.step_env(key, state, action)
-
-        if reset_state is None:
-            obs_re, states_re = self.reset(key_reset, states_st.scenario)
-        else:
-            states_re = reset_state
-            obs_re = self.get_obs(states_re)
-
-        states = jax.tree.map(lambda x, y: jax.lax.select(done, x, y), states_re, states_st)
-        obs = jax.tree.map(lambda x, y: jax.lax.select(done, x, y), obs_re, obs_st)
-
-        return obs, states, reward, done, info
-
-    def step_env(
         self, key: chex.PRNGKey, state: chex.Array, action: chex.Array
     ) -> Tuple[Dict[str, chex.Array], chex.Array, float, bool, Dict[str, Any]]:
         raise NotImplementedError

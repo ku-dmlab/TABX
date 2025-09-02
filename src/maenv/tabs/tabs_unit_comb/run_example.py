@@ -37,7 +37,7 @@ if __name__ == "__main__":
             reward=rewards,
             obs=obs,
             info=infos,
-            avail_action=env_state.action_mask,
+            unavail_action=env_state.unavail_action,
         )
 
         return (next_obs, next_state, rng), transition

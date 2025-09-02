@@ -15,7 +15,7 @@ class State:
     current_unit_list: chex.Array
     enemy_unit_comp: chex.Array
     unit_comp_mask: chex.Array
-    action_mask: chex.Array
+    unavail_action: chex.Array
     scenario: Scenario
 
 
@@ -29,7 +29,7 @@ class TABSUnitComb(BaseMAEnv):
         self.observation_space = Box(
             low=0,
             high=jnp.inf,
-            shape=(1 + self.max_num_units * 3 + self.max_num_units**2, ),
+            shape=(1 + self.max_num_units * 10,),
             dtype=jnp.float32,
         )
 
@@ -58,9 +58,9 @@ class TABSUnitComb(BaseMAEnv):
         self.num_units = jnp.sum(scenario.unit_comp_mask)
         # assert scenario.budget >= self._min_budget
         chex.assert_equal(scenario.enemy_unit_comp.shape, (self.max_num_units,))
-        action_mask = 1 - (
+        unavail_action = 1 - (
             jnp.where(scenario.budget >= scenario.price, True, False) * scenario.unit_comp_mask
-        )
+        ).astype(jnp.float32)
 
         all_spec = jnp.vstack(
             (
@@ -81,12 +81,12 @@ class TABSUnitComb(BaseMAEnv):
             current_unit_list=jnp.zeros(self.max_num_units, dtype=jnp.int32),
             enemy_unit_comp=scenario.enemy_unit_comp,
             unit_comp_mask=scenario.unit_comp_mask,
-            action_mask=action_mask.astype(jnp.float32),
+            unavail_action=unavail_action,
             scenario=scenario,
         )
         return self.get_obs(state), state
 
-    def step_env(self, key, state, action):
+    def step(self, key, state, action):
         mask = jnp.zeros(self.max_num_units, dtype=jnp.bool_)
         mask = mask.at[action].set(True)
 
@@ -102,16 +102,17 @@ class TABSUnitComb(BaseMAEnv):
         new_budgets = jnp.where(purchase_valid, state.budget - state.all_price, state.budget)
         budget = new_budgets[action].astype(jnp.int32)[None]
 
-        action_mask = 1-(
+        unavail_action = 1 - (
             jnp.where(budget >= state.all_price, True, False)
             * state.unit_comp_mask
             * valid_max_agent
-        )
+        ).astype(jnp.float32)
+
         # Update state
         state = state.replace(
             budget=budget,
             current_unit_list=new_unit_list.astype(jnp.int32),
-            action_mask=action_mask.astype(jnp.float32),
+            unavail_action=unavail_action,
         )
         # NOTE: Reward would be computed by the result of battle with this unit combination.
         reward = None
