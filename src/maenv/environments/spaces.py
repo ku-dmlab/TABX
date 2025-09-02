@@ -111,7 +111,7 @@ class DiscreteContinuous(Space):
     ):
         self.continuous = Box(low=low, high=high, shape=shape)
         self.discrete = Discrete(num_categories=num_categories)
-        self.shape = (1 + shape[0],)
+        self.shape = (1 + sum(shape),)
         self.dtype = dtype
 
     def sample(self, rng: chex.PRNGKey) -> chex.Array:
