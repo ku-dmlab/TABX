@@ -1,48 +1,15 @@
-from collections import namedtuple
+from typing import Dict
+from easydict import EasyDict
+
 import chex
 import jax
 import jax.numpy as jnp
-from src.maenv.physics import Transform, RigidBody, CircleCollider, physics_update
+from flax import struct
+
 from src.maenv.utils import notify
 from src.maenv.environments.base_maenv import BaseMAEnv
-from src.maenv.physics import Transform, RigidBody, CircleCollider, physics_step
-from easydict import EasyDict
-from typing import Dict
-from src.maenv.tabs.scenarios import Scenario, get_vectorized_scenario, VectorizedScenario
-
-
-class UnitStatus(
-    namedtuple(
-        "UnitStatus",
-        [
-            "id",
-            "unit_id",
-            "health",
-            "max_health",
-            "attack_damage",
-            "attack_range",
-            "attack_cooldown",
-            "cooldown",
-            "sight_angle",
-            "is_alive",
-            "attack_type",
-            "is_disabled",
-            "speed",
-        ],
-    )
-):
-    id: chex.Array  # Unique identifier for the unit in the environment
-    unit_id: chex.Array  # identifier for the unit in unit info array
-    health: chex.Array  # Current health points of the unit
-    attack_damage: chex.Array  # Damage dealt by the unit's attacks
-    attack_range: chex.Array  # Maximum distance the unit can attack
-    attack_cooldown: chex.Array  # Required cooldown time between attacks
-    cooldown: chex.Array  # Time elapsed since the most recent attack
-    sight_angle: chex.Array  # Field of view angle in radians
-    is_alive: chex.Array  # Boolean showing whether the unit is alive
-    attack_type: chex.Array  # Type of attack the unit performs
-    is_disabled: chex.Array  # Boolean showing whether the unit is disabled
-    speed: chex.Array  # Speed of the unit
+from src.maenv.physics import Transform, RigidBody, CircleCollider, physics_step, physics_update
+from src.maenv.tabs.scenarios import TABSConf, Scenario, get_vectorized_scenario, VectorizedScenario
 
 
 move_table = jnp.array(
@@ -71,12 +38,25 @@ class UnitAction:
     IDLE = 5
 
 
-class DefaultUnit(
-    namedtuple(
-        "DefaultUnit",
-        ["transform", "rigidbody", "collider", "team", "pos_min", "pos_max", "status"],
-    )
-):
+@struct.dataclass
+class UnitStatus:
+    id: chex.Array  # Unique identifier for the unit in the environment
+    unit_id: chex.Array  # identifier for the unit in unit info array
+    health: chex.Array  # Current health points of the unit
+    max_health: chex.Array  # Normalized health points
+    attack_damage: chex.Array  # Damage dealt by the unit's attacks
+    attack_range: chex.Array  # Maximum distance the unit can attack
+    attack_cooldown: chex.Array  # Required cooldown time between attacks
+    cooldown: chex.Array  # Time elapsed since the most recent attack
+    sight_angle: chex.Array  # Field of view angle in radians
+    is_alive: chex.Array  # Boolean showing whether the unit is alive
+    attack_type: chex.Array  # Type of attack the unit performs
+    is_disabled: chex.Array  # Boolean showing whether the unit is disabled
+    speed: chex.Array  # Speed of the unit
+
+
+@struct.dataclass
+class DefaultUnit:
     transform: (
         Transform  # The spatial transform (position, rotation) of the unit in the environment
     )
@@ -96,8 +76,8 @@ class DefaultUnit(
             position=jnp.clip(updated_object.transform.position, self.pos_min, self.pos_max)
         )
 
-        return updated_object._replace(
-            transform=updated_transform, status=self.status._replace(cooldown=next_cooldown)
+        return updated_object.replace(
+            transform=updated_transform, status=self.status.replace(cooldown=next_cooldown)
         )
 
     def act(self, objects, action, **kwargs):
@@ -169,22 +149,8 @@ class DefaultUnit(
         )
 
 
-class GameManager(
-    namedtuple(
-        "GameManager",
-        [
-            "reward",
-            "done",
-            "timestep",
-            "attack_target",
-            "attackable_matrix",
-            "visible_matrix",
-            "distance_matrix",
-            "team_hp_ratio",
-            "last_team_hp_ratio",
-        ],
-    )
-):
+@struct.dataclass
+class GameManager:
     reward: chex.Array
     done: chex.Array
     timestep: chex.Array
@@ -325,7 +291,7 @@ class GameManager(
             + 1e6 * (~attackable_matrix)
         )
 
-        return self._replace(
+        return self.replace(
             attack_target=maksed_relative_distnace.argmin(axis=1),
             attackable_matrix=attackable_matrix,
             visible_matrix=(sight_inside).squeeze().T,
@@ -333,7 +299,7 @@ class GameManager(
         )
 
     def update(self, **kwargs):
-        return self._replace(
+        return self.replace(
             reward=jnp.array([0.0]),
             done=jnp.array([False]),
             timestep=self.timestep + 1,
@@ -352,24 +318,26 @@ class GameManager(
             jax.vmap(team_hp)(jnp.arange(max_team)), 0.0, 1.0
         )  # Clip to remove rewards for healing or damage that exceed max health but seems to be not happening
 
-        return self._replace(
+        return self.replace(
             last_team_hp_ratio=self.team_hp_ratio,
             team_hp_ratio=team_hp_ratio,
         )
 
 
-class BattleSimulator(BaseMAEnv):
+class TABSBattleSimulator(BaseMAEnv):
     def __init__(
         self,
-        max_n_ally: int = 4,
-        max_n_enemy: int = 4,
+        cfg: TABSConf,
         physics_config: Dict[str, float] = EasyDict(
             {"dt": 0.5, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
         ),
         obs_type: str = "unit_spec",
         max_team: int = 2,
     ):
+        max_n_ally = cfg.max_n_ally
+        max_n_enemy = cfg.max_n_enemy
         super().__init__(max_n_ally + max_n_enemy, physics_config)
+        self.physics_config = physics_config
         self.obs_type = obs_type
         self.ally_keys = [f"unit_{i}" for i in range(max_n_ally)]
         self.enemy_keys = [f"unit_{i}" for i in range(max_n_ally, max_n_ally + max_n_enemy)]
@@ -502,9 +470,9 @@ class BattleSimulator(BaseMAEnv):
 
         concated_obs = jnp.concatenate((own_feature, other_feature), axis=1)
         observations = {key: concated_obs[i] for i, key in enumerate(keys)}
-        return observations
 
-        return {key: state[key].status.id for key in self.unit_keys}
+        return observations
+        # return {key: state[key].status.id for key in self.unit_keys}
 
     def get_spec_obs(self, state):
         """
@@ -643,7 +611,7 @@ class BattleSimulator(BaseMAEnv):
                 team=vectorized_scenario.teams[i],
                 pos_min=vectorized_scenario.pos_min[i],
                 pos_max=vectorized_scenario.pos_max[i],
-                status=self.empty_state[unit].status._replace(
+                status=self.empty_state[unit].status.replace(
                     unit_id=vectorized_scenario.unit_ids[i],
                     health=vectorized_scenario.healths[i],
                     attack_damage=vectorized_scenario.attack_damages[i],
