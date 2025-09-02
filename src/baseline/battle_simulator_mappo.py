@@ -1,6 +1,9 @@
 from dataclasses import dataclass
-import tyro
 from tqdm import tqdm
+import tyro
+import json
+import wandb
+import hashlib
 
 
 @dataclass
@@ -31,27 +34,20 @@ if __name__ == "__main__":
     config = tyro.cli(Config)
 
     import os
+    from functools import partial
 
     os.environ["CUDA_VISIBLE_DEVICES"] = str(config.gpu_id)
 
+    import jax
+
     from src.baseline.mappo import MAPPO
     from src.maenv.tabs.wrappers.wrapper import (
-        BattleSimulatorAutoResetWrapper,
-        BattleSimulatorLogWrapper,
+        TABSBattleSimulatorAutoResetWrapper,
+        TABSBattleSimulatorLogWrapper,
+        TABSBattleSimulatorHeuristicWrapper,
     )
     from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
-    from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import BattleSimulator
-
-    import jax
-    from functools import partial
-    import wandb
-
-    config.action_dim = 6
-    config.obs_dim = 174
-    config.state_dim = 174 * 8
-
-    import hashlib
-    import json
+    from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import TABSBattleSimulator
 
     # Create a hash of the config for unique folder naming
     config_dict = {k: v for k, v in vars(config).items() if not k.startswith("_")}
@@ -61,18 +57,17 @@ if __name__ == "__main__":
 
     wandb.init(project="battle_simulator_mappo", config=config)
 
-    default_tabs_conf = default_tabs_conf.replace(scenario_name=config.scenario)
-    scenario = generate_scenario(default_tabs_conf)
+    tabs_conf = default_tabs_conf.replace(scenario_name=config.scenario)
+    scenario = generate_scenario(tabs_conf)
+    tabs_conf = tabs_conf.replace(
+        max_n_ally=int(scenario.ally_unit_comp.sum().item()),
+        max_n_enemy=int(scenario.enemy_unit_comp.sum().item()),
+    )  # For avoiding inefficient instantiation of units
 
-    env = BattleSimulatorLogWrapper(
-        BattleSimulatorAutoResetWrapper(
-            BattleSimulator(
-                max_n_ally=int(scenario.ally_unit_comp.sum().item()),
-                max_n_enemy=int(scenario.enemy_unit_comp.sum().item()),
-            ),
-            scenario,
-        )
-    )
+    env = TABSBattleSimulator(tabs_conf)
+    env = TABSBattleSimulatorHeuristicWrapper(env, "enemy")
+    env = TABSBattleSimulatorAutoResetWrapper(env, scenario)
+    env = TABSBattleSimulatorLogWrapper(env)
 
     mappo = MAPPO(config, env)
     train_state = mappo.init_train_state()

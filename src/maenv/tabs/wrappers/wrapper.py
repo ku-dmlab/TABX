@@ -9,7 +9,7 @@ from flax import struct
 from typing import List
 
 
-class BattleSimulatorWrapper:
+class TABSBattleSimulatorWrapper:
     def __getattr__(self, name: str):
         return getattr(self.env, name)
 
@@ -17,7 +17,7 @@ class BattleSimulatorWrapper:
         self.env = env
 
 
-class BattleSimulatorHeuristicWrapper(BattleSimulatorWrapper):
+class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
     """
     Wrapper for BattleSimulator that adds heuristic policy to the units.
     heuristic_units: List[str] | str, epsilon: float = 0.1
@@ -64,7 +64,7 @@ class BattleSimulatorHeuristicWrapper(BattleSimulatorWrapper):
         return obs, next_state, reward, done, info
 
 
-class BattleSimulatorAutoResetWrapper(BattleSimulatorWrapper):
+class TABSBattleSimulatorAutoResetWrapper(TABSBattleSimulatorWrapper):
     """
     Wrapper for BattleSimulator that adds automatic reset functionality.
     fixed_scenario: Scenario = None
@@ -118,7 +118,7 @@ class LogEnvState:
 
 
 # ref : https://github.com/FLAIROx/JaxMARL/blob/main/jaxmarl/wrappers/baselines.py
-class BattleSimulatorLogWrapper(BattleSimulatorWrapper):
+class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
     """
     Wrapper for BattleSimulator that logs the episode returns, lengths, and wins.
 
