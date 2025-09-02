@@ -109,10 +109,10 @@ def generate_scenario(cfg: TABSConf):
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 1600
         # Mirror matchup
-        _battle_field = jnp.full((h, w), UnitID.Farmer, dtype=jnp.float32)
-        battle_field = battle_field.at[:h, :w].set(_battle_field)
+        _battle_field = jnp.full((h // 2, w), UnitID.Farmer, dtype=jnp.float32)
+        battle_field = battle_field.at[: h // 2, :w].set(_battle_field)
         battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
-        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_battle_field)
+        enemy_battle_field = enemy_battle_field.at[: h // 2, :w].set(_battle_field)
         enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
             jnp.ones((h, w), dtype=jnp.float32)
         )
@@ -181,8 +181,12 @@ def generate_scenario(cfg: TABSConf):
         )
     else:
         raise NotImplementedError
-    ally_unit_comp = jax.vmap(lambda x: (battle_field == (x + 1)).sum())(jnp.arange(cfg.max_num_units))
-    enemy_unit_comp = jax.vmap(lambda x: (enemy_battle_field == (x + 1)).sum())(jnp.arange(cfg.max_num_units))
+    ally_unit_comp = jax.vmap(lambda x: (battle_field == (x + 1)).sum())(
+        jnp.arange(cfg.max_num_units)
+    )
+    enemy_unit_comp = jax.vmap(lambda x: (enemy_battle_field == (x + 1)).sum())(
+        jnp.arange(cfg.max_num_units)
+    )
     return Scenario(
         budget=jnp.array([budget]),
         ally_unit_comp=ally_unit_comp,
