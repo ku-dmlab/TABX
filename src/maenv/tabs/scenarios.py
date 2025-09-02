@@ -112,11 +112,10 @@ def generate_scenario(cfg: TABSConf):
         ally_unit_comp = ally_unit_comp.at[UnitID.Farmer - 1].set(10)
         enemy_unit_comp = enemy_unit_comp.at[UnitID.Farmer - 1].set(10)
         # Mirror matchup
-        battle_field = battle_field.at[:h, :w].set(
-            jnp.full((h, w), UnitID.Farmer, dtype=jnp.float32)
-        )
+        _battle_field = jnp.full((h, w), UnitID.Farmer, dtype=jnp.float32)
+        battle_field = battle_field.at[:h, :w].set(_battle_field)
         battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
-        enemy_battle_field = enemy_battle_field.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
+        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_battle_field)
         enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
             jnp.ones((h, w), dtype=jnp.float32)
         )
@@ -124,11 +123,12 @@ def generate_scenario(cfg: TABSConf):
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 1600
-        ally_unit_comp = ally_unit_comp.at[2].set(1)
-        enemy_unit_comp = enemy_unit_comp.at[2].set(1)
+        ally_unit_comp = ally_unit_comp.at[UnitID.TheKing - 1].set(1)
+        enemy_unit_comp = enemy_unit_comp.at[UnitID.TheKing - 1].set(1)
         # Mirror matchup
         _battle_field = jnp.concatenate(
-            (jnp.array([[0, 0, 3, 0, 0]]), jnp.zeros((h - 1, w), dtype=jnp.float32)), axis=0
+            (jnp.array([[0, 0, UnitID.TheKing, 0, 0]]), jnp.zeros((h - 1, w), dtype=jnp.float32)),
+            axis=0,
         )
         battle_field = battle_field.at[:h, :w].set(_battle_field)
         battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
@@ -140,10 +140,10 @@ def generate_scenario(cfg: TABSConf):
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 2000
-        ally_unit_comp = ally_unit_comp.at[1].set(4)
-        ally_unit_comp = ally_unit_comp.at[4].set(1)
-        enemy_unit_comp = enemy_unit_comp.at[2].set(4)
-        enemy_unit_comp = enemy_unit_comp.at[4].set(1)
+        ally_unit_comp = ally_unit_comp.at[UnitID.Archer - 1].set(4)
+        ally_unit_comp = ally_unit_comp.at[UnitID.Mammoth - 1].set(1)
+        enemy_unit_comp = enemy_unit_comp.at[UnitID.Archer - 1].set(4)
+        enemy_unit_comp = enemy_unit_comp.at[UnitID.Mammoth - 1].set(1)
         # Mirror matchup
         _battle_field = jnp.array(
             [
@@ -168,7 +168,7 @@ def generate_scenario(cfg: TABSConf):
         enemy_unit_comp = enemy_unit_comp.at[UnitID.Mammoth - 1].set(1)
         enemy_unit_comp = enemy_unit_comp.at[UnitID.Healer - 1].set(1)
         enemy_unit_comp = enemy_unit_comp.at[UnitID.Archer - 1].set(1)
-        battle_field = jnp.array(
+        _battle_field = jnp.array(
             [
                 [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
@@ -177,7 +177,7 @@ def generate_scenario(cfg: TABSConf):
             ],
             dtype=jnp.float32,
         )
-        enemy_battle_field = jnp.array(
+        _enemy_battle_field = jnp.array(
             [
                 [0, 0, UnitID.Mammoth, 0, 0],
                 [0, 0, 0, 0, 0],
@@ -186,9 +186,9 @@ def generate_scenario(cfg: TABSConf):
             ],
             dtype=jnp.float32,
         )
-        battle_field = battle_field.at[:h, :w].set(battle_field)
+        battle_field = battle_field.at[:h, :w].set(_battle_field)
         battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
-        enemy_battle_field = enemy_battle_field.at[:h, :w].set(enemy_battle_field)
+        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_enemy_battle_field)
         enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
             jnp.ones((h, w), dtype=jnp.float32)
         )
