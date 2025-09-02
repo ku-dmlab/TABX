@@ -108,8 +108,6 @@ def generate_scenario(cfg: TABSConf):
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 1600
-        ally_unit_comp = ally_unit_comp.at[UnitID.Farmer - 1].set(10)
-        enemy_unit_comp = enemy_unit_comp.at[UnitID.Farmer - 1].set(10)
         # Mirror matchup
         _battle_field = jnp.full((h, w), UnitID.Farmer, dtype=jnp.float32)
         battle_field = battle_field.at[:h, :w].set(_battle_field)
@@ -122,8 +120,6 @@ def generate_scenario(cfg: TABSConf):
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 1600
-        ally_unit_comp = ally_unit_comp.at[UnitID.TheKing - 1].set(1)
-        enemy_unit_comp = enemy_unit_comp.at[UnitID.TheKing - 1].set(1)
         # Mirror matchup
         _battle_field = jnp.concatenate(
             (jnp.array([[0, 0, UnitID.TheKing, 0, 0]]), jnp.zeros((h - 1, w), dtype=jnp.float32)),
@@ -139,10 +135,6 @@ def generate_scenario(cfg: TABSConf):
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 2000
-        ally_unit_comp = ally_unit_comp.at[UnitID.Archer - 1].set(4)
-        ally_unit_comp = ally_unit_comp.at[UnitID.Mammoth - 1].set(1)
-        enemy_unit_comp = enemy_unit_comp.at[UnitID.Archer - 1].set(4)
-        enemy_unit_comp = enemy_unit_comp.at[UnitID.Mammoth - 1].set(1)
         # Mirror matchup
         _battle_field = jnp.array(
             [
@@ -163,10 +155,6 @@ def generate_scenario(cfg: TABSConf):
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 2000
-        ally_unit_comp = ally_unit_comp.at[UnitID.Archer - 1].set(8)
-        enemy_unit_comp = enemy_unit_comp.at[UnitID.Mammoth - 1].set(1)
-        enemy_unit_comp = enemy_unit_comp.at[UnitID.Healer - 1].set(1)
-        enemy_unit_comp = enemy_unit_comp.at[UnitID.Archer - 1].set(1)
         _battle_field = jnp.array(
             [
                 [0, 0, 0, 0, 0],
@@ -193,7 +181,8 @@ def generate_scenario(cfg: TABSConf):
         )
     else:
         raise NotImplementedError
-
+    ally_unit_comp = jax.vmap(lambda x: (battle_field == (x + 1)).sum())(jnp.arange(cfg.max_num_units))
+    enemy_unit_comp = jax.vmap(lambda x: (enemy_battle_field == (x + 1)).sum())(jnp.arange(cfg.max_num_units))
     return Scenario(
         budget=jnp.array([budget]),
         ally_unit_comp=ally_unit_comp,
