@@ -53,22 +53,12 @@ class Scenario:
 
 @struct.dataclass
 class TABSConf:
-    scenario_name: str  # The predefined scenario name
-    max_num_units: int  # The maximum number of unit types
-    max_field_height: int  # The maximum height size of battle field
-    max_field_width: int  # The maximum width size of battle field
-    max_n_ally: int  # The maximum number of ally agents
-    max_n_enemy: int  # The maximum number of enemy agents
-
-
-default_tabs_conf = TABSConf(
-    scenario_name="10farmers",
-    max_n_ally=10,
-    max_n_enemy=10,
-    max_num_units=len(get_all_unit_names()),
-    max_field_height=4,
-    max_field_width=5,
-)
+    scenario_name: str = "10farmers"  # The predefined scenario name
+    max_num_units: int = len(get_all_unit_names())  # The maximum number of unit types
+    max_field_height: int = 4  # The maximum height size of battle field
+    max_field_width: int = 5  # The maximum width size of battle field
+    max_n_ally: int = 10  # The maximum number of ally agents
+    max_n_enemy: int = 10  # The maximum number of enemy agents
 
 
 def get_scenario_name_list():

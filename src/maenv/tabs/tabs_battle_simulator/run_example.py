@@ -1,21 +1,22 @@
 import jax
 
 from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import TABSBattleSimulator
-from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
+from src.maenv.tabs.scenarios import TABSConf, generate_scenario
 from src.maenv.utils import Transition
 from src.maenv.tabs.wrappers.wrapper import (
-    BattleSimulatorAutoResetWrapper,
-    BattleSimulatorHeuristicWrapper,
+    TABSBattleSimulatorAutoResetWrapper,
+    TABSBattleSimulatorHeuristicWrapper,
 )
 
 if __name__ == "__main__":
     n_envs = 5
     num_steps = 10
 
-    env = TABSBattleSimulator(default_tabs_conf)
-    scenario = generate_scenario(default_tabs_conf)
-    env = BattleSimulatorAutoResetWrapper(env, scenario)
-    env = BattleSimulatorHeuristicWrapper(env, "enemy")
+    tabs_conf = TABSConf()
+    env = TABSBattleSimulator(tabs_conf)
+    scenario = generate_scenario(tabs_conf)
+    env = TABSBattleSimulatorHeuristicWrapper(env, "enemy")
+    env = TABSBattleSimulatorAutoResetWrapper(env, scenario)
 
     v_reset = jax.vmap(env.reset, in_axes=(0, None))
     v_step = jax.vmap(env.step, in_axes=(0, 0, 0))
@@ -47,7 +48,7 @@ if __name__ == "__main__":
             reward=rewards,
             obs=obs,
             info=infos,
-            avail_action=None,
+            unavail_action=None,
         )
 
         return (next_obs, next_state, rng), transition

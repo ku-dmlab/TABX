@@ -46,7 +46,7 @@ if __name__ == "__main__":
         TABSBattleSimulatorLogWrapper,
         TABSBattleSimulatorHeuristicWrapper,
     )
-    from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
+    from src.maenv.tabs.scenarios import TABSConf, generate_scenario
     from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import TABSBattleSimulator
 
     # Create a hash of the config for unique folder naming
@@ -57,7 +57,7 @@ if __name__ == "__main__":
 
     wandb.init(project="battle_simulator_mappo", config=config)
 
-    tabs_conf = default_tabs_conf.replace(scenario_name=config.scenario)
+    tabs_conf = TABSConf().replace(scenario_name=config.scenario)
     scenario = generate_scenario(tabs_conf)
     tabs_conf = tabs_conf.replace(
         max_n_ally=int(scenario.ally_unit_comp.sum().item()),
