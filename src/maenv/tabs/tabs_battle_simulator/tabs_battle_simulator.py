@@ -8,6 +8,7 @@ from flax import struct
 
 from src.maenv.utils import notify
 from src.maenv.environments.base_maenv import BaseMAEnv
+from src.maenv.environments.spaces import DiscreteContinuous, Box
 from src.maenv.physics import Transform, RigidBody, CircleCollider, physics_step, physics_update
 from src.maenv.tabs.scenarios import TABSConf, Scenario, get_vectorized_scenario, VectorizedScenario
 
@@ -101,7 +102,7 @@ class DefaultUnit:
 
         cooldown = is_attack & can_attack
 
-        return self._replace(
+        return self.replace(
             rigidbody=self.rigidbody._replace(velocity=move_action),
             transform=self.transform._replace(
                 rotation=(
@@ -110,7 +111,7 @@ class DefaultUnit:
                 )
                 % (2 * jnp.pi)
             ),
-            status=self.status._replace(
+            status=self.status.replace(
                 cooldown=jnp.clip(
                     0.0 * cooldown
                     + self.status.cooldown * (1 - cooldown),  # TODO: normalize between 0 and 1?
@@ -131,7 +132,6 @@ class DefaultUnit:
         )
 
         # need to calculate cooldown of attacker
-
         # damage = attacker.status.attack_damage * (
         #     attacker.status.attack_type == AttackType.DEFAULT
         # ) - attacker.status.attack_damage * (attacker.status.attack_type == AttackType.HEALING)
@@ -141,10 +141,10 @@ class DefaultUnit:
             lambda x, y: jnp.where(is_target, y, x), self.status, damaged_status
         )
 
-        return self._replace(status=new_status)
+        return self.replace(status=new_status)
 
     def on_damage(self, damage) -> UnitStatus:
-        return self.status._replace(
+        return self.status.replace(
             health=jnp.clip(self.status.health - damage, 0.0, self.status.max_health)
         )
 
@@ -237,9 +237,8 @@ class GameManager:
         unit_alive_vector = jnp.stack([objects[key].status.is_alive for key in unit_keys])
         unit_attack_type_vector = jnp.stack([objects[key].status.attack_type for key in unit_keys])
         unit_is_disabled_vector = jnp.stack([objects[key].status.is_disabled for key in unit_keys])
-        position_diff = (
-            unit_position_vector[None] - unit_position_vector[:, None]
-        )  # position_diff[i][j] = i'th unit's position - j'th unit's position
+        # position_diff[i][j] = i'th unit's position - j'th unit's position
+        position_diff = unit_position_vector[None] - unit_position_vector[:, None]
         is_team = unit_team_vector[None] == unit_team_vector[:, None]
         in_attack_range = self.get_units_in_attack_range(
             position_diff,
@@ -250,7 +249,6 @@ class GameManager:
         )
 
         # unit sight processing
-
         u1_x = jnp.cos(unit_rotation_vector + unit_sight_angle_vector / 2)
         u2_x = jnp.cos(unit_rotation_vector - unit_sight_angle_vector / 2)
         u1_y = jnp.sin(unit_rotation_vector + unit_sight_angle_vector / 2)
@@ -314,9 +312,8 @@ class GameManager:
                 ((teams == team) & ~is_disabled) * max_hp
             ).sum()
 
-        team_hp_ratio = jnp.clip(
-            jax.vmap(team_hp)(jnp.arange(max_team)), 0.0, 1.0
-        )  # Clip to remove rewards for healing or damage that exceed max health but seems to be not happening
+        # Clip to remove rewards for healing or damage that exceed max health but seems to be not happening
+        team_hp_ratio = jnp.clip(jax.vmap(team_hp)(jnp.arange(max_team)), 0.0, 1.0)
 
         return self.replace(
             last_team_hp_ratio=self.team_hp_ratio,
@@ -390,6 +387,26 @@ class TABSBattleSimulator(BaseMAEnv):
             team_hp_ratio=jnp.ones(self.max_team),
             last_team_hp_ratio=jnp.ones(self.max_team),
         )
+
+        self.action_space = DiscreteContinuous(
+            num_categories=6, low=-jnp.pi / 12, high=jnp.pi / 12, shape=(1,)
+        )
+        if self.obs_type == "unit_spec":
+            self.observation_spaces = {
+                agent: Box(
+                    low=0, high=1, shape=(14 + 16 * (len(self.unit_keys) - 1)), dtype=jnp.float32
+                )
+                for agent in self.ally_keys
+            }
+        elif self.obs_type == "unit_id":
+            self.observation_spaces = {
+                agent: Box(
+                    low=0, high=1, shape=(6 + 9 * (len(self.unit_keys) - 1)), dtype=jnp.float32
+                )
+                for agent in self.ally_keys
+            }
+        else:
+            raise ValueError(f"Invalid observation type: {self.obs_type}")
 
     def get_obs(self, state):
         if self.obs_type == "unit_spec":
@@ -654,16 +671,16 @@ class TABSBattleSimulator(BaseMAEnv):
         }
 
         state = physics_step(self.physics_config, state, list(state.keys()), collider_filter)
-        # action processing
 
+        # action processing
         for sprite in self.unit_keys:
             state[sprite] = state[sprite].act(state, action[sprite])
 
         # alive processing after action step, for independent unit sequence
         dones = {}
         for sprite in self.unit_keys:
-            state[sprite] = state[sprite]._replace(
-                status=state[sprite].status._replace(is_alive=(state[sprite].status.health > 0))
+            state[sprite] = state[sprite].replace(
+                status=state[sprite].status.replace(is_alive=(state[sprite].status.health > 0))
             )
             dones[sprite] = ~state[sprite].status.is_alive
 
@@ -676,9 +693,8 @@ class TABSBattleSimulator(BaseMAEnv):
 
         team_dones = jax.vmap(is_team_done)(jnp.arange(self.max_team)) > 0
 
-        dones["__all__"] = jnp.array(
-            [team_dones.sum() >= self.max_team - 1]
-        )  # if all teams except one are eliminated
+        # if all teams except one are eliminated
+        dones["__all__"] = jnp.array([team_dones.sum() >= self.max_team - 1])
 
         state["game_manager"] = state["game_manager"].update_team_hp_ratio(
             state, teams, is_disabled, self.unit_keys, self.max_team
@@ -687,23 +703,18 @@ class TABSBattleSimulator(BaseMAEnv):
         delta_hp = state["game_manager"].team_hp_ratio - state["game_manager"].last_team_hp_ratio
         reward_matrix = (jnp.identity(self.max_team) - 0.5) * 2.0
 
-        done_reward = (~team_dones * dones["__all__"])[
-            :, None
-        ]  # if all teams except one are eliminated, give reward 1.0
+        # if all teams except one are eliminated, give reward 1.0
+        done_reward = (~team_dones * dones["__all__"])[:, None]
 
         rewards = (delta_hp[None] * reward_matrix).sum(axis=-1, keepdims=True) + done_reward
 
-        return (
-            self.get_obs(state),
-            state,
-            rewards,
-            dones,
-            {
-                "timestep": state["game_manager"].timestep,
-                "disabled_units": is_disabled,
-                "done_reward": done_reward,
-            },
-        )
+        info = {
+            "timestep": state["game_manager"].timestep,
+            "disabled_units": is_disabled,
+            "done_reward": done_reward,
+        }
+
+        return self.get_obs(state), state, rewards, dones, info
 
     def render(self, state):
         return None

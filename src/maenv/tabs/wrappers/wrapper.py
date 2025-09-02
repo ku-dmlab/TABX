@@ -1,5 +1,5 @@
 from typing import Dict, Any
-from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import BattleSimulator
+from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import TABSBattleSimulator
 from src.maenv.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
 from src.maenv.tabs.scenarios import Scenario
 import jax.numpy as jnp
@@ -8,11 +8,12 @@ import jax
 from flax import struct
 from typing import List
 
+
 class BattleSimulatorWrapper:
     def __getattr__(self, name: str):
         return getattr(self.env, name)
 
-    def __init__(self, env: BattleSimulator):
+    def __init__(self, env: TABSBattleSimulator):
         self.env = env
 
 
@@ -26,7 +27,10 @@ class BattleSimulatorHeuristicWrapper(BattleSimulatorWrapper):
     - enemy: enemy units
     - List[str]: list of units
     """
-    def __init__(self, env: BattleSimulator, heuristic_units: List[str] | str, epsilon: float = 0.1):
+
+    def __init__(
+        self, env: TABSBattleSimulator, heuristic_units: List[str] | str, epsilon: float = 0.1
+    ):
         super().__init__(env)
 
         if isinstance(heuristic_units, str):
@@ -43,24 +47,22 @@ class BattleSimulatorHeuristicWrapper(BattleSimulatorWrapper):
 
         self.epsilon = epsilon
 
-    
     def reset(self, key, senario: Scenario):
         obs, state = self.env.reset(key, senario)
         return obs, state
-    
-    def step(self, key, state, action):
 
+    def step(self, key, state, action):
         obs = self.env.get_obs(state)
         # add actions based on heuristic policy
         for unit in self.heuristic_units:
             heuristic_key, key = jax.random.split(key)
-            action[unit] = heuristic_policy(heuristic_key, obs[unit], self.env.num_agents, self.epsilon)
-
+            action[unit] = heuristic_policy(
+                heuristic_key, obs[unit], self.env.num_agents, self.epsilon
+            )
 
         obs, next_state, reward, done, info = self.env.step(key, state, action)
         return obs, next_state, reward, done, info
-    
-    
+
 
 class BattleSimulatorAutoResetWrapper(BattleSimulatorWrapper):
     """
@@ -69,7 +71,8 @@ class BattleSimulatorAutoResetWrapper(BattleSimulatorWrapper):
     - None: random scenario
     - Scenario: fixed scenario if you want to use a fixed scenario. If you want to use an explicit scenario when resetting, set to None.
     """
-    def __init__(self, env: BattleSimulator, fixed_senario: Scenario = None):
+
+    def __init__(self, env: TABSBattleSimulator, fixed_senario: Scenario = None):
         super().__init__(env)
         self.fixed_senario = fixed_senario
 
@@ -121,7 +124,8 @@ class BattleSimulatorLogWrapper(BattleSimulatorWrapper):
 
     Note: When done but no reset occurs, returned_episode_returns and lengths may not be accurate. Set reset_when_done to False if you don't want to reset when done.
     """
-    def __init__(self, env: BattleSimulator, reset_when_done: bool = True):
+
+    def __init__(self, env: TABSBattleSimulator, reset_when_done: bool = True):
         super().__init__(env)
 
         self.reset_when_done = reset_when_done
@@ -146,7 +150,6 @@ class BattleSimulatorLogWrapper(BattleSimulatorWrapper):
         ep_done = done["__all__"]
 
         if self.reset_when_done:
-
             new_episode_return = state.episode_returns + reward
             net_epsiode_length = state.episode_lengths + 1
 
@@ -174,7 +177,6 @@ class BattleSimulatorLogWrapper(BattleSimulatorWrapper):
                 returned_episode_lengths=state.returned_episode_lengths,
                 returned_episode_wins=info["done_reward"].astype(jnp.float32),
             )
-
 
         info["episode_returns"] = log_state.episode_returns
         info["episode_lengths"] = log_state.episode_lengths
