@@ -44,7 +44,7 @@ declare -A hyperparameter_pools
 
 # Quick test pool - small search space for testing
 hyperparameter_pools["quick_test"]="
-scenario=(8archer_vs_1mammoth_1healer_1archer)
+scenario=(8A_vs_1A1M1H)
 clip_ratio=(0.05 0.1)
 entropy_coef=(0.001 0.0005)
 "

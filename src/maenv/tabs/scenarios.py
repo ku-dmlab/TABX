@@ -53,7 +53,7 @@ class Scenario:
 
 @struct.dataclass
 class TABSConf:
-    scenario_name: str = "10farmers"  # The predefined scenario name
+    scenario_name: str = "10F"  # The predefined scenario name
     max_num_units: int = len(get_all_unit_names())  # The maximum number of unit types
     max_field_height: int = 4  # The maximum height size of battle field
     max_field_width: int = 5  # The maximum width size of battle field
@@ -61,8 +61,9 @@ class TABSConf:
     max_n_enemy: int = 10  # The maximum number of enemy agents
 
 
+# unit names: F, A, K, B, M, D, H
 def get_scenario_name_list():
-    return ["10farmers", "1theking", "4archer_1mammoth", "8archer_vs_1mammoth_1healer_1archer"]
+    return ["10F", "1K", "4A1M", "8A_vs_1A1M1H"]
 
 
 def generate_scenario(cfg: TABSConf):
@@ -94,7 +95,7 @@ def generate_scenario(cfg: TABSConf):
     sight_angle = jnp.concatenate((all_spec["sight_angles"], jnp.zeros(m)))
     space_occupied = jnp.concatenate((all_spec["space_occupied"], jnp.zeros(m)))
 
-    if cfg.scenario_name == "10farmers":
+    if cfg.scenario_name == "10F":
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 1600
@@ -106,7 +107,7 @@ def generate_scenario(cfg: TABSConf):
         enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
             jnp.ones((h, w), dtype=jnp.float32)
         )
-    elif cfg.scenario_name == "1theking":
+    elif cfg.scenario_name == "1K":
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 1600
@@ -121,7 +122,7 @@ def generate_scenario(cfg: TABSConf):
         enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
             jnp.ones((h, w), dtype=jnp.float32)
         )
-    elif cfg.scenario_name == "4archer_1mammoth":
+    elif cfg.scenario_name == "4A1M":
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 2000
@@ -141,7 +142,7 @@ def generate_scenario(cfg: TABSConf):
         enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
             jnp.ones((h, w), dtype=jnp.float32)
         )
-    elif cfg.scenario_name == "8archer_vs_1mammoth_1healer_1archer":
+    elif cfg.scenario_name == "8A_vs_1A1M1H":
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 2000

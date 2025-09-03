@@ -24,7 +24,7 @@ class Config:
     layer_dim = 128
 
     # tabs configuration
-    scenario: str = "1theking"
+    scenario: str = "1K"
     max_n_ally: int = 20
     max_n_enemy: int = 1
     max_field_height: int = 4

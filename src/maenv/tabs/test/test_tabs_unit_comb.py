@@ -10,9 +10,9 @@ from src.maenv.tabs.scenarios import TABSConf, Scenario, generate_scenario, defa
 
 class TestTABSUnitComb(unittest.TestCase):
     def test_reset(self):
-        self.reset_predefined_scenario1("10farmers")
-        self.reset_predefined_scenario1("1theking")
-        self.reset_predefined_scenario1("4archer_1mammoth")
+        self.reset_predefined_scenario1("10F")
+        self.reset_predefined_scenario1("1K")
+        self.reset_predefined_scenario1("4A1M")
 
     def test_purchase(self):
         rng = jax.random.PRNGKey(0)
@@ -26,7 +26,7 @@ class TestTABSUnitComb(unittest.TestCase):
     def reset_predefined_scenario1(self, scenario_name):
         tabs_conf = TABSConf(
             scenario_name=scenario_name,
-            max_agents=20,
+            max_agents=10,
             max_num_units=len(get_all_unit_names()),
             max_field_height=4,
             max_field_width=5,

@@ -10,9 +10,9 @@ from src.maenv.tabs.scenarios import TABSConf, Scenario, generate_scenario, defa
 
 class TestTABSUnitDeploy(unittest.TestCase):
     def test_reset(self):
-        self.reset_predefined_scenario1("20farmers")
-        self.reset_predefined_scenario1("1theking")
-        self.reset_predefined_scenario1("4archer_1mammoth")
+        self.reset_predefined_scenario1("10F")
+        self.reset_predefined_scenario1("1K")
+        self.reset_predefined_scenario1("4A1M")
 
     def test_select_action(self):
         rng = jax.random.PRNGKey(0)

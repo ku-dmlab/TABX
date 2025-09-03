@@ -2648,7 +2648,7 @@ if __name__ == "__main__":
     from src.baseline.mappo import MAPPO
     from types import SimpleNamespace
 
-    default_tabs_conf = default_tabs_conf.replace(scenario_name="8archer_vs_1mammoth_1healer")
+    default_tabs_conf = default_tabs_conf.replace(scenario_name="8A_vs_1A1M1H")
     scenario = generate_scenario(default_tabs_conf)
 
     config = SimpleNamespace(

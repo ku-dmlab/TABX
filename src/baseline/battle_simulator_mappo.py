@@ -21,7 +21,7 @@ class Config:
     lr: float = 1e-3  # the learning rate
     layer_dim = 256
 
-    scenario: str = "8archer_vs_1mammoth_1healer_1archer"
+    scenario: str = "8A_vs_1A1M1H"
 
     save_path: str = "/save"
     gpu_id: int = 3
