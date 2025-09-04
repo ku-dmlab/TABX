@@ -1,4 +1,3 @@
-from functools import partial
 from typing import Tuple, Dict, Any
 
 import chex
@@ -12,7 +11,7 @@ from src.baseline.base_algo import BaseAlgo
 from src.baseline.module.modules import RNNHybridPolicy, RNNCritic
 from src.baseline.utils import NetworkState, TrainState, get_model, rnn_result, get_gae
 from src.maenv.tabs.scenarios import Scenario
-from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import TABSBattleSimulator
+from src.maenv.tabs import TABSBattleSimulator
 
 
 tfd = tfp.distributions

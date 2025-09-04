@@ -11,8 +11,7 @@ from src.baseline.base_algo import BaseAlgo
 from src.baseline.module.modules import Policy, Critic
 from src.baseline.utils import NetworkState, TrainState, get_model, get_gae
 from src.maenv.tabs.scenarios import Scenario
-from src.maenv.tabs.tabs_unit_deploy.tabs_unit_deploy import TABSUnitDeploy
-from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
+from src.maenv.tabs import TABSUnitComb, TABSUnitDeploy
 
 
 tfd = tfp.distributions

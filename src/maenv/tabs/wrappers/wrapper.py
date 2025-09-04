@@ -5,9 +5,9 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import TABSBattleSimulator
-from src.maenv.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
 from src.maenv.tabs.scenarios import Scenario
+from src.maenv.tabs import TABSBattleSimulator
+from src.maenv.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
 
 
 class TABSBattleSimulatorWrapper:
