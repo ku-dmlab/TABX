@@ -2,7 +2,7 @@ from flax import nnx
 import jax.numpy as jnp
 
 
-class Value(nnx.Module):
+class Critic(nnx.Module):
     def __init__(self, state_dim, layer_dim=64, rngs=nnx.Rngs(0)):
         self.layer = nnx.Sequential(
             nnx.Linear(state_dim, layer_dim, rngs=rngs),
@@ -44,7 +44,7 @@ class Policy(nnx.Module):
         return self.layer(state)
 
 
-class RNNValue(nnx.Module):
+class RNNCritic(nnx.Module):
     def __init__(self, state_dim, layer_dim=64, rngs=nnx.Rngs(0)):
         self.layer = nnx.Sequential(
             nnx.Linear(state_dim, layer_dim, rngs=rngs), nnx.LayerNorm(layer_dim, rngs=rngs)
@@ -77,7 +77,7 @@ class RNNValue(nnx.Module):
         return self.gru.initialize_carry(shape)
 
 
-class RNNPolicy(nnx.Module):
+class RNNHybridPolicy(nnx.Module):
     def __init__(self, obs_dim, action_dim, layer_dim=64, rngs=nnx.Rngs(0)):
         self.layer = nnx.Sequential(
             nnx.Linear(obs_dim, layer_dim, rngs=rngs),

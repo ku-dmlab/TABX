@@ -1,12 +1,13 @@
-from typing import Dict, Any
+from typing import List, Dict, Any
+
+import chex
+import jax
+import jax.numpy as jnp
+from flax import struct
+
 from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import TABSBattleSimulator
 from src.maenv.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
 from src.maenv.tabs.scenarios import Scenario
-import jax.numpy as jnp
-import chex
-import jax
-from flax import struct
-from typing import List
 
 
 class TABSBattleSimulatorWrapper:
@@ -29,7 +30,10 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
     """
 
     def __init__(
-        self, env: TABSBattleSimulator, heuristic_units: List[str] | str, epsilon: float = 0.1
+        self,
+        env: TABSBattleSimulator,
+        heuristic_units: List[str] | str = "enemy",
+        epsilon: float = 0.1,
     ):
         super().__init__(env)
 
@@ -53,7 +57,7 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
 
     def step(self, key, state, action):
         obs = self.env.get_obs(state)
-        # add actions based on heuristic policy
+        # Add enemy actions based on heuristic policy
         for unit in self.heuristic_units:
             heuristic_key, key = jax.random.split(key)
             action[unit] = heuristic_policy(

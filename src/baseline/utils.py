@@ -1,8 +1,8 @@
+import os
+
 import jax
 import jax.numpy as jnp
-from flax.struct import dataclass
-from flax import nnx
-import os
+from flax import struct, nnx
 
 
 def get_abs_path(path):
@@ -11,17 +11,23 @@ def get_abs_path(path):
     return path
 
 
-@dataclass
+@struct.dataclass
 class NetworkState:
     graphdef: nnx.GraphDef
     state: nnx.State
+
+
+@struct.dataclass
+class TrainState:
+    policy_state: NetworkState
+    critic_state: NetworkState
+    key: jax.random.PRNGKey
 
 
 def rnn_result(model, init_shape, feature, done):
     def rnn_scan_body(carry, xs):
         (hidden_state,) = carry
         feature, done = xs
-        print(feature.shape, done.shape, hidden_state.shape)
         model_output = model(hidden_state, feature)
         next_hidden_state = model_output[0]
         output = model_output[1:]
