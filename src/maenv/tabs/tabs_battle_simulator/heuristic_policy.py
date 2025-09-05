@@ -8,31 +8,56 @@ def angle_wrap_to_pi(x):
     return (x + jnp.pi) % (2 * jnp.pi) - jnp.pi
 
 
-def heuristic_policy(key, obs, num_agents, epsilon=0.1):
+def heuristic_policy(key, obs, num_agents, epsilon=0.1, aggressive_threshold=0.5):
+    '''
+    0 : health
+    1 : max_health
+    2 : relative_x
+    3 : relative_y
+    4 : rotation
+    5 : attack_range
+    6 : attack_damage
+    7 : cooldown
+    8 : cooldown / attack_cooldown
+    9 : body_radius
+    10 : body_weight
+    11 : sight_angle
+    12 : is_alive
+    13 : is_ally
+    14 : is_attackable
+    15 : speed
+    '''
     own_status = obs[:14]
     observation = obs[14:].reshape(num_agents - 1, -1)
 
     attack_damage = own_status[6]
     is_healer = attack_damage < 0
-    exist_attackable_target = jnp.sum(observation[:, -2]) > 0
+    
 
     is_ally = (observation[:, -3]) > 0
-
-    visible_target = ((observation[:, 0]) > 0) & ((is_ally & is_healer) | (~is_ally & ~is_healer))
+    injured_ally = is_ally & (observation[:, 1] < 1)
+    exist_injured_ally = jnp.sum(injured_ally) > 0
+    
+    # If there is injured ally, healer target is the injured ally, otherwise healer target is the closest ally
+    healer_target = ((exist_injured_ally & injured_ally) | (~exist_injured_ally & is_ally)) & is_healer 
+    # If the unit is not healer
+    normal_target = ~is_ally & ~is_healer
+    exist_attackable_target = jnp.sum(observation[:, -2].astype(jnp.bool_) & (healer_target | ~is_healer)) > 0
+    
+    # Visible target is the target that is alive and either healer target or normal target
+    is_alive = (observation[:, 0]) > 0  # If the target units in observation are alive, the unit hp is larger than 0
+    visible_target = is_alive & (healer_target | normal_target) # Visible unit + target
     exist_visible_target = jnp.sum(visible_target) > 0
+    
     rotation = own_status[4] * jnp.pi * 2
-
     relative_position = observation[:, 2:4]
-
-    masekd_distance = jnp.sum(jnp.square(relative_position), axis=-1) + (~visible_target) * 1e6
-
+    L2_distnace = jnp.sum(jnp.square(relative_position), axis=-1)
+    masekd_distance = L2_distnace + (~visible_target) * 1e6 # Exclude invisible target
     min_distance_index = jnp.argmin(masekd_distance)
-
     min_relative_position = relative_position[min_distance_index]
     max_relative_axis = jnp.argmax(jnp.abs(min_relative_position))
     max_relative_axis_value = min_relative_position[max_relative_axis]
     max_relative_axis_direction = jnp.sign(max_relative_axis_value)
-
     x_axis = max_relative_axis == 0
     positive_direction = max_relative_axis_direction > 0
 
