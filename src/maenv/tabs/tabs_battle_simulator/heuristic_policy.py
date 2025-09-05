@@ -8,7 +8,9 @@ def angle_wrap_to_pi(x):
     return (x + jnp.pi) % (2 * jnp.pi) - jnp.pi
 
 
-def heuristic_policy(key, obs, num_agents, epsilon=0.1, aggressive_threshold=0.3):
+def heuristic_policy(
+    key, obs, num_agents, epsilon=0.1, aggressive_threshold=1.0, rotate_noise_scale=0.5
+):
     """
     0 : health
     1 : max_health
@@ -99,12 +101,18 @@ def heuristic_policy(key, obs, num_agents, epsilon=0.1, aggressive_threshold=0.3
     discrete_action = jnp.where(
         exist_attackable_target & ~is_cooldown, UnitAction.ATTACK, move_action
     )  # If there exists attackable target and not on cooldown, attack, otherwise move
-
-    rotate_action = jnp.pi * 0.1 * (~exist_visible_target) + exist_visible_target * (
-        angle_wrap_to_pi(jnp.arctan2(min_relative_position[1], min_relative_position[0]) - rotation)
+    discrete_key, rotate_key, noise_key = jax.random.split(key, 3)
+    rotate_action = (
+        jnp.pi * 0.1 * (~exist_visible_target)
+        + exist_visible_target
+        * (
+            angle_wrap_to_pi(
+                jnp.arctan2(min_relative_position[1], min_relative_position[0]) - rotation
+            )
+        )
+        + jax.random.normal(key=noise_key) * rotate_noise_scale * is_ranger
     )
 
-    discrete_key, rotate_key = jax.random.split(key, 2)
     random_discrete_action = jax.random.choice(
         discrete_key, jnp.array([UnitAction.UP, UnitAction.DOWN, UnitAction.LEFT, UnitAction.RIGHT])
     )
