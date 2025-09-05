@@ -20,8 +20,7 @@ tfb = tfp.bijectors
 
 class IPPO(BaseAlgo):
     def __init__(self, config, env: TABSBattleSimulator):
-        self.config = config
-        self.env = env
+        super(IPPO, self).__init__(config, env)
         # self.v_reset = jax.vmap(lambda key: env.reset(key, None))
         self.v_reset = jax.vmap(env.reset, in_axes=(0, 0))
         self.v_step = jax.vmap(env.step, in_axes=(0, 0, 0))
