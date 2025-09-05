@@ -9,8 +9,6 @@ from src.maenv.physics import Transform, RigidBody, CircleCollider, physics_step
 from easydict import EasyDict
 from typing import Dict
 import jax.numpy as jnp
-
-
 import pygame
 import numpy as np
 import math
@@ -73,6 +71,12 @@ class PygameRenderer:
 
         # 공격 플래시 지속 시간 관리
         self.attack_flash_timers = {}  # 각 유닛별 공격 플래시 남은 프레임 수
+        
+        # 시간 추적을 위한 변수들
+        import time
+        self.reset_time = time.time()  # 리셋 시점의 실시간
+        self.env_timestep = 0  # 환경의 timestep
+        self.env_dt = self._get_env_dt()  # 환경의 dt 값 (동적으로 가져옴)
 
         # 화면 설정
         self.screen = pygame.display.set_mode((width, height))
@@ -163,7 +167,6 @@ class PygameRenderer:
             from src.maenv.tabs.scenarios import (
                 get_scenario_name_list,
                 generate_scenario,
-                default_tabs_conf,
             )
 
             self.scenario_names = get_scenario_name_list()
@@ -188,6 +191,18 @@ class PygameRenderer:
             print(f"Failed to preload scenarios: {e}")
             self.scenario_names = []
             self.available_scenarios = {}
+
+    def _get_env_dt(self):
+        """환경으로부터 dt 값을 가져옴"""
+        try:
+            if self.env and hasattr(self.env, 'physics_config'):
+                return self.env.physics_config.get('dt', 0.5)
+            elif self.env and hasattr(self.env, 'dt'):
+                return self.env.dt
+            else:
+                return 0.5  # 기본값
+        except:
+            return 0.5  # 예외 발생 시 기본값
 
     def update_game_area(self):
         """패널 상태에 따라 게임 영역 업데이트"""
@@ -632,12 +647,10 @@ class PygameRenderer:
                 flash_info = self.attack_flash_timers.get(unit_name)
                 if flash_info:
                     # 공격 플래시는 이미 공격이 발생했음을 나타내므로 조건 없이 표시
-                    # 남은 프레임 수에 따라 알파 값 조정 (점점 흐려짐)
+                    # 고정된 불투명도로 표시 (점점 흐려지지 않음)
                     flash_frames_left = flash_info["frames"]
                     attack_rotation = flash_info["rotation"]  # 공격한 시점의 회전 각도 사용
-                    max_flash_frames = 15
-                    alpha_ratio = flash_frames_left / max_flash_frames
-                    flash_alpha = int(255 * alpha_ratio * 0.8)  # 최대 80% 투명도
+                    flash_alpha = 200  # 고정된 불투명도 (255가 최대)
 
                     # 공격 범위를 공격한 시점의 방향으로 고정하여 표시
                     self.draw_rectangular_attack_range(
@@ -1154,6 +1167,19 @@ class PygameRenderer:
         y_offset += 25
         zoom_text = self.small_font.render(f"Zoom: {self.zoom:.2f}", True, (255, 255, 255))
         self.screen.blit(zoom_text, (10, y_offset))
+        
+        # 시간 정보 표시
+        y_offset += 25
+        import time
+        current_time = time.time()
+        elapsed_time = current_time - self.reset_time
+        time_text = self.small_font.render(f"Real Time: {elapsed_time:.1f}s", True, (255, 255, 100))
+        self.screen.blit(time_text, (10, y_offset))
+        
+        y_offset += 20
+        env_time = self.env_timestep * self.env_dt
+        env_time_text = self.small_font.render(f"Env Time: {env_time:.1f}s (dt={self.env_dt}, step={self.env_timestep})", True, (100, 255, 100))
+        self.screen.blit(env_time_text, (10, y_offset))
 
         # 범례
         legend_x = self.width - 150
@@ -1773,6 +1799,9 @@ class PygameRenderer:
 
         # 이벤트 처리
         self.handle_events(objects)
+        
+        # 환경 timestep 증가 (render가 호출될 때마다)
+        self.env_timestep += 1
 
         # obs가 제공되고 선택된 유닛이 있을 때 obs 배열 저장
         if obs and self.selected_unit:
@@ -1896,7 +1925,7 @@ class PygameRenderer:
                                 attack_rotation = float(obj.transform.rotation)
 
                             self.attack_flash_timers[obj_name] = {
-                                "frames": 15,
+                                "frames": 1,
                                 "rotation": attack_rotation,
                             }
 
@@ -2498,6 +2527,12 @@ class PygameRenderer:
 
                     # 리셋과 함께 상태 초기화
                     self._reset_internal_states()
+                    
+                    # 리셋 시간 재설정
+                    import time
+                    self.reset_time = time.time()
+                    self.env_timestep = 0
+                    self.env_dt = self._get_env_dt()  # dt 값도 재확인
 
                     # 선택된 시나리오 사용
                     if self.scenario_names and 0 <= self.selected_scenario_index < len(
@@ -2534,7 +2569,7 @@ class PygameRenderer:
 
 # 사용 예시 함수
 def render_loop(
-    state, fps=60, show_ranges=True, env=None, scenario=None, reset_fn=None, config=None
+    state, fps=10, show_ranges=True, env=None, scenario=None, reset_fn=None, config=None
 ):
     """
     실시간 렌더링 루프
@@ -2640,15 +2675,15 @@ if __name__ == "__main__":
     import jax
     import jax.numpy as jnp
     from src.maenv.physics import Transform, RigidBody, CircleCollider
-    from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import BattleSimulator
+    from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import TABSBattleSimulator
     from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
-    from src.maenv.tabs.scenarios import default_tabs_conf, generate_scenario
+    from src.maenv.tabs.scenarios import TABSConf, generate_scenario
     from src.maenv.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
     import functools
     from src.baseline.mappo import MAPPO
     from types import SimpleNamespace
 
-    default_tabs_conf = default_tabs_conf.replace(scenario_name="8A_vs_1A1M1H")
+    default_tabs_conf = TABSConf(scenario_name="8A_vs_1A1M1H", max_n_ally=8, max_n_enemy=3)
     scenario = generate_scenario(default_tabs_conf)
 
     config = SimpleNamespace(
@@ -2670,13 +2705,13 @@ if __name__ == "__main__":
     config.entropy_coef = 0.01
     config.ppo_epochs = 5
 
-    env = BattleSimulator(max_n_ally=8, max_n_enemy=2)
+    env = TABSBattleSimulator(default_tabs_conf)
     heuristic_policy = jax.jit(
         functools.partial(
             heuristic_policy, num_agents=env.max_n_ally + env.max_n_enemy, epsilon=0.01
         )
     )
-    mappo = MAPPO(config, env, scenario)
+    mappo = MAPPO(config, env)
     # mappo_state = mappo.load_state("C:/Users/JunhyeokOh/Desktop/TABS/baseline/action_clip", True)
 
     sample_action = jax.jit(mappo.sample_action)
