@@ -88,7 +88,6 @@ class PPO(BaseAlgo):
     def rollout(
         self, train_state: TrainState, scenario: Scenario
     ) -> Tuple[TrainState, Dict[str, Any]]:
-        policy, _ = get_model(train_state.policy_state)
         critic, _ = get_model(train_state.critic_state)
 
         reset_key, key = jax.random.split(train_state.key)
@@ -97,7 +96,9 @@ class PPO(BaseAlgo):
         def rollout_body(carry, _):
             obs, env_state, key = carry
             action_key, step_key, key = jax.random.split(key, 3)
-            sample_result = self.sample_action(policy, obs, env_state.unavail_action, action_key)
+            sample_result = self.sample_action(
+                train_state, obs, env_state.unavail_action, action_key
+            )
             next_obs, env_state, _, done, _ = self.v_step(
                 jax.random.split(step_key, self.config.n_env), env_state, sample_result["actions"]
             )
