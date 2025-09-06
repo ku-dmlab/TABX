@@ -19,7 +19,6 @@ class Config:
     eps: float = 0.1
     buffer_size: int = 500
     buffer_batch_size: int = 16
-    tau: float = 5e-3  # The step size for the incremental update
 
     # Env configuration
     scenario: str = "1K"
@@ -200,33 +199,33 @@ if __name__ == "__main__":
             return (train_state_comb), train_info_comb
 
         train_state_comb, train_info_comb = jax.lax.scan(
-            train_body, train_state_comb, None, config.log_step
+            train_body, (train_state_comb), jnp.arange(config.log_step), config.log_step
         )
 
         train_states = (train_state_comb, train_state_deploy, train_state_bs)
 
         return train_states, train_info_comb
 
-    def train_deploy(train_state_comb, train_state_deploy, train_state_bs, scenarios_comb):
+    def train_deploy(train_state_comb, train_state_deploy, train_state_bs, scenarios_deploy):
         def train_body(carry, step):
             train_state_deploy = carry
 
             # Update network
-            train_state_deploy, train_info_comb = dqn_unit_deploy.train(train_state_deploy)
+            train_state_deploy, train_info_deploy = dqn_unit_deploy.train(train_state_deploy)
 
             # Collect samples and update replay buffer
             results = rollout_tabs(
-                train_state_deploy, train_state_deploy, train_state_bs, scenarios_comb
+                train_state_comb, train_state_deploy, train_state_bs, scenarios_deploy
             )
             (train_state_deploy), _ = jax.lax.scan(update_buffers, (results[0]), results[3])
 
             # Update target network
             train_state_deploy = dqn_unit_deploy.update_target(train_state_deploy, step)
 
-            return (train_state_deploy), train_info_comb
+            return (train_state_deploy), train_info_deploy
 
         train_state_deploy, train_info_deploy = jax.lax.scan(
-            train_body, train_state_deploy, None, config.log_step
+            train_body, (train_state_deploy), jnp.arange(config.log_step), config.log_step
         )
 
         train_states = (train_state_comb, train_state_deploy, train_state_bs)
@@ -262,7 +261,7 @@ if __name__ == "__main__":
         ) & dqn_unit_deploy.buffer.can_sample(train_state_deploy.buffer_state)
 
     @jax.jit
-    def train_fn(train_states, dqn_unit_comb, dqn_unit_deploy):
+    def train_fn(train_state_comb, train_state_deploy, train_state_bs):
         # Train on TABSUnitComb
         train_states, train_info_comb = train_comb(
             train_state_comb, train_state_deploy, train_state_bs, repeated_scenarios
@@ -274,15 +273,16 @@ if __name__ == "__main__":
         )
 
         # Train on TABSBattleSimulator
-        _, train_info_bs = jax.lax.scan(train_bs, train_states, None, config.log_step)
+        train_states, train_info_bs = jax.lax.scan(train_bs, train_states, None, config.log_step)
 
-        return train_info_comb, train_info_deploy, train_info_bs
+        return train_states, train_info_comb, train_info_deploy, train_info_bs
 
     # Alternating traininig for the end-to-end agent
     for step in tqdm(range(config.train_step // config.log_step)):
-        train_info_comb, train_info_deploy, train_info_bs = train_fn(
+        train_states, train_info_comb, train_info_deploy, train_info_bs = train_fn(
             train_state_comb, train_state_deploy, train_state_bs
         )
+        train_state_comb, train_state_deploy, train_state_bs = train_states
 
         # Log results
         train_info_bs["episode_returns"] = (

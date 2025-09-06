@@ -81,7 +81,7 @@ class DQN(BaseAlgo):
         )
 
         (gd, qnet_state) = nnx.split((qnet, optimizer))
-        _, qnet_target_param, _ = nnx.split(qnet, nnx.Param, ...)
+        qnet_target_param = qnet_state.filter(nnx.Param)
 
         # Init replay buffer
         key_reset, key_step, key_action, key = jax.random.split(key, 4)
@@ -175,12 +175,12 @@ class DQN(BaseAlgo):
         return train_state.replace(key=key), rollout_result
 
     def train_step(self, train_state: DQNTrainState, batch: BufferSample):
-        _, other_variables = train_state.qnet_state.state.split(nnx.Param, ...)
-        qnet_target = nnx.merge(
-            train_state.qnet_state.graphdef, train_state.qnet_target_param, other_variables
-        )[0]
-        q_next_target = qnet_target(batch.second.obs)
-        q_next_target = jnp.where(batch.first.unavail_action, -jnp.inf, q_next_target)
+        q_net, _ = get_model(train_state.qnet_state)
+        graphdef, _, other_variables = nnx.split(q_net, nnx.Param, ...)
+        qnet_target = nnx.merge(graphdef, train_state.qnet_target_param, other_variables)
+        q_next_target = jnp.where(
+            batch.first.unavail_action, -jnp.inf, qnet_target(batch.second.obs)
+        )
         q_next_target = jnp.max(q_next_target, axis=-1)
         target = batch.first.reward + (1 - batch.first.done) * self.config.gamma * q_next_target
 
@@ -227,9 +227,9 @@ class DQN(BaseAlgo):
             step % self.config.target_update_interval == 0,
             lambda train_state: train_state.replace(
                 qnet_target_param=optax.incremental_update(
-                    train_state.qnet_state.filter(nnx.Param),
+                    train_state.qnet_state.state.filter(nnx.Param),
                     train_state.qnet_target_param,
-                    self.config.tau,
+                    1.0,
                 )
             ),
             lambda train_state: train_state,
