@@ -171,7 +171,7 @@ def heuristic_policy(
         max_relative_axis_direction > 0
     )  # If the direction is positive, the unit is moving in the positive direction (right or up)
     # Kiting logic
-    own_is_ranger = own_attack_range >= 10.0
+    own_is_ranger = own_attack_range >= ranger_attack_range
     other_is_agressive = (
         masekd_distance < (own_attack_range * aggressive_threshold) ** 2
     )  # If the distance is less than the attack range * aggressive threshold, the unit is aggressive
