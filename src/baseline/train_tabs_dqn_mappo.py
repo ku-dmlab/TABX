@@ -21,8 +21,8 @@ class Config:
     dqn_layer_dim = 128  # The layer dimension size
     mappo_layer_dim = 256
     eps: float = 0.1
-    buffer_size: int = 500
-    buffer_batch_size: int = 16
+    buffer_size: int = 10000
+    buffer_batch_size: int = 256
 
     # Env configuration
     scenario: str = "1K"
@@ -36,7 +36,7 @@ class Config:
     rollout_step: int = (
         10  # The number of rollouts to run in parallel for TABSUnitComb and TABSUnitDeploy
     )
-    rollout_step_bs: int = 1024  # The number of rollouts to run in parallel for TABSBattleSimulator
+    rollout_step_bs: int = 512  # The number of rollouts to run in parallel for TABSBattleSimulator
     train_step: int = 10000
     log_step: int = 100
     target_update_interval: int = 25  # The interval of target update
