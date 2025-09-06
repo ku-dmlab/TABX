@@ -282,7 +282,7 @@ if __name__ == "__main__":
         return train_states, train_info_comb, train_info_deploy, train_info_bs
 
     # Alternating traininig for the end-to-end agent
-    for step in tqdm(range(config.train_step // config.log_step)):
+    for step in tqdm(range(config.train_step // (config.log_step * config.n_env))):
         train_states, train_info_comb, train_info_deploy, train_info_bs = train_fn(
             train_state_comb, train_state_deploy, train_state_bs
         )

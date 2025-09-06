@@ -198,7 +198,7 @@ if __name__ == "__main__":
         ), train_info_bs
 
     # Alternating traininig for the end-to-end agent
-    for step in tqdm(range(config.train_step // config.log_step)):
+    for step in tqdm(range(config.train_step // (config.log_step * config.n_env))):
         carry = (train_state_comb, train_state_deploy, train_state_bs)
         # Train on TABSUnitComb
         carry, train_info_comb = jax.lax.scan(train_comb, carry, None, config.log_step)
