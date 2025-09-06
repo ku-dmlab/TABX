@@ -14,6 +14,7 @@ class Config:
     clip_value: float = 1.0  # The clip value for MAPPO
     clip_ratio: float = 0.05  # The clip ratio for MAPPO
     entropy_coef: float = 0.1  # The entropy coefficient
+    dqn_epochs: int = 10
     mappo_epochs: int = 10
     max_grad_norm: float = 0.5  # The maximum gradient norm
     lr: float = 1e-3  # The learning rate

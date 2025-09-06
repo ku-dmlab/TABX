@@ -206,14 +206,21 @@ class DQN(BaseAlgo):
         return train_state, info
 
     def train(self, train_state: DQNTrainState) -> Tuple[DQNTrainState, Dict[str, Any]]:
-        key_buf, key = jax.random.split(train_state.key)
-        train_state = train_state.replace(key=key)
+        def train_body(carry, _):
+            (train_state,) = carry
 
-        # Sample batch from the replay buffer
-        batch = self.buffer.sample(train_state.buffer_state, key_buf).experience
+            # Sample batch from the replay buffer
+            key_buf, key = jax.random.split(train_state.key)
+            batch = self.buffer.sample(train_state.buffer_state, key_buf).experience
 
-        # Update network
-        train_state, train_result = self.train_step(train_state, batch)
+            # Update network
+            train_state, train_result = self.train_step(train_state, batch)
+
+            return (train_state.replace(key=key),), train_result
+
+        (train_state,), train_result = jax.lax.scan(
+            train_body, (train_state,), None, self.config.dqn_epochs
+        )
 
         info = {
             "loss": train_result["loss"].mean(),
