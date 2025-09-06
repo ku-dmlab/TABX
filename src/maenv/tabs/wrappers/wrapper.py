@@ -106,38 +106,32 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
         return target_obs, next_state, reward, done, info
 
 
+@struct.dataclass
+class AutoResetEnvState:
+    env_state: Dict[str, Any]
+    scenario: Scenario
+
+
 class TABSBattleSimulatorAutoResetWrapper(TABSBattleSimulatorWrapper):
     """
     Wrapper for BattleSimulator that adds automatic reset functionality.
-    fixed_scenario: Scenario = None
-    - None: random scenario
-    - Scenario: fixed scenario if you want to use a fixed scenario. If you want to use an explicit scenario when resetting, set to None.
     """
 
-    def __init__(self, env: TABSBattleSimulator, fixed_senario: Scenario = None):
+    def __init__(self, env: TABSBattleSimulator):
         super().__init__(env)
-        self.fixed_senario = fixed_senario
 
-    def reset(self, key, senario: Scenario = None):
-        if self.fixed_senario is None:
-            obs, state = self.env.reset(key, senario)
-        else:
-            obs, state = self.env.reset(key, self.fixed_senario)
+    def reset(self, key, senario: Scenario):
+        obs, state = self.env.reset(key, senario)
+        state = AutoResetEnvState(env_state=state, scenario=senario)
         return obs, state
 
-    def step(self, key, state, action, scenario=None):
-        if self.fixed_senario is None:
-            reset_obs, reset_state = self.reset(key, scenario)
-        else:
-            reset_obs, reset_state = self.reset(key, self.fixed_senario)
-
-        next_obs, next_state, reward, done, info = self.env.step(key, state, action)
-
+    def step(self, key, state, action):
+        reset_obs, reset_state = self.reset(key, state.scenario)
+        next_obs, next_state, reward, done, info = self.env.step(key, state.env_state, action)
         ep_done = done["__all__"]
-
-        next_state = jax.tree.map(
+        next_env_state = jax.tree.map(
             lambda x, y: jnp.where(ep_done, x, y),
-            reset_state,
+            reset_state.env_state,
             next_state,
         )
         next_obs = jax.tree.map(
@@ -145,7 +139,7 @@ class TABSBattleSimulatorAutoResetWrapper(TABSBattleSimulatorWrapper):
             reset_obs,
             next_obs,
         )
-
+        next_state = state.replace(env_state=next_env_state)
         return next_obs, next_state, reward, done, info
 
 
