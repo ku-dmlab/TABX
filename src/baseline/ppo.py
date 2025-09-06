@@ -1,53 +1,45 @@
-import jax
-import jax.numpy as jnp
-import tensorflow_probability.substrates.jax as tfp
-from src.baseline.utils import NetworkState, get_model
 from typing import Tuple, Dict, Any
-from flax.struct import dataclass
-from flax import nnx
-from src.baseline.module.modules import Policy, Value
-import optax
-import os
-import orbax.checkpoint as ocp
-from etils import epath
-from src.baseline.utils import get_abs_path
-import json
-from src.maenv.tabs.tabs_unit_deploy.tabs_unit_deploy import TABSUnitDeploy
-from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
 
-@dataclass
-class PPOState:
-    policy_state: NetworkState
-    value_state: NetworkState
-    key: jax.random.PRNGKey
+import chex
+import jax
+import optax
+import jax.numpy as jnp
+from flax import nnx
+import tensorflow_probability.substrates.jax as tfp
+
+from src.baseline.base_algo import BaseAlgo
+from src.baseline.module.modules import Policy, Critic
+from src.baseline.utils import NetworkState, TrainState, get_model, get_gae
+from src.maenv.tabs.scenarios import Scenario
+from src.maenv.tabs import TABSUnitComb, TABSUnitDeploy
 
 
 tfd = tfp.distributions
 tfb = tfp.bijectors
 
 
-class PPO:
+class PPO(BaseAlgo):
     def __init__(self, config, env: TABSUnitComb | TABSUnitDeploy):
-        self.config = config
-        self.env = env
+        super(PPO, self).__init__(config, env)
         self.v_reset = jax.vmap(env.reset, in_axes=(0, 0))
-        self.v_step = jax.vmap(env.step_env, in_axes=(0, 0, 0))
+        self.v_step = jax.vmap(env.step, in_axes=(0, 0, 0))
 
         self.observation_dim = sum(self.env.observation_space.shape)
         self.action_dim = self.env.action_space.n
 
-
-
-    def init_train_state(self) -> PPOState:
+    def init_train_state(self, key: jax.random.PRNGKey) -> TrainState:
         rngs = nnx.Rngs(self.config.seed)
+
+        # Instantiate policy and critic functions
         pi = Policy(
             action_dim=self.action_dim,
             state_dim=self.observation_dim,
-            layer_dim=self.config.layer_dim,
+            layer_dim=self.config.ppo_layer_dim,
             rngs=rngs,
         )
-        value = Value(self.observation_dim, layer_dim=self.config.layer_dim, rngs=rngs)
+        critic = Critic(self.observation_dim, layer_dim=self.config.ppo_layer_dim, rngs=rngs)
 
+        # Optimizer
         pi_optimizer = nnx.Optimizer(
             pi,
             optax.chain(
@@ -55,8 +47,8 @@ class PPO:
                 optax.adam(learning_rate=self.config.lr),
             ),
         )
-        value_optimizer = nnx.Optimizer(
-            value,
+        critic_optimizer = nnx.Optimizer(
+            critic,
             optax.chain(
                 optax.clip_by_global_norm(self.config.max_grad_norm),
                 optax.adam(learning_rate=self.config.lr),
@@ -64,197 +56,198 @@ class PPO:
         )
 
         (pi_gd, policy_state) = nnx.split((pi, pi_optimizer))
-        (value_gd, value_state) = nnx.split((value, value_optimizer))
+        (critic_gd, critic_state) = nnx.split((critic, critic_optimizer))
 
-        return PPOState(
+        return TrainState(
             policy_state=NetworkState(pi_gd, policy_state),
-            value_state=NetworkState(value_gd, value_state),
-            key=jax.random.key(self.config.seed),
+            critic_state=NetworkState(critic_gd, critic_state),
+            key=key,
         )
 
-    def sample_action(self, policy, observation, action_mask, key):
-        logits = policy(observation)
-        logits = jnp.where(action_mask, -jnp.inf, logits)
+    def sample_action(
+        self,
+        train_state: TrainState,
+        obs: chex.Array,
+        unavail_action: chex.Array,
+        key: jax.random.PRNGKey,
+    ) -> Dict[str, Any]:
+        policy, _ = get_model(train_state.policy_state)
+        logits = policy(obs)
+        logits = jnp.where(unavail_action, -jnp.inf, logits)
         dist = tfd.Categorical(logits=logits)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
-        
+
         result = {
-            'actions' : actions,
-            'log_probs' : log_probs,
+            "actions": actions,
+            "log_probs": log_probs,
         }
-        
+
         return result
 
-    def rollout(self, ppo_state, scenario):
-        policy, policy_optimizer = get_model(ppo_state.policy_state)
-        value, value_optimizer = get_model(ppo_state.value_state)
+    def rollout(
+        self, train_state: TrainState, scenario: Scenario
+    ) -> Tuple[TrainState, Dict[str, Any]]:
+        critic, _ = get_model(train_state.critic_state)
 
-        reset_key, key = jax.random.split(ppo_state.key)
-        init_obs, init_env_state = self.v_reset(jax.random.split(reset_key, self.config.n_env), scenario)
-
-        initial_carry = (init_obs, init_env_state, key)
+        reset_key, key = jax.random.split(train_state.key)
+        init_obs, env_state = self.v_reset(jax.random.split(reset_key, self.config.n_env), scenario)
 
         def rollout_body(carry, _):
-            obs, state, key = carry
-            sample_key, step_key, next_key = jax.random.split(key, 3)
-            sample_result = self.sample_action(policy, obs, state.action_mask, sample_key)
-            next_obs, next_state, _, done, _ = self.v_step(jax.random.split(step_key, self.config.n_env), state, sample_result['actions'])
+            obs, env_state, key = carry
+            action_key, step_key, key = jax.random.split(key, 3)
+            sample_result = self.sample_action(
+                train_state, obs, env_state.unavail_action, action_key
+            )
+            next_obs, env_state, _, done, _ = self.v_step(
+                jax.random.split(step_key, self.config.n_env), env_state, sample_result["actions"]
+            )
+            values = critic(obs)
 
-            obs_value = value(obs)
+            sample_result.update(
+                {
+                    "values": values,
+                    "dones": done,
+                    "observations": obs,
+                    "unavail_actions": env_state.unavail_action,
+                    "env_state": env_state,
+                }
+            )
 
-            sample_result.update({
-                'values' : obs_value,
-                'dones' : done,
-                'observations' : obs,
-                'action_masks' : state.action_mask,
-                'state' : state
-            })
+            return (next_obs, env_state, key), sample_result
 
-            return (next_obs, next_state, next_key), sample_result
+        initial_carry = (init_obs, env_state, key)
+        (last_obs, last_state, key), rollout_result = jax.lax.scan(
+            rollout_body, initial_carry, None, self.config.rollout_step
+        )
 
-        (last_obs, last_state, key), rollout_result = jax.lax.scan(rollout_body, initial_carry, None, self.config.rollout_step)
-
-        last_value = value(last_obs)
+        last_value = critic(last_obs)
         rollout_result["last_value"] = last_value
         rollout_result["last_state"] = last_state
 
-        return ppo_state.replace(key = key), rollout_result
+        return train_state.replace(key=key), rollout_result
 
     def train_step(
-        self, train_state: PPOState, batch: Dict[str, Any]
-    ) -> Tuple[PPOState, Dict[str, Any]]:
-        def value_loss_fn(value):
-            state_values = value(batch['observations'])
+        self, train_state: TrainState, batch: Dict[str, Any]
+    ) -> Tuple[TrainState, Dict[str, Any]]:
+        def critic_loss_fn(critic: Critic):
+            state_values = critic(batch["observations"])
             batch_values = batch["values"]
             clip_value = batch_values + jnp.clip(
                 state_values - batch_values, -self.config.clip_value, self.config.clip_value
             )
-            value_losses = jnp.square(batch["returns"] - state_values)
+            critic_losses = jnp.square(batch["returns"] - state_values)
             clip_losses = jnp.square(batch["returns"] - clip_value)
-            value_loss = 0.5 * jnp.maximum(value_losses, clip_losses).mean()
+            critic_loss = 0.5 * jnp.maximum(critic_losses, clip_losses).mean()
 
-            return value_loss
+            return critic_loss
 
-        def policy_loss(policy):
-            logits = policy(batch['observations'])
-            logits = jnp.where(batch['action_masks'], -jnp.inf, logits)
+        def policy_loss_fn(policy: Policy):
+            logits = policy(batch["observations"])
+            logits = jnp.where(batch["unavail_actions"], -jnp.inf, logits)
             dist = tfd.Categorical(logits=logits)
-            log_pi = dist.log_prob(batch['actions'])
+            log_pi = dist.log_prob(batch["actions"])
 
             log_diff = log_pi - batch["log_probs"]
-            is_nan_log_diff = jnp.isnan(log_diff)
-            log_diff = jnp.where(is_nan_log_diff, 0.0, log_diff)
+            isnan_log_diff = jnp.isnan(log_diff)
+            log_diff = jnp.where(isnan_log_diff, 0.0, log_diff)
 
-            ratio = jnp.exp(log_diff).reshape(batch['advantages'].shape)
-            loss = (jnp.minimum(
-                ratio * batch["advantages"],
-                jnp.clip(ratio, 1 - self.config.clip_ratio, 1 + self.config.clip_ratio)
-                * batch["advantages"],
-            )* (1-is_nan_log_diff.reshape(batch['advantages'].shape))).sum() / (~is_nan_log_diff).sum()
+            ratio = jnp.exp(log_diff).reshape(batch["advantages"].shape)
+            loss = (
+                jnp.minimum(
+                    ratio * batch["advantages"],
+                    jnp.clip(ratio, 1 - self.config.clip_ratio, 1 + self.config.clip_ratio)
+                    * batch["advantages"],
+                )
+                * (1 - isnan_log_diff.reshape(batch["advantages"].shape))
+            ).sum() / (~isnan_log_diff).sum()
 
             is_nan_log_pi = jnp.isnan(log_pi)
-            entropy = jnp.where(is_nan_log_pi, 0.0, -log_pi * jnp.exp(log_pi)).sum() / (~is_nan_log_pi).sum()
-
+            entropy = (
+                jnp.where(is_nan_log_pi, 0.0, -log_pi * jnp.exp(log_pi)).sum()
+                / (~is_nan_log_pi).sum()
+            )
 
             return -loss + self.config.entropy_coef * entropy, {
                 "policy_loss": loss,
                 "entropy": entropy,
                 "ratio": ratio,
-                "is_nan_log_diff": is_nan_log_diff,
-                "max_advantage": batch["advantages"].max(),
-                "min_advantage": batch["advantages"].min(),
-                "mean_advantage": batch["advantages"].mean(),
+                "ratio_max": ratio.max(),
+                "ratio_min": ratio.min(),
+                "ratio_mean": ratio.mean(),
+                "isnan_log_diff": isnan_log_diff.mean(),
+                "advantage_max": batch["advantages"].max(),
+                "advantage_min": batch["advantages"].min(),
+                "advantage_mean": batch["advantages"].mean(),
             }
 
-        value, value_optimizer = get_model(train_state.value_state)
+        critic, critic_optimizer = get_model(train_state.critic_state)
         policy, policy_optimizer = get_model(train_state.policy_state)
 
-        v_loss, value_grads = nnx.value_and_grad(value_loss_fn)(value)
-        (loss, info), policy_grads = nnx.value_and_grad(policy_loss, has_aux=True)(policy)
+        critic_loss, critic_grads = nnx.value_and_grad(critic_loss_fn)(critic)
+        (policy_loss, info), policy_grads = nnx.value_and_grad(policy_loss_fn, has_aux=True)(policy)
 
-        value_optimizer.update(value_grads)
+        critic_optimizer.update(critic_grads)
         policy_optimizer.update(policy_grads)
 
         train_state = train_state.replace(
             policy_state=train_state.policy_state.replace(
                 state=nnx.state((policy, policy_optimizer))
             ),
-            value_state=train_state.value_state.replace(state=nnx.state((value, value_optimizer))),
+            critic_state=train_state.critic_state.replace(
+                state=nnx.state((critic, critic_optimizer))
+            ),
         )
 
-        info.update(
-            {
-                "v_loss": v_loss,
-                "ratio_max": info["ratio"].max(),
-                "ratio_min": info["ratio"].min(),
-                "ratio_mean": info["ratio"].mean(),
-                "is_nan_log_diff": info["is_nan_log_diff"].mean(),
-                "max_advantage": info["max_advantage"],
-                "min_advantage": info["min_advantage"],
-                "mean_advantage": info["mean_advantage"],
-            }
-        )
+        info.update({"critic_loss": critic_loss})
 
         return train_state, info
 
+    def train(
+        self, train_state: TrainState, batch: Dict[str, Any]
+    ) -> Tuple[TrainState, Dict[str, Any]]:
+        # Compute GAE and returns
+        advantages, returns = jax.vmap(get_gae, in_axes=(1, 1, 1, 0, None, None), out_axes=1)(
+            batch["rewards"],
+            batch["dones"],
+            batch["values"],
+            batch["last_value"],
+            self.config.gamma,
+            self.config.lamda,
+        )
 
-    def train(self, train_state, batch):
-        #TODO : consider batch size
+        # Normalization
+        advantages = (advantages - advantages.mean(axis=1, keepdims=True)) / (
+            advantages.std(axis=1, keepdims=True) + 1e-8
+        )
+
+        batch.update({"advantages": advantages, "returns": returns})
+
+        # TODO : consider batch size
         def train_body(carry, _):
             (train_state,) = carry
 
-            train_state, info = self.train_step(train_state, batch)
+            train_state, train_result = self.train_step(train_state, batch)
 
-            return (train_state,), info
+            return (train_state,), train_result
 
-        (train_state, ), info = jax.lax.scan(train_body, (train_state,), None, self.config.ppo_epochs)
+        (train_state,), train_result = jax.lax.scan(
+            train_body, (train_state,), None, self.config.ppo_epochs
+        )
 
-        info["policy_loss"] = info["policy_loss"].mean()
-        info["entropy"] = info["entropy"].mean()
-        info["ratio"] = info["ratio"].mean()
-        info["ratio_max"] = info["ratio_max"].max()
-        info["ratio_min"] = info["ratio_min"].min()
-        info["ratio_mean"] = info["ratio_mean"].mean()
-        info["v_loss"] = info["v_loss"].mean()
-        info["is_nan_log_diff"] = info["is_nan_log_diff"].mean()
-        info["max_advantage"] = info["max_advantage"].max()
-        info["min_advantage"] = info["min_advantage"].min()
-        info["mean_advantage"] = info["mean_advantage"].mean()
+        info = {
+            "critic_loss": train_result["critic_loss"].mean(),
+            "policy_loss": train_result["policy_loss"].mean(),
+            "entropy": train_result["entropy"].mean(),
+            "ratio": train_result["ratio"].mean(),
+            "ratio_max": train_result["ratio_max"].max(),
+            "ratio_min": train_result["ratio_min"].min(),
+            "ratio_mean": train_result["ratio_mean"].mean(),
+            "isnan_log_diff": train_result["isnan_log_diff"].mean(),
+            "advantage_max": train_result["advantage_max"].max(),
+            "advantage_min": train_result["advantage_min"].min(),
+            "advantage_mean": train_result["advantage_mean"].mean(),
+            "rewards": batch["rewards"].sum() / self.config.n_env,
+        }
 
         return train_state, info
-            
-
-
-    def save_state(self, train_state, path):
-        path = get_abs_path(path)
-
-        with ocp.StandardCheckpointer() as checkpointer:
-            checkpointer.save(epath.Path(path), train_state)
-
-        # Save config to the checkpoint directory
-        config_path = os.path.join(path, "config.json")
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        with open(config_path, "w") as f:
-            json.dump(self.config.__dict__, f, indent=2)
-
-    def load_state(self, path, update_config=False):
-        path = get_abs_path(path)
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Path {path} does not exist")
-
-        if update_config:
-            config_path = os.path.join(path, "config.json")
-            with open(config_path, "r") as f:
-                config = json.load(f)
-
-            for key, value in config.items():
-                setattr(self.config, key, value)
-
-        checkpointer = ocp.StandardCheckpointer()
-        train_state = checkpointer.restore(epath.Path(path), self.init_train_state())
-
-        return train_state
-
-
-

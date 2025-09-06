@@ -394,14 +394,14 @@ class TABSBattleSimulator(BaseMAEnv):
         if self.obs_type == "unit_spec":
             self.observation_spaces = {
                 agent: Box(
-                    low=0, high=1, shape=(14 + 16 * (len(self.unit_keys) - 1)), dtype=jnp.float32
+                    low=0, high=1, shape=(14 + 16 * (len(self.unit_keys) - 1),), dtype=jnp.float32
                 )
                 for agent in self.ally_keys
             }
         elif self.obs_type == "unit_id":
             self.observation_spaces = {
                 agent: Box(
-                    low=0, high=1, shape=(6 + 9 * (len(self.unit_keys) - 1)), dtype=jnp.float32
+                    low=0, high=1, shape=(6 + 9 * (len(self.unit_keys) - 1),), dtype=jnp.float32
                 )
                 for agent in self.ally_keys
             }
