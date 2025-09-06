@@ -11,6 +11,9 @@ class Config:
     # Algorithm configuration
     gamma: float = 0.99  # The discount factor
     lamda: float = 0.95  # The lambda for GAE
+    clip_value: float = 1.0  # The clip value for MAPPO
+    clip_ratio: float = 0.05  # The clip ratio for MAPPO
+    entropy_coef: float = 0.1  # The entropy coefficient
     mappo_epochs: int = 10
     max_grad_norm: float = 0.5  # The maximum gradient norm
     lr: float = 1e-3  # The learning rate
@@ -35,7 +38,7 @@ class Config:
     rollout_step_bs: int = 1024  # The number of rollouts to run in parallel for TABSBattleSimulator
     train_step: int = 10000
     log_step: int = 100
-    target_update_interval: int = 25
+    target_update_interval: int = 25  # The interval of target update
 
     seed: int = 42
     save_path: str = "/save/dqn_mappo"
@@ -95,7 +98,7 @@ if __name__ == "__main__":
     env_unit_deploy = TABSUnitDeploy(tabs_conf)
     env_bs = TABSBattleSimulator(tabs_conf)
     env_bs = TABSBattleSimulatorHeuristicWrapper(env_bs)
-    env_bs = TABSBattleSimulatorAutoResetWrapper(env_bs, scenario)
+    env_bs = TABSBattleSimulatorAutoResetWrapper(env_bs)
     env_bs = TABSBattleSimulatorLogWrapper(env_bs)
 
     # Agents
@@ -217,7 +220,7 @@ if __name__ == "__main__":
             results = rollout_tabs(
                 train_state_comb, train_state_deploy, train_state_bs, scenarios_deploy
             )
-            (train_state_deploy), _ = jax.lax.scan(update_buffers, (results[0]), results[3])
+            (train_state_deploy), _ = jax.lax.scan(update_buffers, (results[1]), results[4])
 
             # Update target network
             train_state_deploy = dqn_unit_deploy.update_target(train_state_deploy, step)
