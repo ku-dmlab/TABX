@@ -20,13 +20,29 @@ class TABSBattleSimulatorWrapper:
 
 class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
     """
-    Wrapper for BattleSimulator that adds heuristic policy to the units.
-    heuristic_units: List[str] | str, epsilon: float = 0.1
-    heuristic_units: "all" | "enemy" | List[str]
-    epsilon: float = 0.1
-    - all: all units
-    - enemy: enemy units
-    - List[str]: list of units
+    Wrapper for BattleSimulator that adds heuristic policy to specified units.
+
+    This wrapper allows certain units to be controlled by a heuristic policy instead of
+    requiring manual actions. It can filter observations to only return non-heuristic
+    units and optionally filter rewards to only ally teams.
+
+    Args:
+        env: TABSBattleSimulator environment to wrap
+        heuristic_units: Units to control with heuristic policy
+            - "all": All units in the environment
+            - "enemy": Only enemy units
+            - List[str]: Specific list of unit keys
+        epsilon: Probability of taking random action in heuristic policy (0.0-1.0)
+        aggressive_threshold: Threshold for aggressive behavior in heuristic policy (0.0-1.0)
+        heuristic_obs: Whether to include heuristic units in observation output
+            - True: Return observations for all units
+            - False: Return observations only for non-heuristic units
+        only_ally_reward: Whether to filter rewards to ally team only
+            - True: Return rewards only for ally team
+            - False: Return rewards for all teams
+
+    Returns:
+        Wrapped environment with heuristic policy applied to specified units
     """
 
     def __init__(
@@ -35,6 +51,8 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
         heuristic_units: List[str] | str = "enemy",
         epsilon: float = 0.1,
         aggressive_threshold: float = 0.3,
+        heuristic_obs: bool = False,
+        only_ally_reward: bool = True,
     ):
         super().__init__(env)
 
@@ -52,10 +70,22 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
 
         self.epsilon = epsilon
         self.aggressive_threshold = aggressive_threshold
+        self.heuristic_obs = heuristic_obs
+        self.only_ally_reward = only_ally_reward
+        self.non_heuristic_units = [
+            unit for unit in self.env.unit_keys if unit not in self.heuristic_units
+        ]
+
+    def filter_obs(self, obs):
+        target_obs = {}
+        for unit in self.non_heuristic_units:
+            target_obs[unit] = obs[unit]
+        return target_obs
 
     def reset(self, key, senario: Scenario):
         obs, state = self.env.reset(key, senario)
-        return obs, state
+        target_obs = self.filter_obs(obs)
+        return target_obs, state
 
     def step(self, key, state, action):
         obs = self.env.get_obs(state)
@@ -69,9 +99,11 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
                 self.epsilon,
                 self.aggressive_threshold,
             )
-
         obs, next_state, reward, done, info = self.env.step(key, state, action)
-        return obs, next_state, reward, done, info
+        target_obs = self.filter_obs(obs)
+        if self.only_ally_reward:
+            reward = reward[0]
+        return target_obs, next_state, reward, done, info
 
 
 class TABSBattleSimulatorAutoResetWrapper(TABSBattleSimulatorWrapper):
