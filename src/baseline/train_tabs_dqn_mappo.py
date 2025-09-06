@@ -53,6 +53,8 @@ if __name__ == "__main__":
 
     import jax
     import jax.numpy as jnp
+    import flashbax as fbx
+    from flashbax.buffers.trajectory_buffer import TrajectoryBuffer
 
     from src.baseline.dqn import DQN, TimeStep
     from src.baseline.mappo import MAPPO
@@ -94,7 +96,7 @@ if __name__ == "__main__":
     env_unit_deploy = TABSUnitDeploy(tabs_conf)
     env_bs = TABSBattleSimulator(tabs_conf)
     env_bs = TABSBattleSimulatorHeuristicWrapper(env_bs)
-    env_bs = TABSBattleSimulatorAutoResetWrapper(env_bs)
+    env_bs = TABSBattleSimulatorAutoResetWrapper(env_bs, scenario)
     env_bs = TABSBattleSimulatorLogWrapper(env_bs)
 
     # Agents
@@ -102,10 +104,20 @@ if __name__ == "__main__":
     dqn_unit_deploy = DQN(config, env_unit_deploy)
     mappo_bs = MAPPO(config, env_bs)
 
+    # Replay buffer
+    buffer: TrajectoryBuffer = fbx.make_flat_buffer(
+        max_length=config.buffer_size,
+        min_length=config.buffer_batch_size,
+        sample_batch_size=config.buffer_batch_size,
+        add_sequences=False,
+        add_batch_size=config.n_env,
+    )
+
+    # TrainState
     key = jax.random.key(config.seed)
     key_comb, key_deploy, key_bs = jax.random.split(key, 3)
-    train_state_comb = dqn_unit_comb.init_train_state(key_comb)
-    train_state_deploy = dqn_unit_deploy.init_train_state(key_deploy)
+    train_state_comb = dqn_unit_comb.init_train_state(key_comb, scenario)
+    train_state_deploy = dqn_unit_deploy.init_train_state(key_deploy, scenario)
     train_state_bs = mappo_bs.init_train_state(key_comb)
 
     def rollout_tabs(train_state_comb, train_state_deploy, train_state_bs, scenarios_comb):
@@ -118,6 +130,8 @@ if __name__ == "__main__":
             ally_unit_comp=rollout_result_comb["last_state"].current_unit_list
         )
 
+        del rollout_result_comb["last_state"]
+
         # Deploy allies - TABSUnitDeploy
         train_state_deploy, rollout_result_deploy = dqn_unit_deploy.rollout(
             train_state_deploy, scenarios_deploy
@@ -126,6 +140,8 @@ if __name__ == "__main__":
         scenarios_bs = scenarios_deploy.replace(
             battle_field=rollout_result_deploy["last_state"].battle_field
         )
+
+        del rollout_result_deploy["last_state"]
 
         # Battle - TABSBattleSimulate
         train_state_bs, rollout_result_bs = mappo_bs.rollout(train_state_bs, scenarios_bs)
@@ -150,7 +166,7 @@ if __name__ == "__main__":
         )
 
     def update_buffers(carry, x):
-        train_state, dqn = carry
+        train_state = carry
 
         timestep = TimeStep(
             obs=x["obs"],
@@ -158,17 +174,16 @@ if __name__ == "__main__":
             reward=x["rewards"],
             done=x["dones"],
             next_obs=x["next_obs"],
+            unavail_action=x["unavail_actions"],
         )
-        buffer_state = dqn.buffer.add(train_state.buffer_state, timestep)
+        buffer_state = buffer.add(train_state.buffer_state, timestep)
         train_state = train_state.replace(buffer_state=buffer_state)
 
-        return (train_state, dqn), x
+        return (train_state), x
 
-    def train_comb(
-        train_state_comb, train_state_deploy, train_state_bs, dqn_unit_comb, scenarios_comb
-    ):
+    def train_comb(train_state_comb, train_state_deploy, train_state_bs, scenarios_comb):
         def train_body(carry, step):
-            train_state_comb, dqn_unit_comb = carry
+            train_state_comb = carry
 
             # Update network
             train_state_comb, train_info_comb = dqn_unit_comb.train(train_state_comb)
@@ -177,27 +192,24 @@ if __name__ == "__main__":
             results = rollout_tabs(
                 train_state_comb, train_state_deploy, train_state_bs, scenarios_comb
             )
-            (train_state_comb, dqn_unit_comb), _ = jax.lax.scan(
-                update_buffers, (results[0], dqn_unit_comb), results[3]
-            )
+            (train_state_comb), _ = jax.lax.scan(update_buffers, (results[0]), results[3])
 
             # Update target network
             train_state_comb = dqn_unit_comb.update_target(train_state_comb, step)
 
-            return (train_state_comb, dqn_unit_comb), train_info_comb
+            return (train_state_comb), train_info_comb
 
-        carry = (train_state_comb, dqn_unit_comb)
-        carry, train_info_comb = jax.lax.scan(train_body, carry, None, config.log_step)
+        train_state_comb, train_info_comb = jax.lax.scan(
+            train_body, train_state_comb, None, config.log_step
+        )
 
         train_states = (train_state_comb, train_state_deploy, train_state_bs)
 
-        return train_states, dqn_unit_comb, train_info_comb
+        return train_states, train_info_comb
 
-    def train_deploy(
-        train_state_comb, train_state_deploy, train_state_bs, dqn_unit_deploy, scenarios_comb
-    ):
+    def train_deploy(train_state_comb, train_state_deploy, train_state_bs, scenarios_comb):
         def train_body(carry, step):
-            train_state_deploy, dqn_unit_deploy = carry
+            train_state_deploy = carry
 
             # Update network
             train_state_deploy, train_info_comb = dqn_unit_deploy.train(train_state_deploy)
@@ -206,21 +218,20 @@ if __name__ == "__main__":
             results = rollout_tabs(
                 train_state_deploy, train_state_deploy, train_state_bs, scenarios_comb
             )
-            (train_state_deploy, dqn_unit_deploy), _ = jax.lax.scan(
-                update_buffers, (results[0], dqn_unit_deploy), results[3]
-            )
+            (train_state_deploy), _ = jax.lax.scan(update_buffers, (results[0]), results[3])
 
             # Update target network
             train_state_deploy = dqn_unit_deploy.update_target(train_state_deploy, step)
 
-            return (train_state_deploy, dqn_unit_deploy), train_info_comb
+            return (train_state_deploy), train_info_comb
 
-        carry = (train_state_deploy, dqn_unit_deploy)
-        carry, train_info_deploy = jax.lax.scan(train_body, carry, None, config.log_step)
+        train_state_deploy, train_info_deploy = jax.lax.scan(
+            train_body, train_state_deploy, None, config.log_step
+        )
 
         train_states = (train_state_comb, train_state_deploy, train_state_bs)
 
-        return train_states, dqn_unit_deploy, train_info_deploy
+        return train_states, train_info_deploy
 
     def train_bs(carry, _):
         (train_state_comb, train_state_deploy, train_state_bs) = carry
@@ -243,12 +254,8 @@ if __name__ == "__main__":
         results = jit_rollout(
             train_state_comb, train_state_deploy, train_state_bs, repeated_scenarios
         )
-        (train_state_comb, dqn_unit_comb), _ = jax.lax.scan(
-            update_buffers, (results[0], dqn_unit_comb), results[3]
-        )
-        (train_state_deploy, dqn_unit_deploy), _ = jax.lax.scan(
-            update_buffers, (results[1], dqn_unit_deploy), results[4]
-        )
+        (train_state_comb), _ = jax.lax.scan(update_buffers, (results[0]), results[3])
+        (train_state_deploy), _ = jax.lax.scan(update_buffers, (results[1]), results[4])
 
         can_sample = dqn_unit_comb.buffer.can_sample(
             train_state_comb.buffer_state
@@ -257,25 +264,24 @@ if __name__ == "__main__":
     @jax.jit
     def train_fn(train_states, dqn_unit_comb, dqn_unit_deploy):
         # Train on TABSUnitComb
-        train_states, dqn_unit_comb, train_info_comb = train_comb(
-            train_state_comb, train_state_deploy, train_state_bs, dqn_unit_comb, repeated_scenarios
+        train_states, train_info_comb = train_comb(
+            train_state_comb, train_state_deploy, train_state_bs, repeated_scenarios
         )
 
         # Train on TABSUnitDeploy
-        train_states, dqn_unit_deploy, train_info_deploy = train_comb(
-            train_states[0], train_states[1], train_states[2], dqn_unit_deploy, repeated_scenarios
+        train_states, train_info_deploy = train_deploy(
+            train_states[0], train_states[1], train_states[2], repeated_scenarios
         )
 
         # Train on TABSBattleSimulator
         _, train_info_bs = jax.lax.scan(train_bs, train_states, None, config.log_step)
 
-        return dqn_unit_comb, dqn_unit_deploy, train_info_comb, train_info_deploy, train_info_bs
+        return train_info_comb, train_info_deploy, train_info_bs
 
     # Alternating traininig for the end-to-end agent
     for step in tqdm(range(config.train_step // config.log_step)):
-        train_states = (train_state_comb, train_state_deploy, train_state_bs)
-        dqn_unit_comb, dqn_unit_deploy, train_info_comb, train_info_deploy, train_info_bs = (
-            train_fn(train_states, dqn_unit_comb, dqn_unit_deploy)
+        train_info_comb, train_info_deploy, train_info_bs = train_fn(
+            train_state_comb, train_state_deploy, train_state_bs
         )
 
         # Log results

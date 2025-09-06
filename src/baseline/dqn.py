@@ -1,14 +1,14 @@
 from typing import Tuple, Dict, Any
-import deepcopy
+from copy import deepcopy
 
 import chex
 import jax
 import optax
 import jax.numpy as jnp
 import flashbax as fbx
-from flashbax.buffers.trajectory_buffer import TrajectoryBuffer, BufferState
 from flax import struct, nnx
 import tensorflow_probability.substrates.jax as tfp
+from flashbax.buffers.trajectory_buffer import TrajectoryBuffer, BufferState, BufferSample
 
 from src.baseline.base_algo import BaseAlgo
 from src.baseline.module.modules import QNetwork
@@ -28,6 +28,7 @@ class TimeStep:
     reward: chex.Array
     done: chex.Array
     next_obs: chex.Array
+    unavail_action: chex.Array
 
 
 @struct.dataclass
@@ -41,15 +42,11 @@ class DQN(BaseAlgo):
     def __init__(self, config, env: TABSUnitComb | TABSUnitDeploy):
         super(DQN, self).__init__(config, env)
         self.eps = self.config.eps if hasattr(self.config, "eps") else 0.1
-        self.buffer_size = self.config.buffer_size if hasattr(self.confg, "buffer_size") else 100
-        self.buffer_batch_size = (
-            self.config.buffer_batch_size if hasattr(self.config, "buffer_batch_size") else 32
-        )
 
         buffer: TrajectoryBuffer = fbx.make_flat_buffer(
-            max_length=self.buffer_size,
-            min_length=self.buffer_batch_size,
-            sample_batch_size=self.buffer_batch_size,
+            max_length=self.config.buffer_size,
+            min_length=self.config.buffer_batch_size,
+            sample_batch_size=self.config.buffer_batch_size,
             add_sequences=False,
             add_batch_size=self.config.n_env,
         )
@@ -91,13 +88,22 @@ class DQN(BaseAlgo):
         _, _env_state = self.env.reset(key_reset, scenario)
         _action = self.env.action_space.sample(key_action)
         _obs, _, _, _done, _ = self.env.step(key_step, _env_state, _action)
-        _timestep = TimeStep(obs=_obs, action=_action, reward=0, done=_done, next_obs=_obs)
+        _timestep = TimeStep(
+            obs=_obs,
+            action=_action,
+            reward=jnp.zeros(1),
+            done=_done,
+            next_obs=_obs,
+            unavail_action=_env_state.unavail_action,
+        )
         buffer_state = self.buffer.init(_timestep)
 
         return DQNTrainState(
-            qnet_state=NetworkState(gd, qnet_state),
-            qnet_target_param=deepcopy.copy(qnet_target_param),
+            policy_state=None,
+            critic_state=None,
             key=key,
+            qnet_state=NetworkState(gd, qnet_state),
+            qnet_target_param=deepcopy(qnet_target_param),
             buffer_state=buffer_state,
         )
 
@@ -110,15 +116,19 @@ class DQN(BaseAlgo):
     ) -> Dict[str, Any]:
         key_a, key_eps = jax.random.split(key)
 
-        qnet, _ = get_model(train_state.critic_state)
+        qnet, _ = get_model(train_state.qnet_state)
         q_vals = jnp.where(unavail_action, -jnp.inf, qnet(obs))
         greedy_actions = jnp.argmax(q_vals, axis=-1)
+
+        # Sample random actions
+        logits = jnp.where(unavail_action, -jnp.inf, jnp.zeros_like(q_vals))
+        dist = tfd.Categorical(logits=logits)
+        rand_actions = dist.sample(seed=key_a)
+
         chosed_actions = jnp.where(
             jax.random.uniform(key_eps, greedy_actions.shape)
             < self.eps,  # Pick the actions that should be random
-            jax.random.randint(
-                key_a, shape=greedy_actions.shape, minval=0, maxval=q_vals.shape[-1]
-            ),  # Sample random actions
+            rand_actions,
             greedy_actions,
         )
 
@@ -132,7 +142,7 @@ class DQN(BaseAlgo):
         init_obs, env_state = self.v_reset(jax.random.split(reset_key, self.config.n_env), scenario)
 
         def rollout_body(carry, _):
-            obs, env_state, train_state, key = carry
+            obs, env_state, key = carry
             # Step the env
             action_key, step_key, key = jax.random.split(key, 3)
             sample_result = self.sample_action(
@@ -164,10 +174,13 @@ class DQN(BaseAlgo):
 
         return train_state.replace(key=key), rollout_result
 
-    def train_step(self, train_state: DQNTrainState, batch):
-        gd, other_variables = train_state.qnet_state.split(nnx.Param, ...)
-        qnet_target, _ = nnx.merge(gd, train_state.qnet_target_param, other_variables)
+    def train_step(self, train_state: DQNTrainState, batch: BufferSample):
+        _, other_variables = train_state.qnet_state.state.split(nnx.Param, ...)
+        qnet_target = nnx.merge(
+            train_state.qnet_state.graphdef, train_state.qnet_target_param, other_variables
+        )[0]
         q_next_target = qnet_target(batch.second.obs)
+        q_next_target = jnp.where(batch.first.unavail_action, -jnp.inf, q_next_target)
         q_next_target = jnp.max(q_next_target, axis=-1)
         target = batch.first.reward + (1 - batch.first.done) * self.config.gamma * q_next_target
 
