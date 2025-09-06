@@ -17,6 +17,7 @@ class BaseAlgo:
         self.config = config
         self.env = env
 
+    @overload
     def init_train_state(self, key: jax.random.PRNGKey) -> TrainState:
         pass
 
@@ -36,6 +37,7 @@ class BaseAlgo:
     ) -> Tuple[TrainState, Dict[str, Any]]:
         pass
 
+    @overload
     def train(
         self, train_state: TrainState, batch: Dict[str, Any]
     ) -> Tuple[TrainState, Dict[str, Any]]:
