@@ -34,6 +34,7 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
         env: TABSBattleSimulator,
         heuristic_units: List[str] | str = "enemy",
         epsilon: float = 0.1,
+        aggressive_threshold: float = 0.3,
     ):
         super().__init__(env)
 
@@ -50,6 +51,7 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
             raise ValueError(f"Invalid heuristic units: {heuristic_units}")
 
         self.epsilon = epsilon
+        self.aggressive_threshold = aggressive_threshold
 
     def reset(self, key, senario: Scenario):
         obs, state = self.env.reset(key, senario)
@@ -61,7 +63,11 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
         for unit in self.heuristic_units:
             heuristic_key, key = jax.random.split(key)
             action[unit] = heuristic_policy(
-                heuristic_key, obs[unit], self.env.num_agents, self.epsilon
+                heuristic_key,
+                obs[unit],
+                self.env.num_agents,
+                self.epsilon,
+                self.aggressive_threshold,
             )
 
         obs, next_state, reward, done, info = self.env.step(key, state, action)
