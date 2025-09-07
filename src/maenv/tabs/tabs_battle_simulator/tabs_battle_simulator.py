@@ -265,16 +265,10 @@ class GameManager:
         cond_lower = (
             n_u1_x[None] * rel_x + n_u1_y[None] * rel_y + unit_body_radius_vector[:, None] >= 0
         )
-        cond_upper = (n_u2_x[None] * rel_x + n_u2_y[None] * rel_y) - unit_body_radius_vector[
-            :, None
-        ] <= 0
-        fwd_x = jnp.cos(unit_rotation_vector)
-        fwd_y = jnp.sin(unit_rotation_vector)
-        cond_front = (fwd_x[None] * rel_x + fwd_y[None] * rel_y) + unit_body_radius_vector[
-            :, None
-        ] < 0
-
-        sight_inside = cond_lower & cond_upper & cond_front & ~unit_is_disabled_vector[:, None]
+        cond_upper =  (
+            n_u2_x[None] * rel_x + n_u2_y[None] * rel_y - unit_body_radius_vector[:, None] <= 0
+        )
+        sight_inside = cond_lower & cond_upper & jnp.logical_not(unit_is_disabled_vector)
         attackable_matrix = (
             in_attack_range
             & (
