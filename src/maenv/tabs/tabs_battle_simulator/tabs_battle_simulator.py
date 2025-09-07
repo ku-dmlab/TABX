@@ -113,8 +113,7 @@ class DefaultUnit:
             ),
             status=self.status.replace(
                 cooldown=jnp.clip(
-                    0.0 * cooldown
-                    + self.status.cooldown * (1 - cooldown),  # TODO: normalize between 0 and 1?
+                    0.0 * cooldown + self.status.cooldown * (1 - cooldown),
                     0.0,
                     self.status.attack_cooldown,
                 )
@@ -131,10 +130,6 @@ class DefaultUnit:
             & (target_attackable[self.status.id.reshape()])
         )
 
-        # need to calculate cooldown of attacker
-        # damage = attacker.status.attack_damage * (
-        #     attacker.status.attack_type == AttackType.DEFAULT
-        # ) - attacker.status.attack_damage * (attacker.status.attack_type == AttackType.HEALING)
         damage = attacker.status.attack_damage
         damaged_status = self.on_damage(damage)
         new_status = jax.tree.map(
@@ -265,10 +260,10 @@ class GameManager:
         cond_lower = (
             n_u1_x[None] * rel_x + n_u1_y[None] * rel_y + unit_body_radius_vector[:, None] >= 0
         )
-        cond_upper =  (
+        cond_upper = (
             n_u2_x[None] * rel_x + n_u2_y[None] * rel_y - unit_body_radius_vector[:, None] <= 0
         )
-        sight_inside = cond_lower & cond_upper & jnp.logical_not(unit_is_disabled_vector)
+        sight_inside = cond_lower & cond_upper & jnp.logical_not(unit_is_disabled_vector[:, None])
         attackable_matrix = (
             in_attack_range
             & (
@@ -277,10 +272,11 @@ class GameManager:
             )
             & unit_alive_vector.T
         ) & ~unit_is_disabled_vector.T
-        maksed_relative_distnace = (
-            jnp.square(position_diff).sum(axis=-1)
-            + 1e6 * jnp.identity(position_diff.shape[0])
-            + 1e6 * (~attackable_matrix)
+        maksed_relative_distnace = jnp.where(
+            jnp.identity(position_diff.shape[0], dtype=jnp.bool_)
+            | jnp.logical_not(attackable_matrix),
+            jnp.inf,
+            jnp.square(position_diff).sum(axis=-1),
         )
 
         return self.replace(
