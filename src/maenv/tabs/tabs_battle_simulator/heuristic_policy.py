@@ -131,7 +131,7 @@ def heuristic_policy(
     target_move_position = jnp.where(
         own_is_assassin,
         other_relative_position - backward_rotate_vector,
-        other_relative_position,
+        other_relative_position + backward_rotate_vector,
     )  # If assassin, target move position is the target's back
     # If there is injured ally, healer target is the injured ally, otherwise healer target is the closest ally
     healer_target = (
