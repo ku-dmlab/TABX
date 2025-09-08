@@ -48,17 +48,15 @@ if __name__ == "__main__":
     import jax
     import jax.numpy as jnp
 
-    from src.baseline.ppo import PPO
-    from src.maenv.tabs.wrappers.wrapper import (
+    from src.baseline.algorithm import PPO
+    from src.baseline.utils import get_gae
+    from src.tabs.wrappers import (
         TABSBattleSimulatorHeuristicWrapper,
         TABSBattleSimulatorLogWrapper,
     )
-    from src.maenv.tabs.scenarios import generate_scenario, TABSConf
-    from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import TABSBattleSimulator
-    from src.maenv.tabs.tabs_unit_deploy.tabs_unit_deploy import TABSUnitDeploy
-    from src.maenv.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
-    from src.baseline.utils import get_gae
-    from src.maenv.tabs.units import get_all_unit_names
+    from src.tabs import TABSUnitComb, TABSUnitDeploy, TABSBattleSimulator
+    from src.tabs.scenarios import generate_scenario, TABSConf
+    from src.tabs.units import get_all_unit_names
 
     # Create a hash of the config for unique folder naming
     config_dict = {k: v for k, v in vars(config).items() if not k.startswith("_")}
