@@ -13,9 +13,11 @@ def heuristic_policy(
     key: jax.random.PRNGKey,
     obs: chex.Array,
     num_agents: int,
-    epsilon: float = 0.1,
-    aggressive_threshold: float = 1.0,
+    epsilon: float = 0.05,
+    aggressive_threshold: float = 0.3,
     rotate_noise_scale: float = 0.5,
+    healer_rotate_noise_scale: float = 0.1,
+    healer_aggressive_threshold: float = 0.85,
     assasin_speed: float = 1.4,
     ranger_attack_range: float = 10.0,
 ) -> chex.Array:
@@ -173,7 +175,12 @@ def heuristic_policy(
     # Kiting logic
     own_is_ranger = own_attack_range >= ranger_attack_range
     other_is_agressive = (
-        masekd_distance < (own_attack_range * aggressive_threshold) ** 2
+        masekd_distance
+        < (
+            own_attack_range
+            * jnp.where(own_is_healer, healer_aggressive_threshold, aggressive_threshold)
+        )
+        ** 2
     )  # If the distance is less than the attack range * aggressive threshold, the unit is aggressive
     exist_agressive = jnp.sum(other_is_agressive) > 0
     kiting = (
@@ -201,7 +208,11 @@ def heuristic_policy(
             exist_visible_target,
             jnp.arctan2(min_relative_position[1], min_relative_position[0])
             - own_rotation
-            + jax.random.normal(key=noise_key) * rotate_noise_scale * own_is_ranger,
+            + jax.random.normal(key=noise_key)
+            * (
+                rotate_noise_scale * (own_is_ranger & ~own_is_healer)
+                + healer_rotate_noise_scale * (own_is_healer & own_is_ranger)
+            ),
             jnp.pi * 0.1,
         )
     )  # If there exists visible target, rotate to the target, otherwise rotate 0.1pi to find target
