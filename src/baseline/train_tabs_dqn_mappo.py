@@ -59,16 +59,16 @@ if __name__ == "__main__":
     import flashbax as fbx
     from flashbax.buffers.trajectory_buffer import TrajectoryBuffer
 
-    from src.baseline.dqn import DQN, TimeStep
-    from src.baseline.mappo import MAPPO
-    from src.maenv.tabs.wrappers.wrapper import (
+    from src.baseline.algorithm import DQN, MAPPO
+    from src.baseline.utils import TimeStep
+    from src.tabs.wrappers import (
         TABSBattleSimulatorAutoResetWrapper,
         TABSBattleSimulatorLogWrapper,
         TABSBattleSimulatorHeuristicWrapper,
     )
-    from src.maenv.tabs.units import get_all_unit_names
-    from src.maenv.tabs.scenarios import generate_scenario, TABSConf
-    from src.maenv.tabs import TABSUnitComb, TABSUnitDeploy, TABSBattleSimulator
+    from src.tabs.units import get_all_unit_names
+    from src.tabs.scenarios import generate_scenario, TABSConf
+    from src.tabs import TABSUnitComb, TABSUnitDeploy, TABSBattleSimulator
 
     # Create a hash of the config for unique folder naming
     config_dict = {k: v for k, v in vars(config).items() if not k.startswith("_")}

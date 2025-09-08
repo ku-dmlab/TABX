@@ -1,5 +1,6 @@
 import os
 
+import chex
 import jax
 import jax.numpy as jnp
 from flax import struct, nnx
@@ -22,6 +23,16 @@ class TrainState:
     policy_state: NetworkState
     critic_state: NetworkState
     key: jax.random.PRNGKey
+
+
+@chex.dataclass(frozen=True)
+class TimeStep:
+    obs: chex.Array
+    action: chex.Array
+    reward: chex.Array
+    done: chex.Array
+    next_obs: chex.Array
+    unavail_action: chex.Array
 
 
 def rnn_result(model, init_shape, feature, done):
