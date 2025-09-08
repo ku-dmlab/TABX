@@ -219,8 +219,8 @@ class Healer(Unit):
     body_weight = jnp.array([1.0])
     speed = jnp.array([1.0])
     attack_damage = jnp.array([-7])
-    attack_range = jnp.array([12.0])
-    attack_cooldown = jnp.array([1.0])
+    attack_range = jnp.array([10.0])
+    attack_cooldown = jnp.array([2.0])
     sight_angle = jnp.array([sight_angle])
     space_occupied = jnp.array([1])
 
