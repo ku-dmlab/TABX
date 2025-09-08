@@ -40,14 +40,14 @@ if __name__ == "__main__":
 
     import jax
 
-    from src.baseline.mappo import MAPPO
-    from src.maenv.tabs.wrappers.wrapper import (
+    from src.baseline.algorithm import MAPPO
+    from src.tabs.wrappers import (
         TABSBattleSimulatorAutoResetWrapper,
         TABSBattleSimulatorLogWrapper,
         TABSBattleSimulatorHeuristicWrapper,
     )
-    from src.maenv.tabs.scenarios import TABSConf, generate_scenario
-    from src.maenv.tabs.tabs_battle_simulator.tabs_battle_simulator import TABSBattleSimulator
+    from src.tabs import TABSBattleSimulator
+    from src.tabs.scenarios import TABSConf, generate_scenario
 
     # Create a hash of the config for unique folder naming
     config_dict = {k: v for k, v in vars(config).items() if not k.startswith("_")}
