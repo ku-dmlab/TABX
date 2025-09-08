@@ -9,7 +9,7 @@ import tyro
 @dataclass
 class Config:
     # Env configuration
-    scenario: str = "8A_vs_1A1M1H"
+    scenario: str = "Test"
     max_field_height: int = 4
     max_field_width: int = 5
 
@@ -21,8 +21,8 @@ class Config:
     seed: int = 42
 
     # Heuristic policy configuration
-    epsilon: float = 0.1
-    aggressive_threshold: float = 0.75
+    epsilon: float = 0.05
+    aggressive_threshold: float = 0.3
     gpu_id: int = 0
 
 
@@ -40,7 +40,8 @@ if __name__ == "__main__":
         TABSBattleSimulatorHeuristicWrapper,
         TABSBattleSimulatorLogWrapper,
     )
-    from src.tabs.scenarios import TABSConf, generate_scenario
+    from src.tabs.scenarios import TABSConf, calculate_unit_comp_price
+    from src.debug.debug_scenarios import generate_scenario
 
     scenario = generate_scenario(TABSConf(scenario_name=config.scenario))
     tabs_config = TABSConf(
@@ -93,6 +94,7 @@ if __name__ == "__main__":
     os.makedirs(results_dir, exist_ok=True)
 
     # Prepare results dictionary
+    ally_price, enemy_price = calculate_unit_comp_price(scenario)
     results = {
         "timestamp": datetime.now().isoformat(),
         "scenario": config.scenario,
@@ -106,6 +108,8 @@ if __name__ == "__main__":
         "win_rate": win_rate.tolist(),
         "returns": returns.tolist(),
         "lengths": float(lengths),
+        "ally_price": ally_price.item(),
+        "enemy_price": enemy_price.item(),
     }
 
     # Generate filename with configuration parameters
