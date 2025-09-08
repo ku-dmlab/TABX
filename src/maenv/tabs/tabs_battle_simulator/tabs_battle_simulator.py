@@ -320,6 +320,7 @@ class TABSBattleSimulator(BaseMAEnv):
         ),
         obs_type: str = "unit_spec",
         max_team: int = 2,
+        max_episode_steps: int = 512,
     ):
         max_n_ally = cfg.max_n_ally
         max_n_enemy = cfg.max_n_enemy
@@ -333,6 +334,7 @@ class TABSBattleSimulator(BaseMAEnv):
 
         self.max_n_ally = max_n_ally
         self.max_n_enemy = max_n_enemy
+        self.max_episode_steps = max_episode_steps
 
         self.empty_state = {
             name: DefaultUnit(
@@ -672,7 +674,9 @@ class TABSBattleSimulator(BaseMAEnv):
             state[sprite] = state[sprite].replace(
                 status=state[sprite].status.replace(is_alive=(state[sprite].status.health > 0))
             )
-            dones[sprite] = ~state[sprite].status.is_alive
+            dones[sprite] = (
+                jnp.logical_not(state[sprite].status.is_alive) | state[sprite].status.is_disabled
+            )
 
         is_alives = jnp.stack([state[unit].status.is_alive for unit in self.unit_keys])
         teams = jnp.stack([state[unit].team for unit in self.unit_keys])
@@ -682,26 +686,30 @@ class TABSBattleSimulator(BaseMAEnv):
             return ((teams == team) & (~is_alives | is_disabled)).sum() == (teams == team).sum()
 
         team_dones = jax.vmap(is_team_done)(jnp.arange(self.max_team)) > 0
-
-        # if all teams except one are eliminated
-        dones["__all__"] = jnp.array([team_dones.sum() >= self.max_team - 1])
-
+        # If timestep is greater than max_episode_steps, the episode is truncated
+        truncation = state["game_manager"].timestep >= self.max_episode_steps
+        # If all teams except one are eliminated or truncated, the episode is done
+        # Note that truncation does not mean the episode is done, but set done to True (please refer to https://github.com/FLAIROx/JaxMARL/blob/main/jaxmarl/environments/smax/smax_env.py)
+        dones["__all__"] = jnp.array([team_dones.sum() >= self.max_team - 1]) | truncation
         state["game_manager"] = state["game_manager"].update_team_hp_ratio(
             state, teams, is_disabled, self.unit_keys, self.max_team
         )
-
-        delta_hp = state["game_manager"].team_hp_ratio - state["game_manager"].last_team_hp_ratio
+        team_hp_ratio = state["game_manager"].team_hp_ratio
+        delta_hp = team_hp_ratio - state["game_manager"].last_team_hp_ratio
         reward_matrix = (jnp.identity(self.max_team) - 0.5) * 2.0
 
-        # if all teams except one are eliminated, give reward 1.0
-        done_reward = (~team_dones * dones["__all__"])[:, None]
-
-        rewards = (delta_hp[None] * reward_matrix).sum(axis=-1, keepdims=True) + done_reward
+        # The team with the highest hp ratio gets reward 1.0 when the episode is done or truncated
+        decision_win_reward = jnp.zeros_like(team_hp_ratio).at[jnp.argmax(team_hp_ratio)].set(1.0)
+        win_reward = jnp.where(dones["__all__"], decision_win_reward, 0.0)
+        # dense reward
+        rewards = (delta_hp[None] * reward_matrix).sum(axis=-1, keepdims=True)
+        rewards += win_reward.reshape(rewards.shape)
 
         info = {
             "timestep": state["game_manager"].timestep,
             "disabled_units": is_disabled,
-            "done_reward": done_reward,
+            "done_reward": win_reward,
+            "truncation": truncation,
         }
 
         return self.get_obs(state), state, rewards, dones, info
