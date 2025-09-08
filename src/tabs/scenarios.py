@@ -64,7 +64,7 @@ class TABSConf:
 
 # unit names: F, A, K, B, M, D, H
 def get_scenario_name_list():
-    return ["10F", "1K", "4A1M", "8A_vs_1A1M1H", "3F2A2P_vs_5A"]
+    return ["2F1K2A1H"]
 
 
 def calculate_unit_comp_price(scenario: Scenario):
@@ -102,100 +102,27 @@ def generate_scenario(cfg: TABSConf):
     sight_angle = jnp.concatenate((all_spec["sight_angles"], jnp.zeros(m)))
     space_occupied = jnp.concatenate((all_spec["space_occupied"], jnp.zeros(m)))
 
-    if cfg.scenario_name == "10F":
-        h, w = 4, 5
-        assert max_shape[0] >= h and max_shape[1] >= w
-        budget = 1600
-        # Mirror matchup
-        _battle_field = jnp.full((h // 2, w), UnitID.Farmer, dtype=jnp.float32)
-        battle_field = battle_field.at[: h // 2, :w].set(_battle_field)
-        battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
-        enemy_battle_field = enemy_battle_field.at[: h // 2, :w].set(_battle_field)
-        enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
-            jnp.ones((h, w), dtype=jnp.float32)
-        )
-    elif cfg.scenario_name == "1K":
-        h, w = 4, 5
-        assert max_shape[0] >= h and max_shape[1] >= w
-        budget = 1600
-        # Mirror matchup
-        _battle_field = jnp.concatenate(
-            (jnp.array([[0, 0, UnitID.TheKing, 0, 0]]), jnp.zeros((h - 1, w), dtype=jnp.float32)),
-            axis=0,
-        )
-        battle_field = battle_field.at[:h, :w].set(_battle_field)
-        battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
-        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_battle_field)
-        enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
-            jnp.ones((h, w), dtype=jnp.float32)
-        )
-    elif cfg.scenario_name == "4A1M":
+    scenario_names = get_scenario_name_list()
+
+    if cfg.scenario_name == scenario_names[0]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         budget = 2000
-        # Mirror matchup
         _battle_field = jnp.array(
             [
-                [0, 0, UnitID.Mammoth, 0, 0],
-                [0, UnitID.Archer, 0, 0, UnitID.Archer],
+                [0, UnitID.Farmer, UnitID.TheKing, UnitID.Farmer, 0],
+                [0, 0, UnitID.Healer, 0, 0],
                 [UnitID.Archer, 0, 0, 0, UnitID.Archer],
                 [0, 0, 0, 0, 0],
             ],
             dtype=jnp.float32,
         )
-        battle_field = battle_field.at[:h, :w].set(_battle_field)
-        battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
-        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_battle_field)
-        enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
-            jnp.ones((h, w), dtype=jnp.float32)
-        )
-    elif cfg.scenario_name == "8A_vs_1A1M1H":
-        h, w = 4, 5
-        assert max_shape[0] >= h and max_shape[1] >= w
-        budget = 2000
-        _battle_field = jnp.array(
-            [
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, UnitID.Archer, UnitID.Archer, UnitID.Archer, 0],
-                [UnitID.Archer, UnitID.Archer, UnitID.Archer, UnitID.Archer, UnitID.Archer],
-            ],
-            dtype=jnp.float32,
-        )
         _enemy_battle_field = jnp.array(
             [
-                [0, 0, UnitID.Mammoth, 0, 0],
+                [0, UnitID.Farmer, UnitID.TheKing, UnitID.Farmer, 0],
+                [0, 0, UnitID.Healer, 0, 0],
+                [UnitID.Archer, 0, 0, 0, UnitID.Archer],
                 [0, 0, 0, 0, 0],
-                [0, UnitID.Healer, 0, UnitID.Archer, 0],
-                [0, 0, 0, 0, 0],
-            ],
-            dtype=jnp.float32,
-        )
-        battle_field = battle_field.at[:h, :w].set(_battle_field)
-        battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
-        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_enemy_battle_field)
-        enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
-            jnp.ones((h, w), dtype=jnp.float32)
-        )
-    elif cfg.scenario_name == "3F2A2P_vs_5A":
-        h, w = 4, 5
-        assert max_shape[0] >= h and max_shape[1] >= w
-        budget = 2000
-        _battle_field = jnp.array(
-            [
-                [0, 0, 0, 0, 0],
-                [0, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, 0],
-                [UnitID.Assassin, UnitID.Paladin, 0, UnitID.Paladin, UnitID.Assassin],
-                [0, 0, 0, 0, 0],
-            ],
-            dtype=jnp.float32,
-        )
-        _enemy_battle_field = jnp.array(
-            [
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, UnitID.Archer, 0, UnitID.Archer, 0],
-                [0, UnitID.Archer, UnitID.Archer, UnitID.Archer, 0],
             ],
             dtype=jnp.float32,
         )
