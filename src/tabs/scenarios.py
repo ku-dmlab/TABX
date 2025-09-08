@@ -107,7 +107,7 @@ def generate_scenario(cfg: TABSConf):
     if cfg.scenario_name == scenario_names[0]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        budget = 2000
+        budget = 2500
         _battle_field = jnp.array(
             [
                 [0, UnitID.Farmer, UnitID.TheKing, UnitID.Farmer, 0],
