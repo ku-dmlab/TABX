@@ -24,7 +24,17 @@ class Unit:
 
 
 def get_all_unit_names() -> List:
-    return ["farmer", "archer", "theking", "bombthrower", "mammoth", "deadeye", "healer"]
+    return [
+        "farmer",
+        "assassin",
+        "theking",
+        "mammoth",
+        "archer",
+        "cannon",
+        "deadeye",
+        "healer",
+        "paladin",
+    ]
 
 
 def get_unit_spec(unit: Unit) -> Dict[str, chex.Array]:
@@ -43,7 +53,7 @@ def get_unit_spec(unit: Unit) -> Dict[str, chex.Array]:
 
 
 def get_all_unit_spec_dict() -> Dict[str, Dict[str, chex.Array]]:
-    all_units = [Farmer, Archer, TheKing, BombThrower, Mammoth, Deadeye, Healer]
+    all_units = [Farmer, Assassin, TheKing, Mammoth, Archer, Cannon, Deadeye, Healer, Paladin]
     all_unit_names = get_all_unit_names()
     spec = {}
     for idx, unit in enumerate(all_units):
@@ -56,7 +66,7 @@ def get_all_unit_spec() -> chex.Array:
     """
     Return all predefined unit specifications.
     """
-    all_units = [Farmer, Archer, TheKing, BombThrower, Mammoth, Deadeye, Healer]
+    all_units = [Farmer, Assassin, TheKing, Mammoth, Archer, Cannon, Deadeye, Healer, Paladin]
 
     prices = jnp.array([unit.price for unit in all_units]).flatten()
     healths = jnp.array([unit.health for unit in all_units]).flatten()
@@ -85,23 +95,25 @@ def get_all_unit_spec() -> chex.Array:
 
 class UnitID:
     Farmer = 1  # F
-    Archer = 2  # A
+    Assassin = 2  # S
     TheKing = 3  # K
-    BombThrower = 4  # B
-    Mammoth = 5  # M
-    Deadeye = 6  # D
-    Healer = 7  # H
+    Mammoth = 4  # M
+    Archer = 5  # A
+    Cannon = 6  # C
+    Deadeye = 7  # D
+    Healer = 8  # H
+    Paladin = 9  # P
 
 
 @struct.dataclass
 class Farmer(Unit):
     unit_type_id = jnp.array([UnitID.Farmer])
-    price = jnp.array([80])
+    price = jnp.array([110])
     health = jnp.array([60])
     body_radius = jnp.array([1.0])
     body_weight = jnp.array([1.0])
     speed = jnp.array([1.1])
-    attack_damage = jnp.array([12])
+    attack_damage = jnp.array([14])
     attack_range = jnp.array([2.5])
     attack_cooldown = jnp.array([2.5])
     sight_angle = jnp.array([sight_angle])
@@ -109,16 +121,16 @@ class Farmer(Unit):
 
 
 @struct.dataclass
-class Archer(Unit):
-    unit_type_id = jnp.array([UnitID.Archer])
-    price = jnp.array([140])
-    health = jnp.array([40])
+class Assassin(Unit):
+    unit_type_id = jnp.array([UnitID.Assassin])
+    price = jnp.array([430])
+    health = jnp.array([70])
     body_radius = jnp.array([1.0])
     body_weight = jnp.array([1.0])
-    speed = jnp.array([1.0])
-    attack_damage = jnp.array([38])
-    attack_range = jnp.array([30.0])
-    attack_cooldown = jnp.array([8])
+    speed = jnp.array([1.4])
+    attack_damage = jnp.array([14])
+    attack_range = jnp.array([2.5])
+    attack_cooldown = jnp.array([1.5])
     sight_angle = jnp.array([sight_angle])
     space_occupied = jnp.array([1])
 
@@ -126,8 +138,8 @@ class Archer(Unit):
 @struct.dataclass
 class TheKing(Unit):
     unit_type_id = jnp.array([UnitID.TheKing])
-    price = jnp.array([1500])
-    health = jnp.array([2377])
+    price = jnp.array([1320])
+    health = jnp.array([1346])
     body_radius = jnp.array([1.47])
     body_weight = jnp.array([10.0])
     speed = jnp.array([1.2])
@@ -139,29 +151,14 @@ class TheKing(Unit):
 
 
 @struct.dataclass
-class BombThrower(Unit):
-    unit_type_id = jnp.array([UnitID.BombThrower])
-    price = jnp.array([250])
-    health = jnp.array([150])
-    body_radius = jnp.array([1.0])
-    body_weight = jnp.array([1.0])
-    speed = jnp.array([1.0])
-    attack_damage = jnp.array([32])
-    attack_range = jnp.array([15])
-    attack_cooldown = jnp.array([10.0])
-    sight_angle = jnp.array([sight_angle])
-    space_occupied = jnp.array([1])
-
-
-@struct.dataclass
 class Mammoth(Unit):
     unit_type_id = jnp.array([UnitID.Mammoth])
-    price = jnp.array([2200])
-    health = jnp.array([2526])
+    price = jnp.array([1460])
+    health = jnp.array([1885])
     body_radius = jnp.array([4.25])
     body_weight = jnp.array([50.0])
     speed = jnp.array([1.3])
-    attack_damage = jnp.array([20])  # NOTE: arbitrary value
+    attack_damage = jnp.array([20])
     attack_range = jnp.array([3])
     attack_cooldown = jnp.array([4.0])
     sight_angle = jnp.array([sight_angle])
@@ -169,15 +166,45 @@ class Mammoth(Unit):
 
 
 @struct.dataclass
-class Deadeye(Unit):
-    unit_type_id = jnp.array([UnitID.Deadeye])
-    price = jnp.array([900])
-    health = jnp.array([75])
+class Archer(Unit):
+    unit_type_id = jnp.array([UnitID.Archer])
+    price = jnp.array([380])
+    health = jnp.array([40])
     body_radius = jnp.array([1.0])
     body_weight = jnp.array([1.0])
     speed = jnp.array([1.0])
+    attack_damage = jnp.array([30])
+    attack_range = jnp.array([30.0])
+    attack_cooldown = jnp.array([8.0])
+    sight_angle = jnp.array([sight_angle])
+    space_occupied = jnp.array([1])
+
+
+@struct.dataclass
+class Cannon(Unit):
+    unit_type_id = jnp.array([UnitID.Cannon])
+    price = jnp.array([510])
+    health = jnp.array([100])
+    body_radius = jnp.array([1.0])
+    body_weight = jnp.array([5.2])
+    speed = jnp.array([0.5])
     attack_damage = jnp.array([130])
-    attack_range = jnp.array([40])
+    attack_range = jnp.array([40.0])
+    attack_cooldown = jnp.array([6.0])
+    sight_angle = jnp.array([sight_angle])
+    space_occupied = jnp.array([1])
+
+
+@struct.dataclass
+class Deadeye(Unit):
+    unit_type_id = jnp.array([UnitID.Deadeye])
+    price = jnp.array([470])
+    health = jnp.array([52])
+    body_radius = jnp.array([1.0])
+    body_weight = jnp.array([1.0])
+    speed = jnp.array([1.1])
+    attack_damage = jnp.array([35])
+    attack_range = jnp.array([26.0])
     attack_cooldown = jnp.array([5.0])
     sight_angle = jnp.array([sight_angle])
     space_occupied = jnp.array([1])
@@ -193,6 +220,21 @@ class Healer(Unit):
     speed = jnp.array([1.0])
     attack_damage = jnp.array([-7])
     attack_range = jnp.array([10.0])
+    attack_cooldown = jnp.array([1])
+    sight_angle = jnp.array([sight_angle])
+    space_occupied = jnp.array([1])
+
+
+@struct.dataclass
+class Paladin(Unit):
+    unit_type_id = jnp.array([UnitID.Paladin])
+    price = jnp.array([340])
+    health = jnp.array([220])
+    body_radius = jnp.array([1.32])
+    body_weight = jnp.array([8.5])
+    speed = jnp.array([1.2])
+    attack_damage = jnp.array([-5])
+    attack_range = jnp.array([7.5])
     attack_cooldown = jnp.array([1])
     sight_angle = jnp.array([sight_angle])
     space_occupied = jnp.array([1])

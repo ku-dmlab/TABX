@@ -64,7 +64,13 @@ class TABSConf:
 
 # unit names: F, A, K, B, M, D, H
 def get_scenario_name_list():
-    return ["10F", "1K", "4A1M", "8A_vs_1A1M1H"]
+    return ["10F", "1K", "4A1M", "8A_vs_1A1M1H", "Test"]
+
+
+def calculate_unit_comp_price(scenario: Scenario):
+    return (scenario.ally_unit_comp * scenario.price).sum(), (
+        scenario.enemy_unit_comp * scenario.price
+    ).sum()
 
 
 def generate_scenario(cfg: TABSConf):
@@ -162,6 +168,34 @@ def generate_scenario(cfg: TABSConf):
                 [0, 0, 0, 0, 0],
                 [0, UnitID.Healer, 0, UnitID.Archer, 0],
                 [0, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        battle_field = battle_field.at[:h, :w].set(_battle_field)
+        battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
+        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_enemy_battle_field)
+        enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
+            jnp.ones((h, w), dtype=jnp.float32)
+        )
+    elif cfg.scenario_name == "3F2A2P_vs_5A":
+        h, w = 4, 5
+        assert max_shape[0] >= h and max_shape[1] >= w
+        budget = 2000
+        _battle_field = jnp.array(
+            [
+                [0, 0, 0, 0, 0],
+                [0, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, 0],
+                [UnitID.Assassin, UnitID.Paladin, 0, UnitID.Paladin, UnitID.Assassin],
+                [0, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        _enemy_battle_field = jnp.array(
+            [
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, UnitID.Archer, 0, UnitID.Archer, 0],
+                [0, UnitID.Archer, UnitID.Archer, UnitID.Archer, 0],
             ],
             dtype=jnp.float32,
         )
