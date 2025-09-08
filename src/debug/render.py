@@ -165,7 +165,7 @@ class PygameRenderer:
     def _preload_scenarios(self):
         """모든 시나리오를 미리 로드"""
         try:
-            from src.tabs.scenarios import (
+            from src.debug.debug_scenarios import (
                 get_scenario_name_list,
                 generate_scenario,
             )
@@ -2682,7 +2682,8 @@ if __name__ == "__main__":
     import jax
     import jax.numpy as jnp
     from src.tabs.tabs_battle_simulator.tabs_battle_simulator import TABSBattleSimulator
-    from src.tabs.scenarios import TABSConf, generate_scenario
+    from src.tabs.scenarios import TABSConf
+    from src.debug.debug_scenarios import generate_scenario
     from src.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
     import functools
     from src.baseline.algorithm import MAPPO

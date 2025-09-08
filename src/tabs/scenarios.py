@@ -64,7 +64,7 @@ class TABSConf:
 
 # unit names: F, A, K, B, M, D, H
 def get_scenario_name_list():
-    return ["10F", "1K", "4A1M", "8A_vs_1A1M1H", "Test"]
+    return ["10F", "1K", "4A1M", "8A_vs_1A1M1H", "3F2A2P_vs_5A"]
 
 
 def calculate_unit_comp_price(scenario: Scenario):
