@@ -162,19 +162,18 @@ def generate_scenario(cfg: TABSConf):
     )
 
 
-def get_vectorized_scenario(scenario, n_ally, n_enemy, unit_spacing=6, side_gap=0, field_margin=5):
-    pos_max = (
-        jnp.repeat(
-            jnp.array(
-                [
-                    (scenario.battle_field.shape[0] * 3 / 2 + side_gap / 2) * unit_spacing,
-                    (scenario.battle_field.shape[1] * 3 / 2) * unit_spacing,
-                ]
-            ).reshape(1, 2),
-            n_ally + n_enemy,
-            axis=0,
-        )
-        + field_margin
+def get_vectorized_scenario(
+    scenario, n_ally, n_enemy, unit_spacing=4.25, side_gap=0, field_margin=1.0
+):
+    pos_max = jnp.repeat(
+        jnp.array(
+            [
+                (scenario.battle_field.shape[0] * field_margin * 2 + side_gap / 2) * unit_spacing,
+                (scenario.battle_field.shape[1] * field_margin) * unit_spacing,
+            ]
+        ).reshape(1, 2),
+        n_ally + n_enemy,
+        axis=0,
     )
 
     vectorized_scenario = VectorizedScenario(
@@ -214,10 +213,10 @@ def get_vectorized_scenario(scenario, n_ally, n_enemy, unit_spacing=6, side_gap=
                 (
                     unit_spacing
                     * (
-                        (1 - is_ally) * (x + scenario.battle_field.shape[0] / 2 + side_gap / 2)
-                        + is_ally * -(x + scenario.battle_field.shape[0] / 2 + side_gap / 2)
+                        (1 - is_ally) * (x + scenario.battle_field.shape[1] / 2 + side_gap / 2)
+                        + is_ally * -(x + scenario.battle_field.shape[1] / 2 + side_gap / 2)
                     ),
-                    unit_spacing * (y - scenario.battle_field.shape[1] / 2),
+                    (unit_spacing * (y - scenario.battle_field.shape[0] / 2)) * (0.5 - is_ally) * 2,
                 )
             )
             * unit_remain
