@@ -73,7 +73,7 @@ class PPO(BaseAlgo):
     ) -> Dict[str, Any]:
         policy, _ = get_model(train_state.policy_state)
         logits = policy(obs)
-        logits = jnp.where(unavail_action, -jnp.inf, logits)
+        logits = jnp.where(unavail_action, -1e9, logits)
         dist = tfd.Categorical(logits=logits)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
@@ -144,7 +144,7 @@ class PPO(BaseAlgo):
 
         def policy_loss_fn(policy: Policy):
             logits = policy(batch["observations"])
-            logits = jnp.where(batch["unavail_actions"], -jnp.inf, logits)
+            logits = jnp.where(batch["unavail_actions"], -1e9, logits)
             dist = tfd.Categorical(logits=logits)
             log_pi = dist.log_prob(batch["actions"])
 
@@ -168,7 +168,7 @@ class PPO(BaseAlgo):
                 / (~is_nan_log_pi).sum()
             )
 
-            return -loss + self.config.entropy_coef * entropy, {
+            return -(loss + self.config.entropy_coef * entropy), {
                 "policy_loss": loss,
                 "entropy": entropy,
                 "ratio": ratio,
@@ -198,9 +198,7 @@ class PPO(BaseAlgo):
                 state=nnx.state((critic, critic_optimizer))
             ),
         )
-
-        info.update({"critic_loss": critic_loss})
-
+        info["critic_loss"] = critic_loss
         return train_state, info
 
     def train(
@@ -234,7 +232,7 @@ class PPO(BaseAlgo):
         (train_state,), train_result = jax.lax.scan(
             train_body, (train_state,), None, self.config.ppo_epochs
         )
-
+        trajectory_entropy = -jnp.nansum(batch["log_probs"], axis=-1).mean(axis=0)
         info = {
             "critic_loss": train_result["critic_loss"].mean(),
             "policy_loss": train_result["policy_loss"].mean(),
@@ -248,6 +246,7 @@ class PPO(BaseAlgo):
             "advantage_min": train_result["advantage_min"].min(),
             "advantage_mean": train_result["advantage_mean"].mean(),
             "rewards": batch["rewards"].sum() / self.config.n_env,
+            "trajectory_entropy": trajectory_entropy,
         }
 
         return train_state, info
