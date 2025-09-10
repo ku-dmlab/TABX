@@ -23,6 +23,20 @@ class Unit:
     space_occupied: chex.Array  # area of rectangle shape
 
 
+UNITID2CHAR = {
+    0: ".",  # Empty space
+    1: "F",  # Farmer
+    2: "S",  # Assassin
+    3: "K",  # TheKing
+    4: "M",  # Mammoth
+    5: "A",  # Archer
+    6: "C",  # Cannon
+    7: "D",  # Deadeye
+    8: "H",  # Healer
+    9: "P",  # Paladin
+}
+
+
 def get_all_unit_names() -> List:
     return [
         "farmer",
@@ -168,12 +182,12 @@ class Mammoth(Unit):
 @struct.dataclass
 class Archer(Unit):
     unit_type_id = jnp.array([UnitID.Archer])
-    price = jnp.array([380])
+    price = jnp.array([450])
     health = jnp.array([40])
     body_radius = jnp.array([1.0])
     body_weight = jnp.array([1.0])
     speed = jnp.array([1.0])
-    attack_damage = jnp.array([30])
+    attack_damage = jnp.array([28])
     attack_range = jnp.array([27.0])
     attack_cooldown = jnp.array([8.0])
     sight_angle = jnp.array([sight_angle])

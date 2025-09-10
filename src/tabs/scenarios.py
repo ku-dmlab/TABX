@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from src.tabs.units import UnitID, get_all_unit_names, get_all_unit_spec
+from src.tabs.units import UnitID, get_all_unit_names, get_all_unit_spec, UNITID2CHAR
 
 
 @struct.dataclass
@@ -329,3 +329,33 @@ def get_vectorized_scenario(scenario, n_ally, n_enemy, unit_spacing=6, side_gap=
     )
 
     return carry[0]
+
+
+def pprint_grid_with_units(grid_array):
+    """
+    Return string representation of the grid showing units with alphabet characters
+
+    Args:
+        grid_array: numpy array (height x width)
+
+    Returns:
+        string representation of the grid
+    """
+    # Unit ID to alphabet mapping
+
+    if hasattr(grid_array, "shape"):
+        grid = jnp.array(grid_array)
+    else:
+        grid = grid_array
+    # Convert to integer type
+    grid = grid.astype(int)
+
+    # Convert grid to string
+    result = []
+    for row in grid:
+        row_str = ""
+        for cell in row:
+            row_str += UNITID2CHAR.get(cell.item(), str(cell)) + " "
+        result.append(row_str.strip())
+
+    return "\n".join(result)
