@@ -69,6 +69,6 @@ class BaseAlgo:
                 setattr(self.config, key, value)
 
         checkpointer = ocp.StandardCheckpointer()
-        train_state = checkpointer.restore(epath.Path(path), self.init_train_state())
+        train_state = checkpointer.restore(epath.Path(path), self.init_train_state(config.seed))
 
         return train_state
