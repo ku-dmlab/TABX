@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 from src.tabs.tabs_unit_deploy.tabs_unit_deploy import TABSUnitDeploy
 from src.tabs.units import get_all_unit_names
-from src.tabs.scenarios import TABSConf, Scenario, generate_scenario, default_tabs_conf
+from src.tabs.scenarios import TABSConfig, Scenario, generate_scenario, default_tabs_conf
 
 
 class TestTABSUnitDeploy(unittest.TestCase):
@@ -38,7 +38,7 @@ class TestTABSUnitDeploy(unittest.TestCase):
         self.space_occupied2(_rng)
 
     def reset_predefined_scenario1(self, scenario_name):
-        tabs_conf = TABSConf(
+        tabs_conf = TABSConfig(
             scenario_name=scenario_name,
             max_agents=20,
             max_num_units=len(get_all_unit_names()),

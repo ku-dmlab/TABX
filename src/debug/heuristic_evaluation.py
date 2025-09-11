@@ -40,11 +40,11 @@ if __name__ == "__main__":
         TABSBattleSimulatorHeuristicWrapper,
         TABSBattleSimulatorLogWrapper,
     )
-    from src.tabs.scenarios import TABSConf, calculate_unit_comp_price
+    from src.tabs.scenarios import TABSConfig, calculate_unit_comp_price
     from src.debug.debug_scenarios import generate_scenario
 
-    scenario = generate_scenario(TABSConf(scenario_name=config.scenario))
-    tabs_config = TABSConf(
+    scenario = generate_scenario(TABSConfig(scenario_name=config.scenario))
+    tabs_config = TABSConfig(
         scenario_name=config.scenario,
         max_n_ally=int(scenario.ally_unit_comp.sum().item()),
         max_n_enemy=int(scenario.enemy_unit_comp.sum().item()),

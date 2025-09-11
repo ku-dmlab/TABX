@@ -22,11 +22,6 @@ class Config:
     mappo_layer_dim = 256
 
     # Env configuration
-    scenario: str = "2F1K2A1H"
-    max_n_ally: int = 10
-    max_n_enemy: int = 6
-    max_field_height: int = 4
-    max_field_width: int = 5
 
     # Training configuration
     n_env: int = 32  # The number of environments to run in parallel
@@ -57,7 +52,7 @@ if __name__ == "__main__":
         TABSBattleSimulatorAutoResetWrapper,
     )
     from src.tabs.units import get_all_unit_names
-    from src.tabs.scenarios import generate_scenario, TABSConf, pprint_grid_with_units
+    from src.tabs.scenarios import generate_scenario, TABSConfig, pprint_grid_with_units
     from src.tabs import TABSUnitComb, TABSUnitDeploy, TABSBattleSimulator
 
     # Create a hash of the config for unique folder naming
@@ -73,7 +68,7 @@ if __name__ == "__main__":
 
     config.max_num_units = len(get_all_unit_names())
 
-    tabs_conf = TABSConf(
+    tabs_conf = TABSConfig(
         scenario_name=config.scenario,
         max_n_ally=config.max_n_ally,
         max_n_enemy=config.max_n_enemy,

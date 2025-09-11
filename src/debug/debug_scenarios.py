@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 
 from src.tabs.units import UnitID, get_all_unit_spec
-from src.tabs.scenarios import Scenario, TABSConf, calculate_unit_comp_price
+from src.tabs.scenarios import Scenario, TABSConfig, calculate_unit_comp_price
 
 
 # unit names: F, A, K, B, M, D, H
@@ -10,7 +10,7 @@ def get_scenario_name_list():
     return ["debug"]
 
 
-def generate_scenario(cfg: TABSConf):
+def generate_scenario(cfg: TABSConfig):
     max_shape = (cfg.max_field_height, cfg.max_field_width)
     # init
     budget = 0

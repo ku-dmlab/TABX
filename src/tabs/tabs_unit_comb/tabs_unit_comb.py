@@ -4,7 +4,7 @@ from flax import struct
 
 from src.environments.base_maenv import BaseMAEnv
 from src.environments.spaces import Discrete, Box
-from src.tabs.scenarios import Scenario, TABSConf
+from src.tabs.scenarios import Scenario, TABSConfig
 
 
 @struct.dataclass
@@ -20,7 +20,7 @@ class State:
 
 
 class TABSUnitComb(BaseMAEnv):
-    def __init__(self, cfg: TABSConf) -> None:
+    def __init__(self, cfg: TABSConfig) -> None:
         self.max_num_units = cfg.max_num_units
         self.max_n_ally = cfg.max_n_ally
         self.max_n_enemy = cfg.max_n_enemy

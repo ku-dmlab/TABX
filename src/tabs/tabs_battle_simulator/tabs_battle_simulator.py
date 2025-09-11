@@ -16,7 +16,7 @@ from src.environments.physics import (
     physics_step,
     physics_update,
 )
-from src.tabs.scenarios import TABSConf, Scenario, get_vectorized_scenario, VectorizedScenario
+from src.tabs.scenarios import TABSConfig, Scenario, get_vectorized_scenario, VectorizedScenario
 
 
 move_table = jnp.array(
@@ -320,7 +320,7 @@ class GameManager:
 class TABSBattleSimulator(BaseMAEnv):
     def __init__(
         self,
-        cfg: TABSConf,
+        cfg: TABSConfig,
         physics_config: Dict[str, float] = EasyDict(
             {"dt": 0.5, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
         ),

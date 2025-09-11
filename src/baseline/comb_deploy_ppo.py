@@ -55,7 +55,7 @@ if __name__ == "__main__":
         TABSBattleSimulatorLogWrapper,
     )
     from src.tabs import TABSUnitComb, TABSUnitDeploy, TABSBattleSimulator
-    from src.tabs.scenarios import generate_scenario, TABSConf
+    from src.tabs.scenarios import generate_scenario, TABSConfig
     from src.tabs.units import get_all_unit_names
 
     # Create a hash of the config for unique folder naming
@@ -68,7 +68,7 @@ if __name__ == "__main__":
 
     config.max_num_units = len(get_all_unit_names())
 
-    tabs_conf = TABSConf(
+    tabs_conf = TABSConfig(
         scenario_name=config.scenario,
         max_n_ally=config.max_n_ally,
         max_n_enemy=config.max_n_enemy,
