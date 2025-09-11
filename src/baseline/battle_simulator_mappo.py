@@ -1,45 +1,31 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from tqdm import tqdm
 import tyro
-import json
 import wandb
 import hashlib
+from src.baseline.configs.config import PPOConfig
+from src.tabs.scenarios import TABSConfig
 
 
 @dataclass
 class Config:
     seed: int = 42
-    n_env: int = 64  # the number of environments to run in parallel
-    rollout_step: int = 1024  # the number of rollouts to run in parallel
-    gamma: float = 0.99  # the discount factor
-    lamda: float = 0.95  # the lambda for GAE
-    clip_value: float = 1.0  # the clip value for PPO
-    clip_ratio: float = 0.05  # the clip ratio for PPO
-    entropy_coef: float = 0.01  # the entropy coefficient
-    ppo_epochs: int = 10  # the number of epochs to update the policy and value function
-    max_grad_norm: float = 0.5  # the maximum gradient norm
-    lr: float = 1e-3  # the learning rate
-    layer_dim = 256
-
-    scenario: str = "8A_vs_1A1M1H"
-
+    n_env: int = 128  # the number of environments to run in parallel
+    tabs: TABSConfig = TABSConfig()
+    mappo: PPOConfig = PPOConfig(n_env=n_env, seed=seed)
     save_path: str = "/save"
     gpu_id: int = 3
-
     total_env_step: int = int(2e8)
-    log_step: int = 100
+    log_interval: int = 100
 
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
-
     import os
-    from functools import partial
 
     os.environ["CUDA_VISIBLE_DEVICES"] = str(config.gpu_id)
-
     import jax
-
+    import jax.numpy as jnp
     from src.baseline.algorithm import MAPPO
     from src.tabs.wrappers import (
         TABSBattleSimulatorAutoResetWrapper,
@@ -47,36 +33,45 @@ if __name__ == "__main__":
         TABSBattleSimulatorHeuristicWrapper,
     )
     from src.tabs import TABSBattleSimulator
-    from src.tabs.scenarios import TABSConf, generate_scenario
+    from src.tabs.scenarios import TABSConfig, generate_scenario
+    import datetime
 
-    # Create a hash of the config for unique folder naming
-    config_dict = {k: v for k, v in vars(config).items() if not k.startswith("_")}
-    config_str = json.dumps(config_dict, sort_keys=True)
-    config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
-    config.save_path = f"/save/{config.scenario}_{config_hash}"
-
+    current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    config_hash = hashlib.md5(str(config).encode()).hexdigest()[:8]
+    config.save_path = f"/save/{config.tabs.scenario_name}_{current_time}_{config_hash}"
     wandb.init(project="battle_simulator_mappo", config=config)
 
-    tabs_conf = TABSConf().replace(scenario_name=config.scenario)
+    tabs_conf = config.tabs
     scenario = generate_scenario(tabs_conf)
-    tabs_conf = tabs_conf.replace(
+    repeated_scenarios = jax.tree.map(lambda x: jnp.repeat(x[None], config.n_env, axis=0), scenario)
+    tabs_conf = replace(
+        tabs_conf,
         max_n_ally=int(scenario.ally_unit_comp.sum().item()),
         max_n_enemy=int(scenario.enemy_unit_comp.sum().item()),
     )  # For avoiding inefficient instantiation of units
 
     env = TABSBattleSimulator(tabs_conf)
     env = TABSBattleSimulatorHeuristicWrapper(env, "enemy")
-    env = TABSBattleSimulatorAutoResetWrapper(env, scenario)
+    env = TABSBattleSimulatorAutoResetWrapper(env)
     env = TABSBattleSimulatorLogWrapper(env)
 
-    mappo = MAPPO(config, env)
-    train_state = mappo.init_train_state()
-    train_fn = jax.jit(partial(mappo.train, step=config.log_step))
+    num_iterations = config.total_env_step // (
+        config.n_env * config.mappo.rollout_step * config.log_interval
+    )
 
-    for step in tqdm(
-        range(config.total_env_step // (config.n_env * config.rollout_step * config.log_step))
-    ):
-        result = train_fn(train_state)
+    mappo = MAPPO(config.mappo, env)
+    train_state = mappo.init_train_state(
+        jax.random.key(config.seed), num_iterations * config.log_interval
+    )
+
+    def train_body(carry, _):
+        train_state = carry
+        train_state, rollout_result = mappo.rollout(train_state, repeated_scenarios)
+        train_state, train_info = mappo.train(train_state, rollout_result)
+        return train_state, train_info
+
+    for step in tqdm(range(num_iterations)):
+        result = jax.lax.scan(train_body, train_state, None, config.log_interval)
         train_state, train_info = result
         mappo.save_state(train_state, config.save_path + f"/{step}")
 
@@ -90,5 +85,5 @@ if __name__ == "__main__":
             train_info["returned_episode_wins"][:, :, 0].mean(axis=1).flatten()
         )
 
-        for i in range(config.log_step):
+        for i in range(config.log_interval):
             wandb.log(jax.tree.map(lambda x: x[i], train_info))

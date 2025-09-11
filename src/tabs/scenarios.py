@@ -4,7 +4,7 @@ import chex
 import jax
 import jax.numpy as jnp
 from flax import struct
-
+from dataclasses import dataclass
 from src.tabs.units import UnitID, get_all_unit_names, get_all_unit_spec, UNITID2CHAR
 
 
@@ -52,9 +52,9 @@ class Scenario:
     space_occupied: chex.Array  # area of rectangle shape
 
 
-@struct.dataclass
-class TABSConf:
-    scenario_name: str = "10F"  # The predefined scenario name
+@dataclass(frozen=True)
+class TABSConfig:
+    scenario_name: str = "2F1K2A1H"  # The predefined scenario name
     max_num_units: int = len(get_all_unit_names())  # The maximum number of unit types
     max_field_height: int = 4  # The maximum height size of battle field
     max_field_width: int = 5  # The maximum width size of battle field
@@ -73,7 +73,7 @@ def calculate_unit_comp_price(scenario: Scenario):
     ).sum()
 
 
-def generate_scenario(cfg: TABSConf):
+def generate_scenario(cfg: TABSConfig):
     max_shape = (cfg.max_field_height, cfg.max_field_width)
     # init
     budget = 0
