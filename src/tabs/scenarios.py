@@ -62,8 +62,8 @@ class TABSConfig:
     max_n_enemy: int = 10  # The maximum number of enemy agents
 
 
-# unit names: F, A, K, B, M, D, H
-SCENARIOS = ["2F1K2A1H", "1K2A", "1M2C1P", "7F2D1H"]
+# unit names: F, S, K, M, A, C, D, H, P
+SCENARIOS = ["2F1K2A1H", "1K2S", "1M2C1P", "7F2D1H"]
 
 
 def get_scenario_list():
