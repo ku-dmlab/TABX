@@ -63,8 +63,17 @@ class TABSConf:
 
 
 # unit names: F, A, K, B, M, D, H
-def get_scenario_name_list():
-    return ["2F1K2A1H"]
+SCENARIOS = ["2F1K2A1H", "1K2A", "1M2C1P", "7F2D1H"]
+
+
+def get_scenario_list():
+    name_list = []
+    for name in SCENARIOS:
+        name_list.append(name + "_easy")
+        name_list.append(name + "_normal")
+        name_list.append(name + "_hard")
+
+    return name_list
 
 
 def calculate_unit_comp_price(scenario: Scenario):
@@ -102,12 +111,18 @@ def generate_scenario(cfg: TABSConf):
     sight_angle = jnp.concatenate((all_spec["sight_angles"], jnp.zeros(m)))
     space_occupied = jnp.concatenate((all_spec["space_occupied"], jnp.zeros(m)))
 
-    scenario_names = get_scenario_name_list()
+    _scenario_name = cfg.scenario_name.split("_")[0]
+    _scenario_level = cfg.scenario_name.split("_")[1]
 
-    if cfg.scenario_name == scenario_names[0]:
+    if _scenario_name == SCENARIOS[0]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        budget = 2500
+        if _scenario_level == "easy":
+            budget = 2800
+        elif _scenario_level == "normal":
+            budget = 2630
+        elif _scenario_level == "hard":
+            budget = 2410
         _battle_field = jnp.array(
             [
                 [0, UnitID.Farmer, UnitID.TheKing, UnitID.Farmer, 0],
@@ -123,6 +138,105 @@ def generate_scenario(cfg: TABSConf):
                 [0, 0, UnitID.Healer, 0, 0],
                 [UnitID.Archer, 0, 0, 0, UnitID.Archer],
                 [0, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        battle_field = battle_field.at[:h, :w].set(_battle_field)
+        battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
+        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_enemy_battle_field)
+        enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
+            jnp.ones((h, w), dtype=jnp.float32)
+        )
+    elif _scenario_name == SCENARIOS[1]:
+        h, w = 4, 5
+        assert max_shape[0] >= h and max_shape[1] >= w
+        if _scenario_level == "easy":
+            budget = 2200
+        elif _scenario_level == "normal":
+            budget = 2080
+        elif _scenario_level == "hard":
+            budget = 1780
+        _battle_field = jnp.array(
+            [
+                [0, 0, UnitID.TheKing, 0, 0],
+                [UnitID.Assassin, 0, 0, 0, UnitID.Assassin],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        _enemy_battle_field = jnp.array(
+            [
+                [0, 0, UnitID.TheKing, 0, 0],
+                [UnitID.Assassin, 0, 0, 0, UnitID.Assassin],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        battle_field = battle_field.at[:h, :w].set(_battle_field)
+        battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
+        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_enemy_battle_field)
+        enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
+            jnp.ones((h, w), dtype=jnp.float32)
+        )
+    elif _scenario_name == SCENARIOS[2]:
+        h, w = 4, 5
+        assert max_shape[0] >= h and max_shape[1] >= w
+        if _scenario_level == "easy":
+            budget = 3370
+        elif _scenario_level == "normal":
+            budget = 2700
+        elif _scenario_level == "hard":
+            budget = 2300
+        _battle_field = jnp.array(
+            [
+                [0, 0, UnitID.Mammoth, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, UnitID.Cannon, 0, UnitID.Cannon, 0],
+                [0, 0, UnitID.Paladin, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        _enemy_battle_field = jnp.array(
+            [
+                [0, 0, UnitID.Mammoth, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, UnitID.Cannon, 0, UnitID.Cannon, 0],
+                [0, 0, UnitID.Paladin, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        battle_field = battle_field.at[:h, :w].set(_battle_field)
+        battle_field_mask = battle_field_mask.at[:h, :w].set(jnp.ones((h, w), dtype=jnp.float32))
+        enemy_battle_field = enemy_battle_field.at[:h, :w].set(_enemy_battle_field)
+        enemy_battle_field_mask = enemy_battle_field_mask.at[:h, :w].set(
+            jnp.ones((h, w), dtype=jnp.float32)
+        )
+    elif _scenario_name == SCENARIOS[3]:
+        h, w = 4, 5
+        assert max_shape[0] >= h and max_shape[1] >= w
+        if _scenario_level == "easy":
+            budget = 2250
+        elif _scenario_level == "normal":
+            budget = 1820
+        elif _scenario_level == "hard":
+            budget = 1430
+        _battle_field = jnp.array(
+            [
+                [UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer],
+                [0, UnitID.Farmer, 0, UnitID.Farmer, 0],
+                [UnitID.Deadeye, 0, 0, 0, 0],
+                [UnitID.Healer, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        _enemy_battle_field = jnp.array(
+            [
+                [UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer],
+                [0, UnitID.Farmer, 0, UnitID.Farmer, 0],
+                [UnitID.Deadeye, 0, 0, 0, 0],
+                [UnitID.Healer, 0, 0, 0, 0],
             ],
             dtype=jnp.float32,
         )
