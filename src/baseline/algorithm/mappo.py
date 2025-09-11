@@ -58,14 +58,14 @@ class MAPPO(BaseAlgo):
             pi,
             optax.chain(
                 optax.clip_by_global_norm(self.config.max_grad_norm),
-                optax.adam(learning_rate=learning_rate),
+                optax.adam(learning_rate=learning_rate, eps=1e-5),
             ),
         )
         critic_optimizer = nnx.Optimizer(
             critic,
             optax.chain(
                 optax.clip_by_global_norm(self.config.max_grad_norm),
-                optax.adam(learning_rate=learning_rate),
+                optax.adam(learning_rate=learning_rate, eps=1e-5),
             ),
         )
 
@@ -237,7 +237,9 @@ class MAPPO(BaseAlgo):
 
             log_pi = discrete_log_pi + continuous_log_pi
 
-            ratio = jnp.exp(log_pi - batch["log_probs"])
+            log_ratio = log_pi - batch["log_probs"]
+
+            ratio = jnp.exp(log_ratio)
             loss = jnp.minimum(
                 ratio * batch["advantages"],
                 jnp.clip(ratio, 1 - self.config.clip_ratio, 1 + self.config.clip_ratio)
@@ -249,6 +251,8 @@ class MAPPO(BaseAlgo):
 
             entropy = discrete_entropy + continuous_entropy
 
+            approx_kl = ((ratio - 1) - log_ratio).mean()
+
             return -(loss + self.config.entropy_coef * entropy), {
                 "policy_loss": loss,
                 "entropy": entropy,
@@ -256,6 +260,7 @@ class MAPPO(BaseAlgo):
                 "ratio_max": ratio.max(),
                 "ratio_min": ratio.min(),
                 "ratio_mean": ratio.mean(),
+                "approx_kl": approx_kl,
                 "advantage_max": batch["advantages"].max(),
                 "advantage_min": batch["advantages"].min(),
                 "advantage_mean": batch["advantages"].mean(),
@@ -330,6 +335,9 @@ class MAPPO(BaseAlgo):
             "advantage_min": train_result["advantage_min"].min(),
             "advantage_mean": train_result["advantage_mean"].mean(),
             "rewards": batch["common_reward"].sum() / self.config.n_env,
+            "approx_kl_max": train_result["approx_kl"].max(),
+            "approx_kl_min": train_result["approx_kl"].min(),
+            "approx_kl_mean": train_result["approx_kl"].mean(),
             "returned_episode_returns": batch["returned_episode_returns"],
             "returned_episode_lengths": batch["returned_episode_lengths"],
             "returned_episode_wins": batch["returned_episode_wins"],
