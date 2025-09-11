@@ -261,9 +261,6 @@ class MAPPO(BaseAlgo):
                 "ratio_min": ratio.min(),
                 "ratio_mean": ratio.mean(),
                 "approx_kl": approx_kl,
-                "advantage_max": batch["advantages"].max(),
-                "advantage_min": batch["advantages"].min(),
-                "advantage_mean": batch["advantages"].mean(),
                 "discrete_entropy": discrete_entropy,
                 "continuous_entropy": continuous_entropy,
             }
@@ -307,15 +304,49 @@ class MAPPO(BaseAlgo):
             self.config.lamda,
         )
 
-        # Normalization (is there need to normalize each batch?)
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
         batch.update({"advantages": advantages, "returns": returns})
+        batch1 = {
+            "advantages": batch["advantages"],
+            "continuous_actions": batch["continuous_actions"],
+            "discrete_actions": batch["discrete_actions"],
+            "log_probs": batch["log_probs"],
+            "returns": batch["returns"],
+        }
+
+        batch2 = {
+            "states": batch["states"],
+            "dones": batch["dones"],
+            "observations": batch["observations"],
+            "state_value": batch["state_value"],
+        }
 
         def train_body(carry, _):
             (train_state,) = carry
+            batch_key, key = jax.random.split(train_state.key)
+            batch_idx = jax.random.permutation(batch_key, self.config.n_env).reshape(
+                -1, self.config.batch_size
+            )
 
-            train_state, train_result = self.train_step(train_state, batch)
+            def batch_scan_body(carry, batch_idx):
+                (train_state,) = carry
+                batch1_ = jax.vmap(
+                    lambda idx: jax.tree.map(lambda x: x[:, :, idx], batch1), out_axes=2
+                )(batch_idx)
+                batch2_ = jax.vmap(
+                    lambda idx: jax.tree.map(lambda x: x[:, idx], batch2), out_axes=1
+                )(batch_idx)
+
+                batch1_.update(batch2_)
+                batch1_["advantages"] = (batch1_["advantages"] - batch1_["advantages"].mean()) / (
+                    batch1_["advantages"].std() + 1e-8
+                )
+                (
+                    train_state,
+                    train_result,
+                ) = self.train_step(train_state, batch1_)
+                return (train_state.replace(key=key),), train_result
+
+            (train_state,), train_result = jax.lax.scan(batch_scan_body, (train_state,), batch_idx)
 
             return (train_state,), train_result
 
@@ -331,9 +362,9 @@ class MAPPO(BaseAlgo):
             "ratio_max": train_result["ratio_max"].max(),
             "ratio_min": train_result["ratio_min"].min(),
             "ratio_mean": train_result["ratio_mean"].mean(),
-            "advantage_max": train_result["advantage_max"].max(),
-            "advantage_min": train_result["advantage_min"].min(),
-            "advantage_mean": train_result["advantage_mean"].mean(),
+            "advantage_max": batch["advantages"].max(),
+            "advantage_min": batch["advantages"].min(),
+            "advantage_mean": batch["advantages"].mean(),
             "rewards": batch["common_reward"].sum() / self.config.n_env,
             "approx_kl_max": train_result["approx_kl"].max(),
             "approx_kl_min": train_result["approx_kl"].min(),
