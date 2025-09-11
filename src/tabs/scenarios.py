@@ -163,13 +163,19 @@ def generate_scenario(cfg: TABSConf):
 
 
 def get_vectorized_scenario(
-    scenario, n_ally, n_enemy, unit_spacing=4.25, side_gap=0, field_margin=1.0
+    scenario,
+    n_ally,
+    n_enemy,
+    unit_spacing=4.5,
+    side_gap=16.0,
+    field_margin_width=10.0,
+    field_margin_height=10.0,
 ):
     pos_max = jnp.repeat(
         jnp.array(
             [
-                (scenario.battle_field.shape[0] * field_margin * 2 + side_gap / 2) * unit_spacing,
-                (scenario.battle_field.shape[1] * field_margin) * unit_spacing,
+                scenario.battle_field.shape[0] * unit_spacing + side_gap / 2 + field_margin_width,
+                scenario.battle_field.shape[1] * unit_spacing * 0.5 + field_margin_height,
             ]
         ).reshape(1, 2),
         n_ally + n_enemy,
@@ -211,10 +217,9 @@ def get_vectorized_scenario(
         positions = vectorized_scenario.positions.at[i].set(
             jnp.stack(
                 (
-                    unit_spacing
-                    * (
-                        (1 - is_ally) * (x + scenario.battle_field.shape[1] / 2 + side_gap / 2)
-                        + is_ally * -(x + scenario.battle_field.shape[1] / 2 + side_gap / 2)
+                    (
+                        (1 - is_ally) * (x * unit_spacing + side_gap / 2)
+                        + is_ally * -(x * unit_spacing + side_gap / 2)
                     ),
                     (unit_spacing * (y - scenario.battle_field.shape[0] / 2)) * (0.5 - is_ally) * 2,
                 )
