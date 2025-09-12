@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from tqdm import tqdm
 import tyro
 import wandb
@@ -12,7 +12,7 @@ from src.tabs.constants import ALL_UNIT_NAMES
 class Config:
     seed: int = 42
     n_env: int = 32  # the number of environments to run in parallel
-    tabs: TABSConfig = TABSConfig(max_n_enemy=6)
+    tabs: TABSConfig = TABSConfig()
     comb_ppo: PPOConfig = PPOConfig(
         rollout_step=tabs.max_n_ally, n_env=n_env, entropy_coef=0.1, batch_size=32
     )
@@ -59,6 +59,7 @@ if __name__ == "__main__":
     )
 
     scenario = generate_scenario(config.tabs)
+    config.tabs = replace(config.tabs, max_n_enemy=int(scenario.enemy_unit_comp.sum().item()))
     # Duplicate the scenario for parallel runs
     repeated_scenarios = jax.tree.map(lambda x: jnp.repeat(x[None], config.n_env, axis=0), scenario)
 
