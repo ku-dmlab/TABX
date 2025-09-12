@@ -87,7 +87,7 @@ class Farmer(Unit):
     attack_damage = jnp.array([14])
     attack_range = jnp.array([2.5])
     attack_cooldown = jnp.array([2.5])
-    sight_angle = jnp.array([sight_angle])
+    sight_angle = jnp.array([SIGHT_ANGLE])
     space_occupied = jnp.array([1])
 
 
