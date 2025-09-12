@@ -1,8 +1,14 @@
+import os
+import json
+import datetime
 from dataclasses import dataclass, replace
+
 from tqdm import tqdm
 import tyro
 import wandb
 import hashlib
+import numpy as np
+
 from src.baseline.configs.config import PPOConfig
 from src.tabs.config import TABSConfig
 from src.tabs.constants import ALL_UNIT_NAMES
@@ -31,9 +37,6 @@ class Config:
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
-
-    import os
-
     os.environ["CUDA_VISIBLE_DEVICES"] = str(config.gpu_id)
 
     import jax
@@ -47,7 +50,7 @@ if __name__ == "__main__":
     )
     from src.tabs.scenarios import generate_scenario, TABSConfig, pprint_grid_with_units
     from src.tabs import TABSUnitComb, TABSUnitDeploy, TABSBattleSimulator
-    import datetime
+    from src.baseline.utils import get_abs_path
 
     # Create a hash of the config for unique folder naming
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -274,6 +277,10 @@ if __name__ == "__main__":
     # Define all bs metrics to use bs_step as x-axis
     wandb.define_metric("bs/*", step_metric="bs_step")
 
+    # Create logs directory if it doesn't exist
+    logs_dir = get_abs_path(config.save_path + "/logs")
+    os.makedirs(logs_dir, exist_ok=True)
+
     # Alternating training for the end-to-end agent
     carry = (train_state_comb, train_state_deploy, train_state_bs)
     for step in tqdm(range(config.total_train_iter)):
@@ -322,3 +329,7 @@ if __name__ == "__main__":
         ppo_unit_comb.save_state(carry[0], os.path.join(config.save_path, f"comb/ppo/{step}"))
         ppo_unit_deploy.save_state(carry[1], os.path.join(config.save_path, f"deploy/ppo/{step}"))
         mappo_bs.save_state(carry[2], os.path.join(config.save_path, f"bs/mappo/{step}"))
+
+        np_result = jax.tree.map(lambda x: np.array(x).tolist(), result)
+        with open(os.path.join(logs_dir, f"result_{step}.json"), "w") as f:
+            json.dump(np_result, f)

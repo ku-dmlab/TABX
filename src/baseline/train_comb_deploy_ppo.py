@@ -1,9 +1,17 @@
+import os
+import json
+import datetime
+import hashlib
 from dataclasses import dataclass
-from tqdm import tqdm
+from functools import partial
+
+import numpy as np
 import tyro
 import wandb
-import hashlib
+from tqdm import tqdm
+
 from src.baseline.configs.config import PPOConfig
+from src.baseline.utils import get_abs_path
 from src.tabs.config import TABSConfig
 
 
@@ -22,15 +30,11 @@ class Config:
     save_path: str = "/save"
     gpu_id: int = 0
     train_step: int = 10000
-    log_interval: int = 100
+    log_interval: int = 2
 
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
-
-    import os
-    from functools import partial
-
     os.environ["CUDA_VISIBLE_DEVICES"] = str(config.gpu_id)
 
     import jax
@@ -188,6 +192,10 @@ if __name__ == "__main__":
 
         return (unit_deploy_train_state, unit_comb_train_state, key), result
 
+    # Create logs directory if it doesn't exist
+    logs_dir = get_abs_path(config.save_path + "/logs")
+    os.makedirs(logs_dir, exist_ok=True)
+
     key = jax.random.key(config.seed)
     for step in tqdm(range(config.train_step // config.log_interval)):
         (unit_deploy_train_state, unit_comb_train_state, key), result = train_fn(
@@ -211,3 +219,7 @@ if __name__ == "__main__":
 
         ppo_unit_deploy.save_state(unit_deploy_train_state, config.save_path + f"/deploy/{step}")
         ppo_unit_comb.save_state(unit_comb_train_state, config.save_path + f"/comb/{step}")
+
+        np_result = jax.tree.map(lambda x: np.array(x).tolist(), result)
+        with open(os.path.join(logs_dir, f"result_{step}.json"), "w") as f:
+            json.dump(np_result, f)
