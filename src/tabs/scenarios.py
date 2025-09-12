@@ -4,8 +4,9 @@ import chex
 import jax
 import jax.numpy as jnp
 from flax import struct
-from dataclasses import dataclass
-from src.tabs.units import UnitID, get_all_unit_names, get_all_unit_spec, UNITID2CHAR
+from src.tabs.units import get_all_unit_spec
+from src.tabs.constants import UNITID2CHAR, SCENARIOS, UnitID
+from src.tabs.config import TABSConfig
 
 
 @struct.dataclass
@@ -50,20 +51,6 @@ class Scenario:
     attack_cooldown: chex.Array  # sec
     sight_angle: chex.Array
     space_occupied: chex.Array  # area of rectangle shape
-
-
-@dataclass(frozen=True)
-class TABSConfig:
-    scenario_name: str = "2F1K2A1H"  # The predefined scenario name
-    max_num_units: int = len(get_all_unit_names())  # The maximum number of unit types
-    max_field_height: int = 4  # The maximum height size of battle field
-    max_field_width: int = 5  # The maximum width size of battle field
-    max_n_ally: int = 10  # The maximum number of ally agents
-    max_n_enemy: int = 10  # The maximum number of enemy agents
-
-
-# unit names: F, S, K, M, A, C, D, H, P
-SCENARIOS = ["2F1K2A1H", "1K2S", "1M2C1P", "7F2D1H"]
 
 
 def get_scenario_list():
