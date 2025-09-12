@@ -49,7 +49,9 @@ class MAPPO(BaseAlgo):
             learning_rate = optax.linear_schedule(
                 init_value=self.config.lr,
                 end_value=0.0,
-                transition_steps=num_updates * self.config.epochs,
+                transition_steps=num_updates
+                * self.config.epochs
+                * (self.config.n_env // self.config.batch_size),
             )
         else:
             learning_rate = self.config.lr
@@ -348,7 +350,7 @@ class MAPPO(BaseAlgo):
 
             (train_state,), train_result = jax.lax.scan(batch_scan_body, (train_state,), batch_idx)
 
-            return (train_state,), train_result
+            return (train_state.replace(key=key),), train_result
 
         (train_state,), train_result = jax.lax.scan(
             train_body, (train_state,), None, self.config.epochs
