@@ -33,10 +33,22 @@ class QNetwork(nnx.Module):
 class Critic(nnx.Module):
     def __init__(self, state_dim, layer_dim=64, rngs=nnx.Rngs(0)):
         self.layer = nnx.Sequential(
-            nnx.Linear(state_dim, layer_dim, rngs=rngs),
+            nnx.Linear(
+                state_dim,
+                layer_dim,
+                rngs=rngs,
+                kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2.0)),
+                bias_init=nnx.initializers.zeros,
+            ),
             nnx.LayerNorm(layer_dim, rngs=rngs),
             nnx.relu,
-            nnx.Linear(layer_dim, layer_dim, rngs=rngs),
+            nnx.Linear(
+                layer_dim,
+                layer_dim,
+                rngs=rngs,
+                kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2.0)),
+                bias_init=nnx.initializers.zeros,
+            ),
             nnx.LayerNorm(layer_dim, rngs=rngs),
             nnx.relu,
             nnx.Linear(
@@ -44,6 +56,7 @@ class Critic(nnx.Module):
                 1,
                 rngs=rngs,
                 kernel_init=nnx.initializers.orthogonal(jnp.sqrt(0.001)),
+                bias_init=nnx.initializers.zeros,
             ),
         )
 
@@ -54,17 +67,30 @@ class Critic(nnx.Module):
 class Policy(nnx.Module):
     def __init__(self, state_dim, action_dim, layer_dim=64, rngs=nnx.Rngs(0)):
         self.layer = nnx.Sequential(
-            nnx.Linear(state_dim, layer_dim, rngs=rngs),
+            nnx.Linear(
+                state_dim,
+                layer_dim,
+                rngs=rngs,
+                kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2.0)),
+                bias_init=nnx.initializers.zeros,
+            ),
             nnx.LayerNorm(layer_dim, rngs=rngs),
             nnx.relu,
-            nnx.Linear(layer_dim, layer_dim, rngs=rngs),
+            nnx.Linear(
+                layer_dim,
+                layer_dim,
+                rngs=rngs,
+                kernel_init=nnx.initializers.orthogonal(jnp.sqrt(2.0)),
+                bias_init=nnx.initializers.zeros,
+            ),
             nnx.LayerNorm(layer_dim, rngs=rngs),
             nnx.relu,
             nnx.Linear(
                 layer_dim,
                 action_dim,
                 rngs=rngs,
-                kernel_init=nnx.initializers.orthogonal(jnp.sqrt(0.001)),
+                kernel_init=nnx.initializers.orthogonal(jnp.sqrt(0.01)),
+                bias_init=nnx.initializers.zeros,
             ),
         )
 
