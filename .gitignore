@@ -13,8 +13,7 @@ wheels/
 .vscode/
 
 # W&B
-# Not wand'a'b
-wandb/ 
+wandb/
 
-# Jupyter notebooks
+# jupyter notebook
 *.ipynb
