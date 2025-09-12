@@ -43,8 +43,8 @@ if __name__ == "__main__":
     )
     from src.tabs import TABSUnitComb, TABSUnitDeploy, TABSBattleSimulator
     from src.tabs.scenarios import generate_scenario, TABSConfig
-    from src.tabs.units import get_all_unit_names
     from src.tabs.scenarios import pprint_grid_with_units
+    from src.tabs.constants import ALL_UNIT_NAMES
     import datetime
 
     # Create a hash of the config for unique folder naming
@@ -54,7 +54,7 @@ if __name__ == "__main__":
 
     wandb.init(project="comb_deploy_ppo", config=config)
 
-    config.max_num_units = len(get_all_unit_names())
+    config.max_num_units = len(ALL_UNIT_NAMES)
 
     scenario = generate_scenario(config.tabs)
     repeated_scenario = jax.tree.map(lambda x: jnp.repeat(x[None], config.n_env, axis=0), scenario)
@@ -104,7 +104,7 @@ if __name__ == "__main__":
 
         return result
 
-    all_unit_names = get_all_unit_names()
+    all_unit_names = ALL_UNIT_NAMES
 
     def train_body(carry, _):
         (unit_deploy_train_state, unit_comb_train_state, key) = carry
