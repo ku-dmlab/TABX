@@ -703,7 +703,11 @@ class TABSBattleSimulator(BaseMAEnv):
         def is_team_done(team):
             return ((teams == team) & (~is_alives | is_disabled)).sum() == (teams == team).sum()
 
+        def the_number_of_dead_units(team):
+            return ((teams == team) & jnp.logical_not(is_alives)).sum()
+
         team_dones = jax.vmap(is_team_done)(jnp.arange(self.max_team)) > 0
+        team_dead_units = jax.vmap(the_number_of_dead_units)(jnp.arange(self.max_team))
         # If timestep is greater than max_episode_steps, the episode is truncated
         truncation = state["game_manager"].timestep >= self.max_episode_steps
         # If all teams except one are eliminated or truncated, the episode is done
@@ -734,6 +738,7 @@ class TABSBattleSimulator(BaseMAEnv):
             "truncation": truncation,
             "is_attacking": is_attacking,
             "damage_dealt": damage_dealt,
+            "team_dead_units": team_dead_units,
         }
 
         return self.get_obs(state), state, rewards, dones, info
