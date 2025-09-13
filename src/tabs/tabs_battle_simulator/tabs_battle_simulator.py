@@ -73,6 +73,8 @@ class DefaultUnit:
     pos_min: chex.Array  # The positional boundaries or limits within which the unit can move
     pos_max: chex.Array  # The positional boundaries or limits within which the unit can move
     status: UnitStatus  # The current status of the unit, including health, attack stats, and other attributes
+    damage_dealt: chex.Array  # The damage dealt by the unit
+    is_attacking: chex.Array  # Boolean showing whether the unit is attacking
 
     def update(self, **kwargs):
         config = kwargs["config"]
@@ -80,11 +82,14 @@ class DefaultUnit:
         updated_object = physics_update(config, self)
 
         updated_transform = self.transform._replace(
-            position=jnp.clip(updated_object.transform.position, self.pos_min, self.pos_max)
+            position=jnp.clip(updated_object.transform.position, self.pos_min, self.pos_max),
         )
 
         return updated_object.replace(
-            transform=updated_transform, status=self.status.replace(cooldown=next_cooldown)
+            transform=updated_transform,
+            status=self.status.replace(cooldown=next_cooldown),
+            damage_dealt=self.damage_dealt,
+            is_attacking=self.is_attacking,
         )
 
     def act(self, objects, action, **kwargs):
@@ -101,6 +106,7 @@ class DefaultUnit:
         ) & action_able  # if unit is dead, do not attack
 
         notify(objects, "hit", (self, is_attack, target_id, target_attackable, can_attack))
+        attack_success = can_attack & is_attack & target_attackable[target_id.reshape()]
 
         move_action = (
             move_table[discrete_action] * action_able * self.status.speed
@@ -124,6 +130,8 @@ class DefaultUnit:
                     self.status.attack_cooldown,
                 )
             ),
+            damage_dealt=attack_success * self.status.attack_damage,
+            is_attacking=is_attack & can_attack,
         )
 
     def on_hit(self, objects, info):
@@ -370,6 +378,8 @@ class TABSBattleSimulator(BaseMAEnv):
                     max_health=jnp.array([1.0]),
                     speed=jnp.array([1.0]),
                 ),
+                damage_dealt=jnp.array([0.0]),
+                is_attacking=jnp.array([False]),
             )
             for i, name in enumerate(self.unit_keys)
         }
@@ -640,6 +650,8 @@ class TABSBattleSimulator(BaseMAEnv):
                     max_health=vectorized_scenario.healths[i],
                     speed=vectorized_scenario.speeds[i],
                 ),
+                damage_dealt=jnp.array([0.0]),
+                is_attacking=jnp.array([False]),
             )
         state["game_manager"] = GameManager(
             attack_target=jnp.array([0]),
@@ -711,11 +723,17 @@ class TABSBattleSimulator(BaseMAEnv):
         rewards = (delta_hp[None] * reward_matrix).sum(axis=-1, keepdims=True)
         rewards += win_reward.reshape(rewards.shape)
 
+        # For metric calculation
+        damage_dealt = jnp.stack([state[unit].damage_dealt for unit in self.unit_keys])
+        is_attacking = jnp.stack([state[unit].is_attacking for unit in self.unit_keys])
+
         info = {
             "timestep": state["game_manager"].timestep,
             "disabled_units": is_disabled,
             "done_reward": win_reward,
             "truncation": truncation,
+            "is_attacking": is_attacking,
+            "damage_dealt": damage_dealt,
         }
 
         return self.get_obs(state), state, rewards, dones, info
