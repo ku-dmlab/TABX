@@ -197,6 +197,7 @@ class MAPPO(BaseAlgo):
         rollout_result["returned_episode_returns"] = last_env_state.returned_episode_returns
         rollout_result["returned_episode_lengths"] = last_env_state.returned_episode_lengths
         rollout_result["returned_episode_wins"] = last_env_state.returned_episode_wins
+        rollout_result["last_state"] = last_env_state
 
         return train_state.replace(key=key), rollout_result
 
