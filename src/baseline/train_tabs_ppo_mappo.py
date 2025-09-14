@@ -183,6 +183,13 @@ if __name__ == "__main__":
             ally_battle_metric,
         )
 
+        unit_counts = jax.vmap(unit_condition_sum, in_axes=(0, None, None, None))(
+            jnp.arange(config.tabs.max_num_units),
+            ally_unit_ids,
+            ally_is_disabled,
+            jnp.ones_like(ally_is_disabled),
+        )
+
         unit_battle_metric["attack_success_rate"] = (
             unit_battle_metric["returned_cumulative_attack_success"]
             / unit_battle_metric["returned_cumulative_is_attackings"]
@@ -191,24 +198,29 @@ if __name__ == "__main__":
         unit_specific_metric = {}
         for key, value in unit_battle_metric.items():
             for i, name in enumerate(ALL_UNIT_NAMES):
-                unit_specific_metric[f"{key}/{name}"] = value[i]
+                unit_specific_metric[f"{key}/{name}"] = value[i] / (
+                    unit_counts[i] if key != "attack_success_rate" else 1
+                )
 
         team_fight_metric = {
             "cumulative_is_attackings": unit_battle_metric[
                 "returned_cumulative_is_attackings"
-            ].sum(),
+            ].sum()
+            / config.n_env,
             "cumulative_damage_dealts": jnp.nansum(
                 unit_battle_metric["returned_cumulative_damage_dealts"]
                 * (unit_battle_metric["returned_cumulative_damage_dealts"] > 0)
-            ),
+            )
+            / config.n_env,
             "cumulative_heal_amount": jnp.nansum(
                 unit_battle_metric["returned_cumulative_damage_dealts"]
                 * (unit_battle_metric["returned_cumulative_damage_dealts"] < 0)
-            ),
+            )
+            / config.n_env,
             "attack_success_rate": jnp.nansum(
                 unit_battle_metric["returned_cumulative_attack_success"]
-                / unit_battle_metric["returned_cumulative_is_attackings"]
-            ),
+            )
+            / jnp.nansum(unit_battle_metric["returned_cumulative_is_attackings"]),
             "first_kill_rate": last_state.returned_first_kills[:, 0].mean(),
         }
 
