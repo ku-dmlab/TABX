@@ -31,7 +31,7 @@ class Config:
     iter_per_comb_step: int = 100
     iter_per_deploy_step: int = 100
     iter_per_bs_step: int = 200
-    total_train_iter: int = 100
+    total_train_iter: int = 10
     debug: bool = False
 
 
@@ -51,6 +51,8 @@ if __name__ == "__main__":
     from src.tabs.scenarios import generate_scenario, TABSConfig, pprint_grid_with_units
     from src.tabs import TABSUnitComb, TABSUnitDeploy, TABSBattleSimulator
     from src.baseline.utils import get_abs_path
+    from functools import partial
+    from src.tabs.scenarios import get_vectorized_scenario, VectorizedScenario
 
     # Create a hash of the config for unique folder naming
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -150,6 +152,66 @@ if __name__ == "__main__":
 
         rollout_result["unit_deploy"] = rollout_result_deploy["last_state"].battle_field[0]
 
+        # attack success rate, damage dealt
+        last_state = rollout_result_bs["last_state"]
+
+        battle_metric = {
+            "returned_cumulative_is_attackings": last_state.returned_cumulative_is_attackings,
+            "returned_cumulative_damage_dealts": last_state.returned_cumulative_damage_dealts,
+            "returned_cumulative_attack_success": last_state.returned_cumulative_attack_success,
+        }
+        v_vectorize_scenario = jax.vmap(
+            partial(
+                get_vectorized_scenario,
+                n_ally=config.tabs.max_n_ally,
+                n_enemy=config.tabs.max_n_enemy,
+            )
+        )
+        vectorized_scenario: VectorizedScenario = v_vectorize_scenario(scenarios_bs)
+
+        ally_battle_metric = jax.tree.map(lambda x: x[:, : config.tabs.max_n_ally], battle_metric)
+        ally_is_disabled = vectorized_scenario.is_disabled[:, : config.tabs.max_n_ally]
+        ally_unit_ids = vectorized_scenario.unit_ids[:, : config.tabs.max_n_ally]
+
+        def unit_condition_sum(target_unit_id, unit_ids, is_disabled, values):
+            return ((unit_ids == target_unit_id) * (1 - is_disabled) * values).sum()
+
+        unit_battle_metric = jax.tree.map(
+            lambda x: jax.vmap(unit_condition_sum, in_axes=(0, None, None, None))(
+                jnp.arange(config.tabs.max_num_units), ally_unit_ids, ally_is_disabled, x
+            ),
+            ally_battle_metric,
+        )
+
+        unit_battle_metric["attack_success_rate"] = (
+            unit_battle_metric["returned_cumulative_attack_success"]
+            / unit_battle_metric["returned_cumulative_is_attackings"]
+        )
+
+        unit_specific_metric = {}
+        for key, value in unit_battle_metric.items():
+            for i, name in enumerate(ALL_UNIT_NAMES):
+                unit_specific_metric[f"{key}/{name}"] = value[i]
+
+        team_fight_metric = {
+            "cumulative_is_attackings": unit_battle_metric[
+                "returned_cumulative_is_attackings"
+            ].sum(),
+            "cumulative_damage_dealts": jnp.nansum(
+                unit_battle_metric["returned_cumulative_damage_dealts"]
+                * (unit_battle_metric["returned_cumulative_damage_dealts"] > 0)
+            ),
+            "cumulative_heal_amount": jnp.nansum(
+                unit_battle_metric["returned_cumulative_damage_dealts"]
+                * (unit_battle_metric["returned_cumulative_damage_dealts"] < 0)
+            ),
+            "attack_success_rate": jnp.nansum(
+                unit_battle_metric["returned_cumulative_attack_success"]
+                / unit_battle_metric["returned_cumulative_is_attackings"]
+            ),
+            "first_kill_rate": last_state.returned_first_kills[:, 0].mean(),
+        }
+
         return {
             "train_state_comb": train_state_comb,
             "train_state_deploy": train_state_deploy,
@@ -161,6 +223,8 @@ if __name__ == "__main__":
             "episode_returns": rollout_result_bs["returned_episode_returns"],
             "episode_lengths": rollout_result_bs["returned_episode_lengths"],
             "episode_wins": rollout_result_bs["returned_episode_wins"],
+            "unit_battle_metric": unit_specific_metric,
+            "team_fight_metric": team_fight_metric,
         }
 
     def train_comb(carry, _):
@@ -219,6 +283,8 @@ if __name__ == "__main__":
         train_info_bs["episode_returns"] = rollout_result["episode_returns"]
         train_info_bs["episode_lengths"] = rollout_result["episode_lengths"]
         train_info_bs["episode_wins"] = rollout_result["episode_wins"]
+        train_info_bs.update(rollout_result["team_fight_metric"])
+        train_info_bs.update(rollout_result["unit_battle_metric"])
 
         return (
             train_state_comb,
@@ -320,6 +386,7 @@ if __name__ == "__main__":
                 bs_log_data[f"bs/{key_}"] = jax.tree.map(lambda x: x[i], value)
             for key_, value in result["train_info_bs"].items():
                 bs_log_data[f"bs/train_info/{key_}"] = jax.tree.map(lambda x: x[i], value)
+
             # Custom step for bs training
             bs_step = step * (config.iter_per_bs_step) + i
             bs_log_data["bs_step"] = bs_step
