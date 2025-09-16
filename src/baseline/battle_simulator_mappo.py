@@ -15,7 +15,7 @@ from src.tabs.scenarios import TABSConfig
 class Config:
     seed: int = 42
     n_env: int = 32  # the number of environments to run in parallel
-    tabs: TABSConfig = TABSConfig()
+    tabs: TABSConfig = TABSConfig(scenario_name="1K2S_hard")
     mappo: PPOConfig = PPOConfig(n_env=n_env, seed=seed)
     save_path: str = "/save"
     gpu_id: int = 3
@@ -169,8 +169,8 @@ if __name__ == "__main__":
 
         return train_state, train_info
 
-    for step in tqdm(range(num_iterations)):
-        result = jax.lax.scan(train_body, train_state, None, config.log_interval)
+    for step in tqdm(range(config.total_iter)):
+        result = jax.lax.scan(train_body, train_state, None, config.iter_per_train_step)
         train_state, train_info = result
         mappo.save_state(train_state, config.save_path + f"/{step}")
 
@@ -184,7 +184,7 @@ if __name__ == "__main__":
             train_info["returned_episode_wins"][:, :, 0].mean(axis=1).flatten()
         )
 
-        for i in range(config.log_interval):
+        for i in range(config.iter_per_train_step):
             wandb.log(jax.tree.map(lambda x: x[i], train_info))
 
         np_result = jax.tree.map(lambda x: np.array(x).tolist(), train_info)
