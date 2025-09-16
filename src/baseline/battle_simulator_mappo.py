@@ -15,8 +15,8 @@ from src.tabs.scenarios import TABSConfig
 class Config:
     seed: int = 42
     n_env: int = 32  # the number of environments to run in parallel
-    tabs: TABSConfig = TABSConfig(scenario_name="1K2S_hard")
-    mappo: PPOConfig = PPOConfig(n_env=n_env, seed=seed)
+    tabs: TABSConfig = TABSConfig()
+    mappo: PPOConfig = PPOConfig(n_env=n_env, seed=seed, batch_size=n_env)
     save_path: str = "/save"
     gpu_id: int = 3
 
