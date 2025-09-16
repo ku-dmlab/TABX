@@ -79,7 +79,7 @@ def get_all_unit_spec() -> chex.Array:
 @struct.dataclass
 class Farmer(Unit):
     unit_type_id = jnp.array([UnitID.Farmer])
-    price = jnp.array([110])
+    price = jnp.array([120])
     health = jnp.array([60])
     body_radius = jnp.array([1.0])
     body_weight = jnp.array([1.0])

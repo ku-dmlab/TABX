@@ -138,11 +138,11 @@ def generate_scenario(cfg: TABSConfig):
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
         if _scenario_level == "easy":
-            budget = 2200
+            budget = 2050
         elif _scenario_level == "normal":
-            budget = 2080
+            budget = 1930
         elif _scenario_level == "hard":
-            budget = 1780
+            budget = 1630
         _battle_field = jnp.array(
             [
                 [0, 0, UnitID.TheKing, 0, 0],
