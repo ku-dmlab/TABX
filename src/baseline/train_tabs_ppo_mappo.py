@@ -50,14 +50,23 @@ if __name__ == "__main__":
     )
     from src.tabs.scenarios import generate_scenario, TABSConfig, pprint_grid_with_units
     from src.tabs import TABSUnitComb, TABSUnitDeploy, TABSBattleSimulator
-    from src.baseline.utils import get_abs_path
+    from src.baseline.utils import get_abs_path, dataclass_to_dict
     from functools import partial
     from src.tabs.scenarios import get_vectorized_scenario, VectorizedScenario
 
     # Create a hash of the config for unique folder naming
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    config_hash = hashlib.md5(str(config).encode()).hexdigest()[:8]
+    config_dict = dataclass_to_dict(config)
+    config_str = json.dumps(config_dict, sort_keys=True)
+    config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
     config.save_path = f"/save/{config.tabs.scenario_name}_{current_time}_{config_hash}"
+
+    logs_dir = get_abs_path(config.save_path)
+    os.makedirs(logs_dir, exist_ok=True)
+
+    # Save config to logs directory
+    with open(os.path.join(logs_dir, "config.json"), "w") as f:
+        json.dump(config_dict, f, indent=2)
 
     wandb.init(
         project="tabs_ppo_mappo", config=config, mode="online" if not config.debug else "disabled"
