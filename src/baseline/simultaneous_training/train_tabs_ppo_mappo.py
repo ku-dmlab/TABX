@@ -26,7 +26,7 @@ class Config:
         rollout_step=tabs.max_n_ally, n_env=n_env, entropy_coef=0.1, batch_size=32
     )
     mappo: PPOConfig = PPOConfig(rollout_step=512, n_env=n_env, batch_size=n_env)
-    save_path: str = "/save"
+    base_path: str = "/ckpt/tabs_st_ppo_mappo"
     gpu_id: int = 0
     iter_per_step: int = 100
     total_train_iter: int = 10
@@ -55,7 +55,9 @@ if __name__ == "__main__":
     # Create a hash of the config for unique folder naming
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     config_hash = hashlib.md5(str(config).encode()).hexdigest()[:8]
-    config.save_path = f"/save/{config.tabs.scenario_name}_{current_time}_{config_hash}"
+    config.save_path = os.path.join(
+        config.base_path, f"{config.tabs.scenario_name}_{current_time}_{config_hash}"
+    )
 
     wandb.init(
         project="tabs_st_ppo_mappo",
@@ -248,23 +250,14 @@ if __name__ == "__main__":
 
         def train_body(carry, _):
             train_state_comb, train_state_deploy, train_state_bs = carry
+
             train_state_comb, train_info_comb = ppo_unit_comb.train(
                 train_state_comb, rollout_result["rollout_result_comb"]
             )
 
-            train_info_comb["rollout_result"] = rollout_result["rollout_result"]
-            train_info_comb["episode_returns"] = rollout_result["episode_returns"]
-            train_info_comb["episode_lengths"] = rollout_result["episode_lengths"]
-            train_info_comb["episode_wins"] = rollout_result["episode_wins"]
-
             train_state_deploy, train_info_deploy = ppo_unit_deploy.train(
                 train_state_deploy, rollout_result["rollout_result_deploy"]
             )
-
-            train_info_deploy["rollout_result"] = rollout_result["rollout_result"]
-            train_info_deploy["episode_returns"] = rollout_result["episode_returns"]
-            train_info_deploy["episode_lengths"] = rollout_result["episode_lengths"]
-            train_info_deploy["episode_wins"] = rollout_result["episode_wins"]
 
             train_state_bs, train_info_bs = mappo_bs.train(
                 train_state_bs, rollout_result["rollout_result_bs"]
@@ -310,20 +303,6 @@ if __name__ == "__main__":
 
         return carry, result
 
-    # Define custom step metrics for each training phase
-    wandb.define_metric("comb_step")
-    wandb.define_metric("deploy_step")
-    wandb.define_metric("bs_step")
-
-    # Define all comb metrics to use comb_step as x-axis
-    wandb.define_metric("comb/*", step_metric="comb_step")
-
-    # Define all deploy metrics to use deploy_step as x-axis
-    wandb.define_metric("deploy/*", step_metric="deploy_step")
-
-    # Define all bs metrics to use bs_step as x-axis
-    wandb.define_metric("bs/*", step_metric="bs_step")
-
     # Create logs directory if it doesn't exist
     logs_dir = get_abs_path(config.save_path + "/logs")
     os.makedirs(logs_dir, exist_ok=True)
@@ -342,9 +321,6 @@ if __name__ == "__main__":
                 comb_log_data[f"comb/{key_}"] = jax.tree.map(lambda x: x[i], value)
             for key_, value in result["train_info_comb"].items():
                 comb_log_data[f"comb/train_info/{key_}"] = jax.tree.map(lambda x: x[i], value)
-            # Custom step for comb training
-            comb_step = step * (config.iter_per_comb_step) + i
-            comb_log_data["comb_step"] = comb_step
             wandb.log(comb_log_data)
 
             # Log deploy metrics
@@ -355,9 +331,6 @@ if __name__ == "__main__":
                 )
             for key_, value in result["train_info_deploy"].items():
                 deploy_log_data[f"deploy/train_info/{key_}"] = jax.tree.map(lambda x: x[i], value)
-            # Custom step for deploy training
-            deploy_step = step * (config.iter_per_deploy_step) + i
-            deploy_log_data["deploy_step"] = deploy_step
             wandb.log(deploy_log_data)
 
             # Log bs metrics
@@ -366,10 +339,6 @@ if __name__ == "__main__":
                 bs_log_data[f"bs/{key_}"] = jax.tree.map(lambda x: x[i], value)
             for key_, value in result["train_info_bs"].items():
                 bs_log_data[f"bs/train_info/{key_}"] = jax.tree.map(lambda x: x[i], value)
-
-            # Custom step for bs training
-            bs_step = step * (config.iter_per_bs_step) + i
-            bs_log_data["bs_step"] = bs_step
             wandb.log(bs_log_data)
 
         # Save models
