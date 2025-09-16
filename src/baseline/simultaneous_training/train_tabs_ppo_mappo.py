@@ -48,16 +48,25 @@ if __name__ == "__main__":
     )
     from src.tabs.scenarios import generate_scenario, TABSConfig, pprint_grid_with_units
     from src.tabs import TABSUnitComb, TABSUnitDeploy, TABSBattleSimulator
-    from src.baseline.utils import get_abs_path
+    from src.baseline.utils import get_abs_path, dataclass_to_dict
     from functools import partial
     from src.tabs.scenarios import get_vectorized_scenario, VectorizedScenario
 
     # Create a hash of the config for unique folder naming
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    config_hash = hashlib.md5(str(config).encode()).hexdigest()[:8]
+    config_dict = dataclass_to_dict(config)
+    config_str = json.dumps(config_dict, sort_keys=True)
+    config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
     config.save_path = os.path.join(
         config.base_path, f"{config.tabs.scenario_name}_{current_time}_{config_hash}"
     )
+
+    logs_dir = get_abs_path(config.save_path)
+    os.makedirs(logs_dir, exist_ok=True)
+
+    # Save config to logs directory
+    with open(os.path.join(logs_dir, "config.json"), "w") as f:
+        json.dump(config_dict, f, indent=2)
 
     wandb.init(
         project="tabs_st_ppo_mappo",
@@ -86,13 +95,13 @@ if __name__ == "__main__":
     key = jax.random.key(config.seed)
     key_comb, key_deploy, key_bs = jax.random.split(key, 3)
     train_state_comb = ppo_unit_comb.init_train_state(
-        key_comb, config.iter_per_comb_step * config.total_train_iter
+        key_comb, config.iter_per_step * config.total_train_iter
     )
     train_state_deploy = ppo_unit_deploy.init_train_state(
-        key_deploy, config.iter_per_deploy_step * config.total_train_iter
+        key_deploy, config.iter_per_step * config.total_train_iter
     )
     train_state_bs = mappo_bs.init_train_state(
-        key_bs, config.iter_per_bs_step * config.total_train_iter
+        key_bs, config.iter_per_step * config.total_train_iter
     )
 
     # Rollout and get samples
@@ -243,14 +252,15 @@ if __name__ == "__main__":
 
     @jax.jit
     def train_fn(carry):
-        train_state_comb, train_state_deploy, train_state_bs = carry
-        rollout_result = rollout_tabs(
-            train_state_comb, train_state_deploy, train_state_bs, repeated_scenarios
-        )
-
         def train_body(carry, _):
             train_state_comb, train_state_deploy, train_state_bs = carry
 
+            # Rollout
+            rollout_result = rollout_tabs(
+                train_state_comb, train_state_deploy, train_state_bs, repeated_scenarios
+            )
+
+            # Update policies
             train_state_comb, train_info_comb = ppo_unit_comb.train(
                 train_state_comb, rollout_result["rollout_result_comb"]
             )
@@ -263,7 +273,6 @@ if __name__ == "__main__":
                 train_state_bs, rollout_result["rollout_result_bs"]
             )
 
-            train_info_bs["rollout_result"] = rollout_result["rollout_result"]
             train_info_bs["episode_returns"] = rollout_result["episode_returns"]
             train_info_bs["episode_lengths"] = rollout_result["episode_lengths"]
             train_info_bs["episode_wins"] = rollout_result["episode_wins"]
@@ -271,23 +280,19 @@ if __name__ == "__main__":
             train_info_bs.update(rollout_result["unit_battle_metric"])
 
             result = {}
-            result["comb_evaluation"] = train_info_comb["rollout_result"]["comb_evaluation"]
-            result["unit_deploy"] = train_info_deploy["rollout_result"]["unit_deploy"]
+            result["comb_evaluation"] = rollout_result["rollout_result"]["comb_evaluation"]
+            result["unit_deploy"] = rollout_result["rollout_result"]["unit_deploy"]
             result["bs_rollout_result"] = {
-                "returned_episode_returns": train_info_bs["rollout_result"]["bs_rollout_result"][
+                "returned_episode_returns": rollout_result["rollout_result"]["bs_rollout_result"][
                     "returned_episode_returns"
                 ],
-                "returned_episode_lengths": train_info_bs["rollout_result"]["bs_rollout_result"][
+                "returned_episode_lengths": rollout_result["rollout_result"]["bs_rollout_result"][
                     "returned_episode_lengths"
                 ],
-                "returned_episode_wins": train_info_bs["rollout_result"]["bs_rollout_result"][
+                "returned_episode_wins": rollout_result["rollout_result"]["bs_rollout_result"][
                     "returned_episode_wins"
                 ],
             }
-
-            del train_info_comb["rollout_result"]
-            del train_info_deploy["rollout_result"]
-            del train_info_bs["rollout_result"]
 
             result.update(
                 {
