@@ -321,7 +321,6 @@ if __name__ == "__main__":
                 comb_log_data[f"comb/{key_}"] = jax.tree.map(lambda x: x[i], value)
             for key_, value in result["train_info_comb"].items():
                 comb_log_data[f"comb/train_info/{key_}"] = jax.tree.map(lambda x: x[i], value)
-            wandb.log(comb_log_data)
 
             # Log deploy metrics
             deploy_log_data = {}
@@ -331,7 +330,6 @@ if __name__ == "__main__":
                 )
             for key_, value in result["train_info_deploy"].items():
                 deploy_log_data[f"deploy/train_info/{key_}"] = jax.tree.map(lambda x: x[i], value)
-            wandb.log(deploy_log_data)
 
             # Log bs metrics
             bs_log_data = {}
@@ -339,7 +337,8 @@ if __name__ == "__main__":
                 bs_log_data[f"bs/{key_}"] = jax.tree.map(lambda x: x[i], value)
             for key_, value in result["train_info_bs"].items():
                 bs_log_data[f"bs/train_info/{key_}"] = jax.tree.map(lambda x: x[i], value)
-            wandb.log(bs_log_data)
+
+            wandb.log(comb_log_data | deploy_log_data | bs_log_data)
 
         # Save models
         ppo_unit_comb.save_state(carry[0], os.path.join(config.save_path, f"comb/ppo/{step}"))
