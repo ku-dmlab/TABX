@@ -78,13 +78,9 @@ if __name__ == "__main__":
     env = TABSBattleSimulatorAutoResetWrapper(env)
     env = TABSBattleSimulatorLogWrapper(env)
 
-    num_iterations = config.total_env_step // (
-        config.n_env * config.mappo.rollout_step * config.log_interval
-    )
-
     mappo = MAPPO(config.mappo, env)
     train_state = mappo.init_train_state(
-        jax.random.key(config.seed), num_iterations * config.log_interval
+        jax.random.key(config.seed), config.total_iter * config.iter_per_train_step
     )
 
     v_vectorize_scenario = jax.vmap(
