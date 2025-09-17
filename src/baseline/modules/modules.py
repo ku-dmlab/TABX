@@ -9,6 +9,27 @@ LOG_STD_MAX = 0.0
 LOG_STD_MIN = -3.0
 
 
+class PQN_Critic(nnx.Module):
+    def __init__(self, state_dim, action_dim, layer_dim=64, rngs=nnx.Rngs(0)):
+        self.layer = nnx.Sequential(
+            nnx.Linear(state_dim, layer_dim, rngs=rngs),
+            nnx.LayerNorm(layer_dim, rngs=rngs),
+            nnx.relu,
+            nnx.Linear(layer_dim, layer_dim, rngs=rngs),
+            nnx.LayerNorm(layer_dim, rngs=rngs),
+            nnx.relu,
+            nnx.Linear(
+                layer_dim,
+                action_dim,
+                rngs=rngs,
+                kernel_init=nnx.initializers.orthogonal(jnp.sqrt(0.001)),
+            ),
+        )
+
+    def __call__(self, state):
+        return self.layer(state)
+
+
 class QNetwork(nnx.Module):
     def __init__(self, state_dim, action_dim, layer_dim=64, rngs=nnx.Rngs(0)):
         self.layer = nnx.Sequential(
