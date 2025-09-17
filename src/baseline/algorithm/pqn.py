@@ -66,6 +66,7 @@ class PQN(BaseAlgo):
             state_dim=self.observation_dim,
             layer_dim=self.config.layer_dim,
             rngs=rngs,
+            batch_norm=self.config.batch_norm,
         )
         if self.config.learning_scheduler:
             learning_rate = optax.linear_schedule(

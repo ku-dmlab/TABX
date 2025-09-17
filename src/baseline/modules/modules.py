@@ -10,7 +10,10 @@ LOG_STD_MIN = -3.0
 
 
 class PQN_Critic(nnx.Module):
-    def __init__(self, state_dim, action_dim, layer_dim=64, rngs=nnx.Rngs(0)):
+    def __init__(self, state_dim, action_dim, layer_dim=64, rngs=nnx.Rngs(0), batch_norm=False):
+        self.batch_norm = batch_norm
+        if self.batch_norm:
+            self.batch_norm_layer = nnx.BatchNorm(state_dim, rngs=rngs)
         self.layer = nnx.Sequential(
             nnx.Linear(state_dim, layer_dim, rngs=rngs),
             nnx.LayerNorm(layer_dim, rngs=rngs),
@@ -22,11 +25,12 @@ class PQN_Critic(nnx.Module):
                 layer_dim,
                 action_dim,
                 rngs=rngs,
-                kernel_init=nnx.initializers.orthogonal(jnp.sqrt(0.001)),
             ),
         )
 
     def __call__(self, state):
+        if self.batch_norm:
+            state = self.batch_norm_layer(state)
         return self.layer(state)
 
 

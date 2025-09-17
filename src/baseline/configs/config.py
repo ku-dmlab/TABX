@@ -36,3 +36,4 @@ class PQNConfig:
     learning_scheduler: bool = True
     reward_scale: float = 50.0
     layer_dim: int = 256
+    batch_norm = False
