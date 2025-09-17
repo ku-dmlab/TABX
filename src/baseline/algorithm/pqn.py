@@ -178,7 +178,7 @@ class PQN(BaseAlgo):
         transitions = {
             "observations": rollout_result["observations"],
             "actions": rollout_result["actions"],
-            "rewards": rollout_result["rewards"],
+            "rewards": rollout_result["rewards"] * self.config.reward_scale,
             "next_obs": rollout_result["next_obs"],
             "dones": rollout_result["dones"],
             "q_val": rollout_result["q_val"],

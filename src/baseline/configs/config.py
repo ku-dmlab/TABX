@@ -34,4 +34,5 @@ class PQNConfig:
     seed: int = 42
     rollout_step: int = 32
     learning_scheduler: bool = True
+    reward_scale: float = 50.0
     layer_dim: int = 256
