@@ -1,4 +1,4 @@
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 
 import chex
 import jax
@@ -12,6 +12,7 @@ from src.baseline.modules import RNNHybridPolicy, RNNCritic
 from src.baseline.utils import NetworkState, TrainState, get_model, rnn_result, get_gae
 from src.tabs.scenarios import Scenario
 from src.tabs import TABSBattleSimulator
+from src.baseline.configs.config import PPOConfig
 
 
 tfd = tfp.distributions
@@ -19,7 +20,7 @@ tfb = tfp.bijectors
 
 
 class MAPPO(BaseAlgo):
-    def __init__(self, config, env: TABSBattleSimulator):
+    def __init__(self, config: PPOConfig, env: TABSBattleSimulator):
         super(MAPPO, self).__init__(config, env)
         # self.v_reset = jax.vmap(lambda key: env.reset(key, None))
         self.v_reset = jax.vmap(env.reset, in_axes=(0, 0))
@@ -29,31 +30,44 @@ class MAPPO(BaseAlgo):
         self.action_dim = self.env.action_space.discrete.n
         self.state_dim = self.observation_dim * self.env.max_n_ally
 
-    def init_train_state(self, key: jax.random.PRNGKey) -> TrainState:
+    def init_train_state(
+        self, key: jax.random.PRNGKey, num_updates: Optional[int] = None
+    ) -> TrainState:
+        if self.config.learning_scheduler and num_updates is None:
+            raise ValueError("num_updates must be provided if learning_scheduler is True")
         rngs = nnx.Rngs(self.config.seed)
 
         # Instantiate policy and critic functions
         pi = RNNHybridPolicy(
             action_dim=self.action_dim,
             obs_dim=self.observation_dim,
-            layer_dim=self.config.mappo_layer_dim,
+            layer_dim=self.config.layer_dim,
             rngs=rngs,
         )
-        critic = RNNCritic(self.state_dim, layer_dim=self.config.mappo_layer_dim, rngs=rngs)
-
+        critic = RNNCritic(self.state_dim, layer_dim=self.config.layer_dim, rngs=rngs)
+        if self.config.learning_scheduler:
+            learning_rate = optax.linear_schedule(
+                init_value=self.config.lr,
+                end_value=0.0,
+                transition_steps=num_updates
+                * self.config.epochs
+                * (self.config.n_env // self.config.batch_size),
+            )
+        else:
+            learning_rate = self.config.lr
         # Optimizer
         pi_optimizer = nnx.Optimizer(
             pi,
             optax.chain(
                 optax.clip_by_global_norm(self.config.max_grad_norm),
-                optax.adam(learning_rate=self.config.lr),
+                optax.adam(learning_rate=learning_rate, eps=1e-5),
             ),
         )
         critic_optimizer = nnx.Optimizer(
             critic,
             optax.chain(
                 optax.clip_by_global_norm(self.config.max_grad_norm),
-                optax.adam(learning_rate=self.config.lr),
+                optax.adam(learning_rate=learning_rate, eps=1e-5),
             ),
         )
 
@@ -74,21 +88,22 @@ class MAPPO(BaseAlgo):
         key: jax.random.PRNGKey,
     ) -> Dict[str, Any]:
         policy, _ = get_model(train_state.policy_state)
-        next_hidden_state, logits, mean, log_std = policy(hidden_state, obs)
+        output = policy(hidden_state, obs)
+        next_hidden_state = output[0]
+        continuous_distribution, discrete_distribution = policy.get_distribution(*output[1:])
 
         # Get hybrid action
         discrete_key, continuous_key = jax.random.split(key)
-        discrete_distribution = tfd.Categorical(logits=logits)
-        continuous_distribution = tfd.Normal(mean, jnp.exp(log_std))
-        discrete_actions = discrete_distribution.sample(seed=discrete_key)[:, None]
-        continuous_actions = continuous_distribution.sample(seed=continuous_key)
-
-        actions = jnp.concatenate([continuous_actions, discrete_actions], axis=-1)
-
-        discrete_log_probs = discrete_distribution.log_prob(
-            discrete_actions[:, 0].astype(jnp.int32)
-        )[:, None]
+        discrete_actions = discrete_distribution.sample(seed=discrete_key)
+        discrete_log_probs = discrete_distribution.log_prob(discrete_actions)
+        continuous_actions = jnp.clip(
+            continuous_distribution.sample(seed=continuous_key),
+            -jnp.pi / 12 + 1e-5,
+            jnp.pi / 12 - 1e-5,
+        )
         continuous_log_probs = continuous_distribution.log_prob(continuous_actions)
+
+        actions = jnp.stack([continuous_actions, discrete_actions], axis=-1)
         log_probs = discrete_log_probs + continuous_log_probs
         result = {
             "actions": actions,
@@ -167,7 +182,7 @@ class MAPPO(BaseAlgo):
 
         initial_carry = (init_obs, env_state, policy_hidden_state, critic_hidden_state, key)
         (last_obs, last_env_state, _, last_critic_hidden_state, key), rollout_result = jax.lax.scan(
-            rollout_body, initial_carry, None, self.config.rollout_step_bs
+            rollout_body, initial_carry, None, self.config.rollout_step
         )
 
         last_obs = jnp.stack([last_obs[i] for i in self.env.ally_keys], axis=1)
@@ -182,6 +197,7 @@ class MAPPO(BaseAlgo):
         rollout_result["returned_episode_returns"] = last_env_state.returned_episode_returns
         rollout_result["returned_episode_lengths"] = last_env_state.returned_episode_lengths
         rollout_result["returned_episode_wins"] = last_env_state.returned_episode_wins
+        rollout_result["last_state"] = last_env_state
 
         return train_state.replace(key=key), rollout_result
 
@@ -190,9 +206,7 @@ class MAPPO(BaseAlgo):
     ) -> Tuple[TrainState, Dict[str, Any]]:
         def critic_loss_fn(critic: RNNCritic):
             state_values = jax.vmap(
-                lambda feature, done: rnn_result(
-                    critic, (self.config.mappo_layer_dim,), feature, done
-                ),
+                lambda feature, done: rnn_result(critic, (self.config.layer_dim,), feature, done),
                 in_axes=(1, 1),
                 out_axes=1,
             )(batch["states"], batch["dones"])[0]
@@ -211,49 +225,47 @@ class MAPPO(BaseAlgo):
                 [batch["observations"][key] for key in self.env.ally_keys], axis=0
             )
             policy_vmap = jax.vmap(
-                lambda feature, done: rnn_result(
-                    policy, (self.config.mappo_layer_dim,), feature, done
-                ),
+                lambda feature, done: rnn_result(policy, (self.config.layer_dim,), feature, done),
                 in_axes=(1, 1),
                 out_axes=1,
             )
-            logits, mean, log_std = jax.vmap(
-                lambda obs: policy_vmap(obs, batch["dones"]), out_axes=1
-            )(stacked_obs)
+            output = jax.vmap(lambda obs: policy_vmap(obs, batch["dones"]), out_axes=1)(stacked_obs)
 
-            discrete_distribution = tfd.Categorical(logits=logits)
+            continuous_distribution, discrete_distribution = policy.get_distribution(*output)
             discrete_action = batch["discrete_actions"]
-            discrete_log_pi = discrete_distribution.log_prob(discrete_action[:, :, :, 0])[
-                :, :, :, None
-            ]
+            discrete_log_pi = discrete_distribution.log_prob(discrete_action)
 
-            continuous_distribution = tfd.Normal(mean, jnp.exp(log_std))
             continuous_action = batch["continuous_actions"]
             continuous_log_pi = continuous_distribution.log_prob(continuous_action)
 
             log_pi = discrete_log_pi + continuous_log_pi
 
-            ratio = jnp.exp(log_pi - batch["log_probs"])
+            log_ratio = log_pi - batch["log_probs"]
+
+            ratio = jnp.exp(log_ratio)
             loss = jnp.minimum(
-                ratio * batch["advantages"][:, None],
+                ratio * batch["advantages"],
                 jnp.clip(ratio, 1 - self.config.clip_ratio, 1 + self.config.clip_ratio)
-                * batch["advantages"][:, None],
+                * batch["advantages"],
             ).mean()
 
-            entropy = (
-                discrete_distribution.entropy().mean() + continuous_distribution.entropy().mean()
-            )
+            discrete_entropy = discrete_distribution.entropy().mean()
+            continuous_entropy = -continuous_log_pi.mean()
 
-            return -loss - self.config.entropy_coef * entropy, {
+            entropy = discrete_entropy + continuous_entropy
+
+            approx_kl = ((ratio - 1) - log_ratio).mean()
+
+            return -(loss + self.config.entropy_coef * entropy), {
                 "policy_loss": loss,
                 "entropy": entropy,
                 "ratio": ratio,
                 "ratio_max": ratio.max(),
                 "ratio_min": ratio.min(),
                 "ratio_mean": ratio.mean(),
-                "advantage_max": batch["advantages"].max(),
-                "advantage_min": batch["advantages"].min(),
-                "advantage_mean": batch["advantages"].mean(),
+                "approx_kl": approx_kl,
+                "discrete_entropy": discrete_entropy,
+                "continuous_entropy": continuous_entropy,
             }
 
         critic, critic_optimizer = get_model(train_state.critic_state)
@@ -285,7 +297,7 @@ class MAPPO(BaseAlgo):
         advantages, returns = jax.vmap(
             get_gae,
             in_axes=(1, 1, 1, 0, None, None),
-            out_axes=1,
+            out_axes=-1,
         )(
             batch["common_reward"],
             batch["dones"],
@@ -295,22 +307,54 @@ class MAPPO(BaseAlgo):
             self.config.lamda,
         )
 
-        # Normalization (is there need to normalize each batch?)
-        advantages = (advantages - advantages.mean(axis=1, keepdims=True)) / (
-            advantages.std(axis=1, keepdims=True) + 1e-8
-        )
-
         batch.update({"advantages": advantages, "returns": returns})
+        batch1 = {
+            "advantages": batch["advantages"],
+            "continuous_actions": batch["continuous_actions"],
+            "discrete_actions": batch["discrete_actions"],
+            "log_probs": batch["log_probs"],
+            "returns": batch["returns"],
+        }
+
+        batch2 = {
+            "states": batch["states"],
+            "dones": batch["dones"],
+            "observations": batch["observations"],
+            "state_value": batch["state_value"],
+        }
 
         def train_body(carry, _):
             (train_state,) = carry
+            batch_key, key = jax.random.split(train_state.key)
+            batch_idx = jax.random.permutation(batch_key, self.config.n_env).reshape(
+                -1, self.config.batch_size
+            )
 
-            train_state, train_result = self.train_step(train_state, batch)
+            def batch_scan_body(carry, batch_idx):
+                (train_state,) = carry
+                batch1_ = jax.vmap(
+                    lambda idx: jax.tree.map(lambda x: x[:, :, idx], batch1), out_axes=2
+                )(batch_idx)
+                batch2_ = jax.vmap(
+                    lambda idx: jax.tree.map(lambda x: x[:, idx], batch2), out_axes=1
+                )(batch_idx)
 
-            return (train_state,), train_result
+                batch1_.update(batch2_)
+                batch1_["advantages"] = (batch1_["advantages"] - batch1_["advantages"].mean()) / (
+                    batch1_["advantages"].std() + 1e-8
+                )
+                (
+                    train_state,
+                    train_result,
+                ) = self.train_step(train_state, batch1_)
+                return (train_state.replace(key=key),), train_result
+
+            (train_state,), train_result = jax.lax.scan(batch_scan_body, (train_state,), batch_idx)
+
+            return (train_state.replace(key=key),), train_result
 
         (train_state,), train_result = jax.lax.scan(
-            train_body, (train_state,), None, self.config.mappo_epochs
+            train_body, (train_state,), None, self.config.epochs
         )
 
         info = {
@@ -321,13 +365,18 @@ class MAPPO(BaseAlgo):
             "ratio_max": train_result["ratio_max"].max(),
             "ratio_min": train_result["ratio_min"].min(),
             "ratio_mean": train_result["ratio_mean"].mean(),
-            "advantage_max": train_result["advantage_max"].max(),
-            "advantage_min": train_result["advantage_min"].min(),
-            "advantage_mean": train_result["advantage_mean"].mean(),
+            "advantage_max": batch["advantages"].max(),
+            "advantage_min": batch["advantages"].min(),
+            "advantage_mean": batch["advantages"].mean(),
             "rewards": batch["common_reward"].sum() / self.config.n_env,
+            "approx_kl_max": train_result["approx_kl"].max(),
+            "approx_kl_min": train_result["approx_kl"].min(),
+            "approx_kl_mean": train_result["approx_kl"].mean(),
             "returned_episode_returns": batch["returned_episode_returns"],
             "returned_episode_lengths": batch["returned_episode_lengths"],
             "returned_episode_wins": batch["returned_episode_wins"],
+            "discrete_entropy": train_result["discrete_entropy"].mean(),
+            "continuous_entropy": train_result["continuous_entropy"].mean(),
         }
 
         return train_state, info

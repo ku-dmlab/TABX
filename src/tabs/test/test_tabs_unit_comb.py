@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 from src.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
 from src.tabs.units import get_all_unit_names
-from src.tabs.scenarios import TABSConf, Scenario, generate_scenario, default_tabs_conf
+from src.tabs.scenarios import TABSConfig, Scenario, generate_scenario, default_tabs_conf
 
 
 class TestTABSUnitComb(unittest.TestCase):
@@ -24,7 +24,7 @@ class TestTABSUnitComb(unittest.TestCase):
         self.purchase3(rng)
 
     def reset_predefined_scenario1(self, scenario_name):
-        tabs_conf = TABSConf(
+        tabs_conf = TABSConfig(
             scenario_name=scenario_name,
             max_agents=10,
             max_num_units=len(get_all_unit_names()),

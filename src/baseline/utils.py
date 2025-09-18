@@ -4,6 +4,28 @@ import chex
 import jax
 import jax.numpy as jnp
 from flax import struct, nnx
+from dataclasses import dataclass, replace, asdict, is_dataclass
+# ... existing imports ...
+
+
+def dataclass_to_dict(obj):
+    """Convert dataclass object to a complete dictionary, filtering private attributes."""
+
+    def _convert(item):
+        if is_dataclass(item):
+            return _convert(asdict(item))
+        elif isinstance(item, dict):
+            return {k: _convert(v) for k, v in item.items()}
+        elif isinstance(item, (list, tuple)):
+            return [_convert(element) for element in item]
+        else:
+            return item
+
+    result = _convert(obj)
+    # Filter out private attributes (starting with _)
+    if isinstance(result, dict):
+        return {k: v for k, v in result.items() if not k.startswith("_")}
+    return result
 
 
 def get_abs_path(path):

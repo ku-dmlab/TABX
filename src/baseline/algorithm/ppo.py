@@ -1,4 +1,4 @@
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 
 import chex
 import jax
@@ -27,31 +27,45 @@ class PPO(BaseAlgo):
         self.observation_dim = sum(self.env.observation_space.shape)
         self.action_dim = self.env.action_space.n
 
-    def init_train_state(self, key: jax.random.PRNGKey) -> TrainState:
+    def init_train_state(
+        self, key: jax.random.PRNGKey, num_updates: Optional[int] = None
+    ) -> TrainState:
+        if self.config.learning_scheduler and num_updates is None:
+            raise ValueError("num_updates must be provided if learning_scheduler is True")
         rngs = nnx.Rngs(self.config.seed)
 
         # Instantiate policy and critic functions
         pi = Policy(
             action_dim=self.action_dim,
             state_dim=self.observation_dim,
-            layer_dim=self.config.ppo_layer_dim,
+            layer_dim=self.config.layer_dim,
             rngs=rngs,
         )
-        critic = Critic(self.observation_dim, layer_dim=self.config.ppo_layer_dim, rngs=rngs)
+        critic = Critic(self.observation_dim, layer_dim=self.config.layer_dim, rngs=rngs)
+        if self.config.learning_scheduler:
+            learning_rate = optax.linear_schedule(
+                init_value=self.config.lr,
+                end_value=0.0,
+                transition_steps=num_updates
+                * self.config.epochs
+                * (self.config.n_env // self.config.batch_size),
+            )
+        else:
+            learning_rate = self.config.lr
 
         # Optimizer
         pi_optimizer = nnx.Optimizer(
             pi,
             optax.chain(
                 optax.clip_by_global_norm(self.config.max_grad_norm),
-                optax.adam(learning_rate=self.config.lr),
+                optax.adam(learning_rate=learning_rate, eps=1e-5),
             ),
         )
         critic_optimizer = nnx.Optimizer(
             critic,
             optax.chain(
                 optax.clip_by_global_norm(self.config.max_grad_norm),
-                optax.adam(learning_rate=self.config.lr),
+                optax.adam(learning_rate=learning_rate, eps=1e-5),
             ),
         )
 
@@ -73,7 +87,7 @@ class PPO(BaseAlgo):
     ) -> Dict[str, Any]:
         policy, _ = get_model(train_state.policy_state)
         logits = policy(obs)
-        logits = jnp.where(unavail_action, -jnp.inf, logits)
+        logits = jnp.where(unavail_action, -1e9, logits)
         dist = tfd.Categorical(logits=logits)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
@@ -99,7 +113,7 @@ class PPO(BaseAlgo):
             sample_result = self.sample_action(
                 train_state, obs, env_state.unavail_action, action_key
             )
-            next_obs, env_state, _, done, _ = self.v_step(
+            next_obs, next_env_state, _, done, _ = self.v_step(
                 jax.random.split(step_key, self.config.n_env), env_state, sample_result["actions"]
             )
             values = critic(obs)
@@ -110,11 +124,11 @@ class PPO(BaseAlgo):
                     "dones": done,
                     "observations": obs,
                     "unavail_actions": env_state.unavail_action,
-                    "env_state": env_state,
+                    "env_state": next_env_state,
                 }
             )
 
-            return (next_obs, env_state, key), sample_result
+            return (next_obs, next_env_state, key), sample_result
 
         initial_carry = (init_obs, env_state, key)
         (last_obs, last_state, key), rollout_result = jax.lax.scan(
@@ -144,13 +158,12 @@ class PPO(BaseAlgo):
 
         def policy_loss_fn(policy: Policy):
             logits = policy(batch["observations"])
-            logits = jnp.where(batch["unavail_actions"], -jnp.inf, logits)
+            logits = jnp.where(batch["unavail_actions"], -1e9, logits)
             dist = tfd.Categorical(logits=logits)
             log_pi = dist.log_prob(batch["actions"])
 
             log_diff = log_pi - batch["log_probs"]
-            isnan_log_diff = jnp.isnan(log_diff)
-            log_diff = jnp.where(isnan_log_diff, 0.0, log_diff)
+            all_masks = batch["unavail_actions"].astype(jnp.bool_).all(axis=-1, keepdims=True)
 
             ratio = jnp.exp(log_diff).reshape(batch["advantages"].shape)
             loss = (
@@ -159,26 +172,32 @@ class PPO(BaseAlgo):
                     jnp.clip(ratio, 1 - self.config.clip_ratio, 1 + self.config.clip_ratio)
                     * batch["advantages"],
                 )
-                * (1 - isnan_log_diff.reshape(batch["advantages"].shape))
-            ).sum() / (~isnan_log_diff).sum()
+                * (1 - all_masks.reshape(batch["advantages"].shape))
+            ).sum() / (~all_masks).sum()
 
-            is_nan_log_pi = jnp.isnan(log_pi)
             entropy = (
-                jnp.where(is_nan_log_pi, 0.0, -log_pi * jnp.exp(log_pi)).sum()
-                / (~is_nan_log_pi).sum()
+                jnp.where(all_masks.reshape(log_pi.shape), 0.0, -log_pi * jnp.exp(log_pi)).sum()
+                / (~all_masks).sum()
             )
 
-            return -loss + self.config.entropy_coef * entropy, {
+            approx_kl = (
+                ((ratio - 1) - log_diff.reshape(ratio.shape))
+                * (1 - all_masks.reshape(ratio.shape))
+                / (~all_masks).sum()
+            )
+
+            return -(loss + self.config.entropy_coef * entropy), {
                 "policy_loss": loss,
                 "entropy": entropy,
                 "ratio": ratio,
                 "ratio_max": ratio.max(),
                 "ratio_min": ratio.min(),
                 "ratio_mean": ratio.mean(),
-                "isnan_log_diff": isnan_log_diff.mean(),
+                "all_masks": all_masks.mean(),
                 "advantage_max": batch["advantages"].max(),
                 "advantage_min": batch["advantages"].min(),
                 "advantage_mean": batch["advantages"].mean(),
+                "approx_kl": approx_kl,
             }
 
         critic, critic_optimizer = get_model(train_state.critic_state)
@@ -198,9 +217,7 @@ class PPO(BaseAlgo):
                 state=nnx.state((critic, critic_optimizer))
             ),
         )
-
-        info.update({"critic_loss": critic_loss})
-
+        info["critic_loss"] = critic_loss
         return train_state, info
 
     def train(
@@ -216,25 +233,46 @@ class PPO(BaseAlgo):
             self.config.lamda,
         )
 
-        # Normalization
-        advantages = (advantages - advantages.mean(axis=1, keepdims=True)) / (
-            advantages.std(axis=1, keepdims=True) + 1e-8
-        )
+        train_batch = {
+            "advantages": advantages,
+            "returns": returns,
+            "observations": batch["observations"],
+            "actions": batch["actions"],
+            "log_probs": batch["log_probs"],
+            "dones": batch["dones"],
+            "values": batch["values"],
+            "unavail_actions": batch["unavail_actions"],
+        }
 
-        batch.update({"advantages": advantages, "returns": returns})
-
-        # TODO : consider batch size
         def train_body(carry, _):
             (train_state,) = carry
+            batch_key, key = jax.random.split(train_state.key)
+            batch_idx = jax.random.permutation(batch_key, self.config.n_env).reshape(
+                -1, self.config.batch_size
+            )
 
-            train_state, train_result = self.train_step(train_state, batch)
+            def batch_scan_body(carry, batch_idx):
+                (train_state,) = carry
+                mini_batch = jax.vmap(
+                    lambda idx: jax.tree.map(lambda x: x[:, idx], train_batch), out_axes=1
+                )(batch_idx)
+                mini_batch["advantages"] = (
+                    mini_batch["advantages"] - mini_batch["advantages"].mean()
+                ) / (mini_batch["advantages"].std() + 1e-8)
+                (
+                    train_state,
+                    train_result,
+                ) = self.train_step(train_state, mini_batch)
+                return (train_state,), train_result
 
-            return (train_state,), train_result
+            (train_state,), train_result = jax.lax.scan(batch_scan_body, (train_state,), batch_idx)
+
+            return (train_state.replace(key=key),), train_result
 
         (train_state,), train_result = jax.lax.scan(
-            train_body, (train_state,), None, self.config.ppo_epochs
+            train_body, (train_state,), None, self.config.epochs
         )
-
+        trajectory_entropy = -jnp.nansum(batch["log_probs"], axis=-1).mean(axis=0)
         info = {
             "critic_loss": train_result["critic_loss"].mean(),
             "policy_loss": train_result["policy_loss"].mean(),
@@ -243,11 +281,16 @@ class PPO(BaseAlgo):
             "ratio_max": train_result["ratio_max"].max(),
             "ratio_min": train_result["ratio_min"].min(),
             "ratio_mean": train_result["ratio_mean"].mean(),
-            "isnan_log_diff": train_result["isnan_log_diff"].mean(),
-            "advantage_max": train_result["advantage_max"].max(),
-            "advantage_min": train_result["advantage_min"].min(),
-            "advantage_mean": train_result["advantage_mean"].mean(),
-            "rewards": batch["rewards"].sum() / self.config.n_env,
+            "all_masks": train_result["all_masks"].mean(),
+            "advantage_max": train_batch["advantages"].max(),
+            "advantage_min": train_batch["advantages"].min(),
+            "advantage_mean": train_batch["advantages"].mean(),
+            "trajectory_entropy": trajectory_entropy,
+            "approx_kl": train_result["approx_kl"].mean(),
+            "approx_kl_max": train_result["approx_kl"].max(),
+            "approx_kl_min": train_result["approx_kl"].min(),
+            "log_probs_max": train_batch["log_probs"].max(),
+            "log_probs_min": train_batch["log_probs"].min(),
         }
 
         return train_state, info

@@ -1,11 +1,8 @@
-from typing import Dict, List
-
+from typing import Dict
 import chex
+from src.tabs.constants import ALL_UNIT_NAMES, UnitID, SIGHT_ANGLE
 from flax import struct
 import jax.numpy as jnp
-
-sight_angle = jnp.pi / 2
-non_target_balance = 0.5
 
 
 @struct.dataclass
@@ -21,20 +18,6 @@ class Unit:
     attack_cooldown: chex.Array  # sec
     sight_angle: chex.Array
     space_occupied: chex.Array  # area of rectangle shape
-
-
-def get_all_unit_names() -> List:
-    return [
-        "farmer",
-        "assassin",
-        "theking",
-        "mammoth",
-        "archer",
-        "cannon",
-        "deadeye",
-        "healer",
-        "paladin",
-    ]
 
 
 def get_unit_spec(unit: Unit) -> Dict[str, chex.Array]:
@@ -54,7 +37,7 @@ def get_unit_spec(unit: Unit) -> Dict[str, chex.Array]:
 
 def get_all_unit_spec_dict() -> Dict[str, Dict[str, chex.Array]]:
     all_units = [Farmer, Assassin, TheKing, Mammoth, Archer, Cannon, Deadeye, Healer, Paladin]
-    all_unit_names = get_all_unit_names()
+    all_unit_names = ALL_UNIT_NAMES
     spec = {}
     for idx, unit in enumerate(all_units):
         spec[all_unit_names[idx]] = get_unit_spec(unit)
@@ -93,22 +76,10 @@ def get_all_unit_spec() -> chex.Array:
     }
 
 
-class UnitID:
-    Farmer = 1  # F
-    Assassin = 2  # S
-    TheKing = 3  # K
-    Mammoth = 4  # M
-    Archer = 5  # A
-    Cannon = 6  # C
-    Deadeye = 7  # D
-    Healer = 8  # H
-    Paladin = 9  # P
-
-
 @struct.dataclass
 class Farmer(Unit):
     unit_type_id = jnp.array([UnitID.Farmer])
-    price = jnp.array([110])
+    price = jnp.array([120])
     health = jnp.array([60])
     body_radius = jnp.array([1.0])
     body_weight = jnp.array([1.0])
@@ -116,7 +87,7 @@ class Farmer(Unit):
     attack_damage = jnp.array([14])
     attack_range = jnp.array([2.5])
     attack_cooldown = jnp.array([2.5])
-    sight_angle = jnp.array([sight_angle])
+    sight_angle = jnp.array([SIGHT_ANGLE])
     space_occupied = jnp.array([1])
 
 
@@ -131,7 +102,7 @@ class Assassin(Unit):
     attack_damage = jnp.array([22])
     attack_range = jnp.array([2.5])
     attack_cooldown = jnp.array([1.5])
-    sight_angle = jnp.array([sight_angle])
+    sight_angle = jnp.array([SIGHT_ANGLE])
     space_occupied = jnp.array([1])
 
 
@@ -146,7 +117,7 @@ class TheKing(Unit):
     attack_damage = jnp.array([46])
     attack_range = jnp.array([3.2])
     attack_cooldown = jnp.array([2.5])
-    sight_angle = jnp.array([sight_angle])
+    sight_angle = jnp.array([SIGHT_ANGLE])
     space_occupied = jnp.array([1])
 
 
@@ -161,22 +132,22 @@ class Mammoth(Unit):
     attack_damage = jnp.array([20])
     attack_range = jnp.array([3])
     attack_cooldown = jnp.array([6.5])
-    sight_angle = jnp.array([sight_angle])
+    sight_angle = jnp.array([SIGHT_ANGLE])
     space_occupied = jnp.array([4])
 
 
 @struct.dataclass
 class Archer(Unit):
     unit_type_id = jnp.array([UnitID.Archer])
-    price = jnp.array([380])
+    price = jnp.array([450])
     health = jnp.array([40])
     body_radius = jnp.array([1.0])
     body_weight = jnp.array([1.0])
     speed = jnp.array([1.0])
-    attack_damage = jnp.array([30])
+    attack_damage = jnp.array([28])
     attack_range = jnp.array([27.0])
     attack_cooldown = jnp.array([8.0])
-    sight_angle = jnp.array([sight_angle])
+    sight_angle = jnp.array([SIGHT_ANGLE])
     space_occupied = jnp.array([1])
 
 
@@ -191,7 +162,7 @@ class Cannon(Unit):
     attack_damage = jnp.array([80])
     attack_range = jnp.array([40.0])
     attack_cooldown = jnp.array([10.0])
-    sight_angle = jnp.array([sight_angle])
+    sight_angle = jnp.array([SIGHT_ANGLE])
     space_occupied = jnp.array([1])
 
 
@@ -206,7 +177,7 @@ class Deadeye(Unit):
     attack_damage = jnp.array([25])
     attack_range = jnp.array([20.0])
     attack_cooldown = jnp.array([8.0])
-    sight_angle = jnp.array([sight_angle])
+    sight_angle = jnp.array([SIGHT_ANGLE])
     space_occupied = jnp.array([1])
 
 
@@ -221,7 +192,7 @@ class Healer(Unit):
     attack_damage = jnp.array([-7])
     attack_range = jnp.array([10.0])
     attack_cooldown = jnp.array([2.0])
-    sight_angle = jnp.array([sight_angle])
+    sight_angle = jnp.array([SIGHT_ANGLE])
     space_occupied = jnp.array([1])
 
 
@@ -236,5 +207,5 @@ class Paladin(Unit):
     attack_damage = jnp.array([-6])
     attack_range = jnp.array([7.5])
     attack_cooldown = jnp.array([2.0])
-    sight_angle = jnp.array([sight_angle])
+    sight_angle = jnp.array([SIGHT_ANGLE])
     space_occupied = jnp.array([1])

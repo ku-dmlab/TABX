@@ -1,40 +1,48 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from tqdm import tqdm
 import json
 import tyro
 import wandb
 import hashlib
+import numpy as np
+
+from src.baseline.configs.config import PPOConfig
+from src.tabs.config import TABSConfig, TABSHeuristicConfig
+from src.tabs.constants import ALL_UNIT_NAMES
 
 
 @dataclass
 class Config:
     seed: int = 42
     n_env: int = 64  # the number of environments to run in parallel
-
-    battle_simulator_rollout_step: int = 512
-
-    gamma: float = 0.99  # the discount factor
-    lamda: float = 0.95  # the lambda for GAE
-    clip_value: float = 1.0  # the clip value for PPO
-    clip_ratio: float = 0.05  # the clip ratio for PPO
-    entropy_coef: float = 0.1  # the entropy coefficient
-    ppo_epochs: int = 5  # the number of epochs to update the policy and value function
-    max_grad_norm: float = 0.5  # the maximum gradient norm
-    lr: float = 1e-3  # the learning rate
-    layer_dim = 128
-
-    # tabs configuration
-    scenario: str = "1K"
-    max_n_ally: int = 20
-    max_n_enemy: int = 1
-    max_field_height: int = 4
-    max_field_width: int = 5
-
+    tabs: TABSConfig = TABSConfig()
+    enemy_heuristic_config: TABSHeuristicConfig = TABSHeuristicConfig()
+    initial_ally_heuristic_config: TABSHeuristicConfig = TABSHeuristicConfig(
+        epsilon=0.5,
+        aggressive_threshold=0.1,
+        rotate_noise_scale=1.0,
+        healer_rotate_noise_scale=0.5,
+        healer_aggressive_threshold=0.0,
+    )
+    end_ally_heuristic_config: TABSHeuristicConfig = TABSHeuristicConfig(
+        epsilon=0.0,
+        aggressive_threshold=0.6,
+        rotate_noise_scale=0.0,
+        healer_rotate_noise_scale=0.0,
+        healer_aggressive_threshold=1.0,
+    )
+    comb_ppo: PPOConfig = PPOConfig(
+        rollout_step=tabs.max_n_ally, n_env=n_env, entropy_coef=1.0, batch_size=32
+    )
+    deploy_ppo: PPOConfig = PPOConfig(
+        rollout_step=tabs.max_n_ally, n_env=n_env, entropy_coef=1.0, batch_size=32
+    )
     save_path: str = "/save"
     gpu_id: int = 3
 
-    train_step: int = 10000
-    log_step: int = 100
+    total_iter: int = 10
+    iter_per_train_step: int = 100
+    battle_simulator_rollout_step: int = 512
 
 
 if __name__ == "__main__":
@@ -49,68 +57,98 @@ if __name__ == "__main__":
     import jax.numpy as jnp
 
     from src.baseline.algorithm import PPO
-    from src.baseline.utils import get_gae
     from src.tabs.wrappers import (
         TABSBattleSimulatorHeuristicWrapper,
         TABSBattleSimulatorLogWrapper,
     )
     from src.tabs import TABSUnitComb, TABSUnitDeploy, TABSBattleSimulator
-    from src.tabs.scenarios import generate_scenario, TABSConf
-    from src.tabs.units import get_all_unit_names
+    from src.tabs.scenarios import generate_scenario, TABSConfig
+    from src.tabs.scenarios import pprint_grid_with_units
+    from src.baseline.utils import get_abs_path, dataclass_to_dict
+    from src.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
+    import datetime
 
     # Create a hash of the config for unique folder naming
-    config_dict = {k: v for k, v in vars(config).items() if not k.startswith("_")}
+    current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    config_dict = dataclass_to_dict(config)
     config_str = json.dumps(config_dict, sort_keys=True)
     config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
-    config.save_path = f"/save/{config.scenario}_{config_hash}"
+    config.save_path = f"/save/{config.tabs.scenario_name}_{current_time}_{config_hash}"
 
     wandb.init(project="comb_deploy_ppo", config=config)
 
-    config.max_num_units = len(get_all_unit_names())
-
-    tabs_conf = TABSConf(
-        scenario_name=config.scenario,
-        max_n_ally=config.max_n_ally,
-        max_n_enemy=config.max_n_enemy,
-        max_field_height=config.max_field_height,
-        max_field_width=config.max_field_width,
-        max_num_units=config.max_num_units,
-    )
-    scenario = generate_scenario(tabs_conf)
+    scenario = generate_scenario(config.tabs)
+    config.tabs = replace(config.tabs, max_n_enemy=int(scenario.enemy_unit_comp.sum().item()))
     repeated_scenario = jax.tree.map(lambda x: jnp.repeat(x[None], config.n_env, axis=0), scenario)
 
-    env_unit_deploy = TABSUnitDeploy(tabs_conf)
-    env_unit_comb = TABSUnitComb(tabs_conf)
+    env_unit_deploy = TABSUnitDeploy(config.tabs)
+    env_unit_comb = TABSUnitComb(config.tabs)
 
-    config.rollout_step = config.max_n_ally
-    ppo_unit_deploy = PPO(config, env_unit_deploy)
-    ppo_unit_comb = PPO(config, env_unit_comb)
+    ppo_unit_deploy = PPO(config.deploy_ppo, env_unit_deploy)
+    ppo_unit_comb = PPO(config.comb_ppo, env_unit_comb)
 
-    unit_deploy_train_state = ppo_unit_deploy.init_train_state()
-    unit_comb_train_state = ppo_unit_comb.init_train_state()
+    deploy_key, comb_key = jax.random.split(jax.random.key(config.seed))
 
-    battle_simulator = TABSBattleSimulator(tabs_conf)
-    battle_simulator = TABSBattleSimulatorHeuristicWrapper(battle_simulator, "all")
+    unit_deploy_train_state = ppo_unit_deploy.init_train_state(
+        deploy_key, config.iter_per_train_step * config.total_iter
+    )
+    unit_comb_train_state = ppo_unit_comb.init_train_state(
+        comb_key, config.iter_per_train_step * config.total_iter
+    )
+
+    battle_simulator = TABSBattleSimulator(config.tabs)
+    battle_simulator = TABSBattleSimulatorHeuristicWrapper(
+        battle_simulator, "enemy", config.enemy_heuristic_config
+    )
     battle_simulator = TABSBattleSimulatorLogWrapper(battle_simulator, reset_when_done=False)
 
     bs_v_reset = jax.vmap(battle_simulator.reset, in_axes=(0, 0))
-    bs_v_step = jax.vmap(partial(battle_simulator.step, action={}), in_axes=(0, 0))
+    bs_v_step = jax.vmap(partial(battle_simulator.step), in_axes=(0, 0, 0))
 
-    def battle_simulator_rollout(key, deployed_scenario):
+    def get_ally_heuristic_config(step):
+        weight = jnp.clip(1 - step / (config.total_iter * config.iter_per_train_step), 0.0, 1.0)
+
+        return TABSHeuristicConfig(
+            epsilon=weight * config.initial_ally_heuristic_config.epsilon
+            + (1 - weight) * config.end_ally_heuristic_config.epsilon,
+            aggressive_threshold=weight * config.initial_ally_heuristic_config.aggressive_threshold
+            + (1 - weight) * config.end_ally_heuristic_config.aggressive_threshold,
+            rotate_noise_scale=weight * config.initial_ally_heuristic_config.rotate_noise_scale
+            + (1 - weight) * config.end_ally_heuristic_config.rotate_noise_scale,
+            healer_rotate_noise_scale=weight
+            * config.initial_ally_heuristic_config.healer_rotate_noise_scale
+            + (1 - weight) * config.end_ally_heuristic_config.healer_rotate_noise_scale,
+            healer_aggressive_threshold=weight
+            * config.initial_ally_heuristic_config.healer_aggressive_threshold
+            + (1 - weight) * config.end_ally_heuristic_config.healer_aggressive_threshold,
+        )
+
+    def battle_simulator_rollout(key, deployed_scenario, step):
         key, reset_key = jax.random.split(key)
         obs, state = bs_v_reset(jax.random.split(reset_key, config.n_env), deployed_scenario)
 
         def rollout_body(carry, key):
-            key, state = carry
+            key, obs, state = carry
 
-            step_key, key = jax.random.split(key)
-            obs, state, reward, done, info = bs_v_step(
-                jax.random.split(step_key, config.n_env), state
+            step_key, action_key, key = jax.random.split(key, 3)
+            ally_actions = jax.tree.map(
+                lambda obs: jax.vmap(
+                    partial(
+                        heuristic_policy,
+                        num_agents=battle_simulator.num_agents,
+                        heuristic_config=get_ally_heuristic_config(step),
+                    ),
+                    in_axes=(0, 0),
+                )(jax.random.split(action_key, config.n_env), obs),
+                obs,
+            )
+            next_obs, next_state, reward, done, info = bs_v_step(
+                jax.random.split(step_key, config.n_env), state, ally_actions
             )
 
-            return (key, state), info
+            return (key, next_obs, next_state), info
 
-        carry = (key, state)
+        carry = (key, obs, state)
         _, info = jax.lax.scan(rollout_body, carry, None, config.battle_simulator_rollout_step)
 
         result = {
@@ -122,7 +160,7 @@ if __name__ == "__main__":
         return result
 
     def train_body(carry, _):
-        (unit_deploy_train_state, unit_comb_train_state, key) = carry
+        (unit_deploy_train_state, unit_comb_train_state, key, step) = carry
 
         key, new_key = jax.random.split(key)
 
@@ -141,47 +179,22 @@ if __name__ == "__main__":
         )
 
         # Rollout battle simulator using the deployed scenario
-        bs_rollout_result = battle_simulator_rollout(key, deployed_scenario)
+        bs_rollout_result = battle_simulator_rollout(key, deployed_scenario, step)
 
         # Set rewards for deploy and comb based on the battle simulator rollout
-        deploy_rewards = jnp.zeros_like(deploy_rollout_result["values"])
         deploy_rewards = (
             deploy_rollout_result["dones"] * bs_rollout_result["episode_returns"][None, :, 0]
         )
         deploy_rollout_result["rewards"] = deploy_rewards
-        comb_rewards = jnp.zeros_like(comb_rollout_result["values"])
         comb_rewards = (
             comb_rollout_result["dones"] * bs_rollout_result["episode_returns"][None, :, 0]
         )
         comb_rollout_result["rewards"] = comb_rewards
 
-        # Calculate advantages and returns
-        advantages, returns = jax.vmap(get_gae, in_axes=(1, 1, 1, 0, None, None), out_axes=1)(
-            comb_rollout_result["rewards"],
-            comb_rollout_result["dones"],
-            comb_rollout_result["values"],
-            comb_rollout_result["last_value"],
-            config.gamma,
-            config.lamda,
-        )
-        comb_rollout_result["advantages"] = (
-            advantages - advantages.mean(axis=1, keepdims=True)
-        ) / (advantages.std(axis=1, keepdims=True) + 1e-8)  # is it need to consider nan?
-        comb_rollout_result["returns"] = returns
-
-        advantages, returns = jax.vmap(get_gae, in_axes=(1, 1, 1, 0, None, None), out_axes=1)(
-            deploy_rollout_result["rewards"],
-            deploy_rollout_result["dones"],
-            deploy_rollout_result["values"],
-            deploy_rollout_result["last_value"],
-            config.gamma,
-            config.lamda,
-        )
-        deploy_rollout_result["advantages"] = (
-            advantages - advantages.mean(axis=1, keepdims=True)
-        ) / (advantages.std(axis=1, keepdims=True) + 1e-8)
-        # deploy_rollout_result['advantages'] = advantages
-        deploy_rollout_result["returns"] = returns
+        bs_rollout_result["episode_lengths"] = bs_rollout_result["episode_lengths"][:, 0].mean()
+        bs_rollout_result["episode_wins"] = bs_rollout_result["episode_wins"][:, 0].mean()
+        bs_rollout_result["episode_returns"] = bs_rollout_result["episode_returns"][:, 0].mean()
+        bs_rollout_result["episode_returns"] += bs_rollout_result["episode_wins"]
 
         unit_deploy_train_state, deploy_train_info = ppo_unit_deploy.train(
             unit_deploy_train_state, deploy_rollout_result
@@ -197,98 +210,68 @@ if __name__ == "__main__":
             axis=0
         )
 
+        for i, name in enumerate(ALL_UNIT_NAMES):
+            comb_train_info[f"unit_count/{name}"] = comb_rollout_result[
+                "last_state"
+            ].current_unit_list.mean(axis=0)[i]
+
+        deploy_train_info["unit_deploy"] = deploy_rollout_result["last_state"].battle_field[0]
+
         result = {
             "comb_train_info": comb_train_info,
             "deploy_train_info": deploy_train_info,
             "bs_rollout_result": bs_rollout_result,
         }
 
-        return (unit_deploy_train_state, unit_comb_train_state, new_key), result
+        return (unit_deploy_train_state, unit_comb_train_state, new_key, step + 1), result
+
+    logs_dir = get_abs_path(config.save_path)
+    os.makedirs(logs_dir, exist_ok=True)
+
+    # Save config to logs directory
+    with open(os.path.join(logs_dir, "config.json"), "w") as f:
+        json.dump(config_dict, f, indent=2)
 
     @jax.jit
-    def train_fn(unit_deploy_train_state, unit_comb_train_state, key):
-        carry = (unit_deploy_train_state, unit_comb_train_state, key)
-        (unit_deploy_train_state, unit_comb_train_state, key), result = jax.lax.scan(
-            train_body, carry, None, config.log_step
+    def train_fn(unit_deploy_train_state, unit_comb_train_state, key, step):
+        carry = (unit_deploy_train_state, unit_comb_train_state, key, step)
+        (unit_deploy_train_state, unit_comb_train_state, key, step), result = jax.lax.scan(
+            train_body, carry, None, config.iter_per_train_step
         )
 
-        return (unit_deploy_train_state, unit_comb_train_state, key), result
+        return (unit_deploy_train_state, unit_comb_train_state, key, step), result
 
     key = jax.random.key(config.seed)
-    for step in tqdm(range(config.train_step // config.log_step)):
-        (unit_deploy_train_state, unit_comb_train_state, key), result = train_fn(
-            unit_deploy_train_state, unit_comb_train_state, key
+    step = jnp.array(0)
+    for train_step in tqdm(range(config.total_iter)):
+        (unit_deploy_train_state, unit_comb_train_state, key, step), result = train_fn(
+            unit_deploy_train_state, unit_comb_train_state, key, step
         )
 
-        result["bs_rollout_result"]["episode_returns"] = (
-            result["bs_rollout_result"]["episode_returns"][:, :, 0].mean(axis=1).flatten()
+        for i in range(config.iter_per_train_step):
+            log_data = {}
+            for key_, value in result["comb_train_info"].items():
+                log_data[f"comb/{key_}"] = jax.tree.map(lambda x: x[i], value)
+            for key_, value in result["deploy_train_info"].items():
+                if key_ == "unit_deploy":
+                    log_data[f"deploy/{key_}"] = wandb.Html(
+                        f"<pre>{pprint_grid_with_units(value[i])}</pre>"
+                    )
+                    continue
+                log_data[f"deploy/{key_}"] = jax.tree.map(lambda x: x[i], value)
+
+            for key_, value in result["bs_rollout_result"].items():
+                log_data[f"bs/{key_}"] = jax.tree.map(lambda x: x[i], value)
+
+            wandb.log(log_data)
+
+        ppo_unit_comb.save_state(
+            unit_comb_train_state, os.path.join(config.save_path, f"comb/ppo/{train_step}")
         )
-        result["bs_rollout_result"]["episode_lengths"] = (
-            result["bs_rollout_result"]["episode_lengths"][:, :, 0].mean(axis=1).flatten()
+        ppo_unit_deploy.save_state(
+            unit_deploy_train_state, os.path.join(config.save_path, f"deploy/ppo/{train_step}")
         )
-        result["bs_rollout_result"]["episode_wins"] = (
-            result["bs_rollout_result"]["episode_wins"][:, :, 0].mean(axis=1).flatten()
-        )
-        result["bs_rollout_result"]["episode_returns"] += result["bs_rollout_result"][
-            "episode_wins"
-        ]
 
-        for i in range(config.log_step):
-            bs_log_data = {
-                f"bs_rollout_result/{k}": v
-                for k, v in jax.tree.map(lambda x: x[i], result["bs_rollout_result"]).items()
-            }
-
-            comb_data = jax.tree.map(lambda x: x[i], result["comb_train_info"])
-            comb_log_data = {}
-            for k, v in comb_data.items():
-                if k == "unit_list":
-                    # Get unit names for better logging
-                    unit_names = get_all_unit_names()
-
-                    # Log individual unit counts as separate metrics
-                    for unit_idx, unit_name in enumerate(unit_names):
-                        if unit_idx < v.shape[0]:  # Check if unit index exists
-                            comb_log_data[f"comb_train_info/unit_count/{unit_name}"] = v[unit_idx]
-
-                    # Log unit composition summary (no complex charts to avoid empty tables)
-                    for unit_idx, unit_name in enumerate(unit_names):
-                        if unit_idx < v.shape[0]:
-                            comb_log_data[f"comb_train_info/composition/{unit_name}"] = float(
-                                v[unit_idx]
-                            )
-
-                    # Also log as histogram for distribution analysis
-                    wandb.log({"comb_train_info/unit_list_histogram": wandb.Histogram(v)})
-
-                    # Log summary statistics
-                    total_units = float(jnp.sum(v))
-                    if total_units > 0:
-                        # Unit diversity (number of different unit types used)
-                        unit_diversity = float(jnp.sum(v > 0))
-                        comb_log_data["comb_train_info/unit_diversity"] = unit_diversity
-                        comb_log_data["comb_train_info/total_units"] = total_units
-
-                        # Most used unit type
-                        most_used_idx = int(jnp.argmax(v))
-                        if most_used_idx < len(unit_names):
-                            comb_log_data["comb_train_info/dominant_unit_idx"] = most_used_idx
-                            # Log unit ratios for better analysis
-                            for unit_idx, unit_name in enumerate(unit_names):
-                                if unit_idx < v.shape[0] and total_units > 0:
-                                    ratio = float(v[unit_idx] / total_units)
-                                    comb_log_data[f"comb_train_info/unit_ratio/{unit_name}"] = ratio
-                else:
-                    comb_log_data[f"comb_train_info/{k}"] = v
-
-            deploy_log_data = {
-                f"deploy_train_info/{k}": v
-                for k, v in jax.tree.map(lambda x: x[i], result["deploy_train_info"]).items()
-            }
-
-            wandb.log(bs_log_data)
-            wandb.log(comb_log_data)
-            wandb.log(deploy_log_data)
-
-        ppo_unit_deploy.save_state(unit_deploy_train_state, config.save_path + f"/deploy/{step}")
-        ppo_unit_comb.save_state(unit_comb_train_state, config.save_path + f"/comb/{step}")
+        np_result = jax.tree.map(lambda x: np.array(x).tolist(), result)
+        with open(os.path.join(logs_dir, f"result_{train_step}.json"), "w") as f:
+            json.dump(np_result, f)

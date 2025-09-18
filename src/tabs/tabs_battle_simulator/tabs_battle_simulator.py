@@ -16,7 +16,7 @@ from src.environments.physics import (
     physics_step,
     physics_update,
 )
-from src.tabs.scenarios import TABSConf, Scenario, get_vectorized_scenario, VectorizedScenario
+from src.tabs.scenarios import TABSConfig, Scenario, get_vectorized_scenario, VectorizedScenario
 
 
 move_table = jnp.array(
@@ -73,6 +73,8 @@ class DefaultUnit:
     pos_min: chex.Array  # The positional boundaries or limits within which the unit can move
     pos_max: chex.Array  # The positional boundaries or limits within which the unit can move
     status: UnitStatus  # The current status of the unit, including health, attack stats, and other attributes
+    damage_dealt: chex.Array  # The damage dealt by the unit
+    is_attacking: chex.Array  # Boolean showing whether the unit is attacking
 
     def update(self, **kwargs):
         config = kwargs["config"]
@@ -80,11 +82,14 @@ class DefaultUnit:
         updated_object = physics_update(config, self)
 
         updated_transform = self.transform._replace(
-            position=jnp.clip(updated_object.transform.position, self.pos_min, self.pos_max)
+            position=jnp.clip(updated_object.transform.position, self.pos_min, self.pos_max),
         )
 
         return updated_object.replace(
-            transform=updated_transform, status=self.status.replace(cooldown=next_cooldown)
+            transform=updated_transform,
+            status=self.status.replace(cooldown=next_cooldown),
+            damage_dealt=self.damage_dealt,
+            is_attacking=self.is_attacking,
         )
 
     def act(self, objects, action, **kwargs):
@@ -101,6 +106,7 @@ class DefaultUnit:
         ) & action_able  # if unit is dead, do not attack
 
         notify(objects, "hit", (self, is_attack, target_id, target_attackable, can_attack))
+        attack_success = can_attack & is_attack & target_attackable[target_id.reshape()]
 
         move_action = (
             move_table[discrete_action] * action_able * self.status.speed
@@ -124,6 +130,8 @@ class DefaultUnit:
                     self.status.attack_cooldown,
                 )
             ),
+            damage_dealt=attack_success * self.status.attack_damage,
+            is_attacking=is_attack & can_attack,
         )
 
     def on_hit(self, objects, info):
@@ -320,7 +328,7 @@ class GameManager:
 class TABSBattleSimulator(BaseMAEnv):
     def __init__(
         self,
-        cfg: TABSConf,
+        cfg: TABSConfig,
         physics_config: Dict[str, float] = EasyDict(
             {"dt": 0.5, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
         ),
@@ -370,6 +378,8 @@ class TABSBattleSimulator(BaseMAEnv):
                     max_health=jnp.array([1.0]),
                     speed=jnp.array([1.0]),
                 ),
+                damage_dealt=jnp.array([0.0]),
+                is_attacking=jnp.array([False]),
             )
             for i, name in enumerate(self.unit_keys)
         }
@@ -640,6 +650,8 @@ class TABSBattleSimulator(BaseMAEnv):
                     max_health=vectorized_scenario.healths[i],
                     speed=vectorized_scenario.speeds[i],
                 ),
+                damage_dealt=jnp.array([0.0]),
+                is_attacking=jnp.array([False]),
             )
         state["game_manager"] = GameManager(
             attack_target=jnp.array([0]),
@@ -691,7 +703,11 @@ class TABSBattleSimulator(BaseMAEnv):
         def is_team_done(team):
             return ((teams == team) & (~is_alives | is_disabled)).sum() == (teams == team).sum()
 
+        def the_number_of_dead_units(team):
+            return ((teams == team) & jnp.logical_not(is_alives)).sum()
+
         team_dones = jax.vmap(is_team_done)(jnp.arange(self.max_team)) > 0
+        team_dead_units = jax.vmap(the_number_of_dead_units)(jnp.arange(self.max_team))
         # If timestep is greater than max_episode_steps, the episode is truncated
         truncation = state["game_manager"].timestep >= self.max_episode_steps
         # If all teams except one are eliminated or truncated, the episode is done
@@ -705,17 +721,28 @@ class TABSBattleSimulator(BaseMAEnv):
         reward_matrix = (jnp.identity(self.max_team) - 0.5) * 2.0
 
         # The team with the highest hp ratio gets reward 1.0 when the episode is done or truncated
-        decision_win_reward = jnp.zeros_like(team_hp_ratio).at[jnp.argmax(team_hp_ratio)].set(1.0)
+        decision_win_reward = (
+            jnp.zeros_like(team_hp_ratio)
+            .at[self.max_team - 1 - jnp.argmax(team_hp_ratio[::-1])]
+            .set(1.0)
+        )
         win_reward = jnp.where(dones["__all__"], decision_win_reward, 0.0)[..., None]
         # dense reward
         rewards = (delta_hp[None] * reward_matrix).sum(axis=-1, keepdims=True)
         rewards += win_reward.reshape(rewards.shape)
+
+        # For metric calculation
+        damage_dealt = jnp.stack([state[unit].damage_dealt for unit in self.unit_keys])
+        is_attacking = jnp.stack([state[unit].is_attacking for unit in self.unit_keys])
 
         info = {
             "timestep": state["game_manager"].timestep,
             "disabled_units": is_disabled,
             "done_reward": win_reward,
             "truncation": truncation,
+            "is_attacking": is_attacking,
+            "damage_dealt": damage_dealt,
+            "team_dead_units": team_dead_units,
         }
 
         return self.get_obs(state), state, rewards, dones, info

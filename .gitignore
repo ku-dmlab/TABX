@@ -17,3 +17,7 @@ wandb/
 
 # jupyter notebook
 *.ipynb
+
+# Saves
+ckpt/
+save/

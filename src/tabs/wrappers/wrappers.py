@@ -8,6 +8,7 @@ from flax import struct
 from src.tabs.scenarios import Scenario
 from src.tabs import TABSBattleSimulator
 from src.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
+from src.tabs.config import TABSHeuristicConfig
 
 
 class TABSBattleSimulatorWrapper:
@@ -49,8 +50,7 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
         self,
         env: TABSBattleSimulator,
         heuristic_units: List[str] | str = "enemy",
-        epsilon: float = 0.1,
-        aggressive_threshold: float = 0.3,
+        heuristic_config: TABSHeuristicConfig = TABSHeuristicConfig(),
         heuristic_obs: bool = False,
         only_ally_reward: bool = True,
     ):
@@ -68,8 +68,7 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
         else:
             raise ValueError(f"Invalid heuristic units: {heuristic_units}")
 
-        self.epsilon = epsilon
-        self.aggressive_threshold = aggressive_threshold
+        self.heuristic_config = heuristic_config
         self.heuristic_obs = heuristic_obs
         self.only_ally_reward = only_ally_reward
         self.non_heuristic_units = [
@@ -96,8 +95,7 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
                 heuristic_key,
                 obs[unit],
                 self.env.num_agents,
-                self.epsilon,
-                self.aggressive_threshold,
+                self.heuristic_config,
             )
         obs, next_state, reward, done, info = self.env.step(key, state, action)
         target_obs = self.filter_obs(obs)
@@ -151,6 +149,15 @@ class LogEnvState:
     returned_episode_returns: chex.Array
     returned_episode_lengths: chex.Array
     returned_episode_wins: chex.Array
+    first_kills: chex.Array
+    cumulative_is_attackings: chex.Array
+    cumulative_damage_dealts: chex.Array
+    cumulative_attack_success: chex.Array
+    returned_first_kills: chex.Array
+    returned_attack_success_rates: chex.Array
+    returned_cumulative_is_attackings: chex.Array
+    returned_cumulative_damage_dealts: chex.Array
+    returned_cumulative_attack_success: chex.Array
 
 
 # ref : https://github.com/FLAIROx/JaxMARL/blob/main/jaxmarl/wrappers/baselines.py
@@ -176,6 +183,23 @@ class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
             returned_episode_returns=jnp.zeros((self.env.max_team, 1)),
             returned_episode_lengths=jnp.zeros((self.env.max_team, 1)),
             returned_episode_wins=jnp.zeros((self.env.max_team, 1)),
+            first_kills=jnp.zeros((self.env.max_team, 1)),
+            cumulative_is_attackings=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy, 1)),
+            cumulative_damage_dealts=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy, 1)),
+            cumulative_attack_success=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy, 1)),
+            returned_first_kills=jnp.zeros((self.env.max_team, 1)),
+            returned_attack_success_rates=jnp.zeros(
+                (self.env.max_n_ally + self.env.max_n_enemy, 1)
+            ),
+            returned_cumulative_is_attackings=jnp.zeros(
+                (self.env.max_n_ally + self.env.max_n_enemy, 1)
+            ),
+            returned_cumulative_damage_dealts=jnp.zeros(
+                (self.env.max_n_ally + self.env.max_n_enemy, 1)
+            ),
+            returned_cumulative_attack_success=jnp.zeros(
+                (self.env.max_n_ally + self.env.max_n_enemy, 1)
+            ),
         )
 
         return obs, log_state
@@ -189,6 +213,23 @@ class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
             new_episode_return = state.episode_returns + reward
             net_epsiode_length = state.episode_lengths + 1
 
+            team_dead_units = info["team_dead_units"].reshape(self.env.max_team, 1)
+
+            new_first_kill = jnp.where(
+                jnp.any(state.first_kills), state.first_kills, team_dead_units > 0
+            ).reshape(self.env.max_team, 1)
+            new_cumulative_is_attackings = state.cumulative_is_attackings + info[
+                "is_attacking"
+            ].reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
+            new_cumulative_damage_dealts = state.cumulative_damage_dealts + info[
+                "damage_dealt"
+            ].reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
+            new_cumulative_attack_success = state.cumulative_attack_success + (
+                jnp.abs(info["damage_dealt"]) > 1e-6
+            ).reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
+
+            attack_success_rates = new_cumulative_attack_success / new_cumulative_is_attackings
+
             log_state = LogEnvState(
                 env_state=next_state,
                 episode_returns=new_episode_return * (1 - ep_done),
@@ -199,19 +240,61 @@ class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
                 + net_epsiode_length * ep_done,
                 returned_episode_wins=info["done_reward"] * ep_done
                 + state.returned_episode_wins * (1 - ep_done),
+                first_kills=new_first_kill * (1 - ep_done),
+                cumulative_is_attackings=new_cumulative_is_attackings * (1 - ep_done),
+                cumulative_damage_dealts=new_cumulative_damage_dealts * (1 - ep_done),
+                cumulative_attack_success=new_cumulative_attack_success * (1 - ep_done),
+                returned_first_kills=state.returned_first_kills * (1 - ep_done)
+                + new_first_kill * ep_done,
+                returned_attack_success_rates=jnp.where(
+                    ep_done, attack_success_rates, state.returned_attack_success_rates
+                ),
+                returned_cumulative_is_attackings=state.returned_cumulative_is_attackings
+                * (1 - ep_done)
+                + new_cumulative_is_attackings * ep_done,
+                returned_cumulative_damage_dealts=state.returned_cumulative_damage_dealts
+                * (1 - ep_done)
+                + new_cumulative_damage_dealts * ep_done,
+                returned_cumulative_attack_success=state.returned_cumulative_attack_success
+                * (1 - ep_done)
+                + new_cumulative_attack_success * ep_done,
             )
 
         else:
             new_episode_return = state.episode_returns + reward * (1 - ep_done)
             net_epsiode_length = state.episode_lengths + 1 * (1 - ep_done)
+            new_cumulative_is_attackings = state.cumulative_is_attackings + info[
+                "is_attacking"
+            ].reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
+            new_cumulative_damage_dealts = state.cumulative_damage_dealts + info[
+                "damage_dealt"
+            ].reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
+            team_dead_units = info["team_dead_units"].reshape(self.env.max_team, 1)
+            new_cumulative_attack_success = state.cumulative_attack_success + (
+                jnp.abs(info["damage_dealt"]) > 1e-6
+            ).reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
+            attack_success_rates = new_cumulative_attack_success / new_cumulative_is_attackings
+
+            new_first_kill = jnp.where(
+                jnp.any(state.first_kills), state.first_kills, team_dead_units > 0
+            ).reshape(self.env.max_team, 1)
 
             log_state = LogEnvState(
                 env_state=next_state,
                 episode_returns=new_episode_return,
                 episode_lengths=net_epsiode_length,
-                returned_episode_returns=state.returned_episode_returns,
-                returned_episode_lengths=state.returned_episode_lengths,
+                returned_episode_returns=new_episode_return,
+                returned_episode_lengths=net_epsiode_length,
                 returned_episode_wins=info["done_reward"].astype(jnp.float32),
+                first_kills=new_first_kill,
+                cumulative_is_attackings=new_cumulative_is_attackings,
+                cumulative_damage_dealts=new_cumulative_damage_dealts,
+                cumulative_attack_success=new_cumulative_attack_success,
+                returned_first_kills=new_first_kill,
+                returned_attack_success_rates=attack_success_rates,
+                returned_cumulative_is_attackings=new_cumulative_is_attackings,
+                returned_cumulative_damage_dealts=new_cumulative_damage_dealts,
+                returned_cumulative_attack_success=new_cumulative_attack_success,
             )
 
         info["episode_returns"] = log_state.episode_returns
@@ -219,5 +302,9 @@ class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
         info["returned_episode_returns"] = log_state.returned_episode_returns
         info["returned_episode_lengths"] = log_state.returned_episode_lengths
         info["returned_episode_wins"] = log_state.returned_episode_wins
+        info["returned_first_kills"] = log_state.returned_first_kills
+        info["returned_attack_success_rates"] = log_state.returned_attack_success_rates
+        info["returned_cumulative_is_attackings"] = log_state.returned_cumulative_is_attackings
+        info["returned_cumulative_damage_dealts"] = log_state.returned_cumulative_damage_dealts
 
         return obs, log_state, reward, done, info

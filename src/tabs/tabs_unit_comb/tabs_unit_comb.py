@@ -4,7 +4,7 @@ from flax import struct
 
 from src.environments.base_maenv import BaseMAEnv
 from src.environments.spaces import Discrete, Box
-from src.tabs.scenarios import Scenario, TABSConf
+from src.tabs.scenarios import Scenario, TABSConfig
 
 
 @struct.dataclass
@@ -20,10 +20,11 @@ class State:
 
 
 class TABSUnitComb(BaseMAEnv):
-    def __init__(self, cfg: TABSConf) -> None:
+    def __init__(self, cfg: TABSConfig) -> None:
         self.max_num_units = cfg.max_num_units
         self.max_n_ally = cfg.max_n_ally
         self.max_n_enemy = cfg.max_n_enemy
+        self.max_n_ally = cfg.max_n_ally
 
         self.action_space = Discrete(num_categories=self.max_num_units)  # unit id
         self.observation_space = Box(
@@ -120,7 +121,8 @@ class TABSUnitComb(BaseMAEnv):
         # Episodes will continue until no more units can be purchased.
         done = jnp.where(
             jnp.logical_not(valid_max_agent)
-            | (state.budget < jnp.min(jnp.where(state.all_price > 0, state.all_price, jnp.inf))),
+            | (state.budget < jnp.min(jnp.where(state.all_price > 0, state.all_price, jnp.inf)))
+            | (jnp.sum(state.current_unit_list) >= self.max_n_ally),
             1,
             0,
         )

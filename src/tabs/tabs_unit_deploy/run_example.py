@@ -1,13 +1,13 @@
 import jax
 from src.tabs import TABSUnitDeploy
-from src.tabs.scenarios import TABSConf, generate_scenario
+from src.tabs.scenarios import TABSConfig, generate_scenario
 from src.tabs.utils import Transition
 
 if __name__ == "__main__":
     n_envs = 5
     num_steps = 10
 
-    tabs_conf = TABSConf()
+    tabs_conf = TABSConfig()
     env = TABSUnitDeploy(tabs_conf)
     scenario = generate_scenario(tabs_conf)
 
