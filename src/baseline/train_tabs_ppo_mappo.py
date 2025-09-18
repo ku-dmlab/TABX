@@ -17,7 +17,7 @@ from src.tabs.constants import ALL_UNIT_NAMES
 @dataclass
 class Config:
     seed: int = 42
-    n_env: int = 32  # the number of environments to run in parallel
+    n_env: int = 64  # the number of environments to run in parallel
     tabs: TABSConfig = TABSConfig()
     comb_ppo: PPOConfig = PPOConfig(
         rollout_step=tabs.max_n_ally, n_env=n_env, entropy_coef=0.1, batch_size=32
@@ -26,12 +26,13 @@ class Config:
         rollout_step=tabs.max_n_ally, n_env=n_env, entropy_coef=0.1, batch_size=32
     )
     mappo: PPOConfig = PPOConfig(rollout_step=512, n_env=n_env, batch_size=n_env)
-    save_path: str = "/save"
+    save_path: str = "/ckpt/tabs_at_ppo_mappo"
     gpu_id: int = 0
-    iter_per_comb_step: int = 100
-    iter_per_deploy_step: int = 100
-    iter_per_bs_step: int = 200
+    iter_per_comb_step: int = 50
+    iter_per_deploy_step: int = 50
+    iter_per_bs_step: int = 50
     total_train_iter: int = 10
+    wandb_project: str = "tabs_at_ppo_mappo"
     debug: bool = False
 
 
@@ -59,7 +60,9 @@ if __name__ == "__main__":
     config_dict = dataclass_to_dict(config)
     config_str = json.dumps(config_dict, sort_keys=True)
     config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
-    config.save_path = f"/save/{config.tabs.scenario_name}_{current_time}_{config_hash}"
+    config.save_path = os.path.join(
+        config.base_path, f"{config.tabs.scenario_name}_{current_time}_{config_hash}"
+    )
 
     logs_dir = get_abs_path(config.save_path)
     os.makedirs(logs_dir, exist_ok=True)
@@ -69,7 +72,9 @@ if __name__ == "__main__":
         json.dump(config_dict, f, indent=2)
 
     wandb.init(
-        project="tabs_ppo_mappo", config=config, mode="online" if not config.debug else "disabled"
+        project=config.wandb_project,
+        config=config,
+        mode="online" if not config.debug else "disabled",
     )
 
     scenario = generate_scenario(config.tabs)

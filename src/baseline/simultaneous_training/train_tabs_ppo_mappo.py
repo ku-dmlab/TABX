@@ -17,7 +17,7 @@ from src.tabs.constants import ALL_UNIT_NAMES
 @dataclass
 class Config:
     seed: int = 42
-    n_env: int = 32  # the number of environments to run in parallel
+    n_env: int = 64  # the number of environments to run in parallel
     tabs: TABSConfig = TABSConfig()
     comb_ppo: PPOConfig = PPOConfig(
         rollout_step=tabs.max_n_ally, n_env=n_env, entropy_coef=0.1, batch_size=32
@@ -30,6 +30,7 @@ class Config:
     gpu_id: int = 0
     iter_per_step: int = 100
     total_train_iter: int = 10
+    wandb_project: str = "tabs_st_ppo_mappo"
     debug: bool = False
 
 
@@ -69,7 +70,7 @@ if __name__ == "__main__":
         json.dump(config_dict, f, indent=2)
 
     wandb.init(
-        project="tabs_st_ppo_mappo",
+        project=config.wandb_project,
         config=config,
         mode="online" if not config.debug else "disabled",
     )
