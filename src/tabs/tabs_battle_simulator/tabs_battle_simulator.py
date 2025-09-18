@@ -721,7 +721,11 @@ class TABSBattleSimulator(BaseMAEnv):
         reward_matrix = (jnp.identity(self.max_team) - 0.5) * 2.0
 
         # The team with the highest hp ratio gets reward 1.0 when the episode is done or truncated
-        decision_win_reward = jnp.zeros_like(team_hp_ratio).at[jnp.argmax(team_hp_ratio)].set(1.0)
+        decision_win_reward = (
+            jnp.zeros_like(team_hp_ratio)
+            .at[self.max_team - 1 - jnp.argmax(team_hp_ratio[::-1])]
+            .set(1.0)
+        )
         win_reward = jnp.where(dones["__all__"], decision_win_reward, 0.0)[..., None]
         # dense reward
         rewards = (delta_hp[None] * reward_matrix).sum(axis=-1, keepdims=True)
