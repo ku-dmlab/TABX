@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import chex
 
 from src.tabs.tabs_battle_simulator.tabs_battle_simulator import UnitAction
+from src.tabs.config import TABSHeuristicConfig
 
 
 def angle_wrap_to_pi(x):
@@ -13,13 +14,7 @@ def heuristic_policy(
     key: jax.random.PRNGKey,
     obs: chex.Array,
     num_agents: int,
-    epsilon: float = 0.05,
-    aggressive_threshold: float = 0.3,
-    rotate_noise_scale: float = 0.5,
-    healer_rotate_noise_scale: float = 0.1,
-    healer_aggressive_threshold: float = 0.85,
-    assasin_speed: float = 1.4,
-    ranger_attack_range: float = 10.0,
+    heuristic_config: TABSHeuristicConfig,
 ) -> chex.Array:
     """
     Heuristic policy for different unit types in TABS battle simulator.
@@ -101,7 +96,7 @@ def heuristic_policy(
         own_features[8] < 1.0
     )  # If the cooldown is less than 1.0, the unit is on cooldown
     own_speed = own_features[13]
-    own_is_assassin = own_speed >= assasin_speed
+    own_is_assassin = own_speed >= heuristic_config.assasin_speed
     own_rotation = own_features[4] * jnp.pi * 2
     own_attack_range = own_features[5]
     own_radius = own_features[9]
@@ -173,12 +168,16 @@ def heuristic_policy(
         max_relative_axis_direction > 0
     )  # If the direction is positive, the unit is moving in the positive direction (right or up)
     # Kiting logic
-    own_is_ranger = own_attack_range >= ranger_attack_range
+    own_is_ranger = own_attack_range >= heuristic_config.ranger_attack_range
     other_is_agressive = (
         masekd_distance
         < (
             own_attack_range
-            * jnp.where(own_is_healer, healer_aggressive_threshold, aggressive_threshold)
+            * jnp.where(
+                own_is_healer,
+                heuristic_config.healer_aggressive_threshold,
+                heuristic_config.aggressive_threshold,
+            )
         )
         ** 2
     )  # If the distance is less than the attack range * aggressive threshold, the unit is aggressive
@@ -210,8 +209,8 @@ def heuristic_policy(
             - own_rotation
             + jax.random.normal(key=noise_key)
             * (
-                rotate_noise_scale * (own_is_ranger & ~own_is_healer)
-                + healer_rotate_noise_scale * (own_is_healer & own_is_ranger)
+                heuristic_config.rotate_noise_scale * (own_is_ranger & ~own_is_healer)
+                + heuristic_config.healer_rotate_noise_scale * (own_is_healer & own_is_ranger)
             ),
             jnp.pi * 0.1,
         )
@@ -222,5 +221,5 @@ def heuristic_policy(
     random_rotate_action = jax.random.normal(rotate_key) / jnp.pi
     random_actions = jnp.stack([random_rotate_action, random_discrete_action])
     actions = jnp.stack([rotate_action, discrete_action])
-    is_random = jax.random.bernoulli(key, epsilon)
+    is_random = jax.random.bernoulli(key, heuristic_config.epsilon)
     return actions * ~is_random + random_actions * is_random

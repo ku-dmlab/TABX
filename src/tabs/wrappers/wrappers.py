@@ -8,6 +8,7 @@ from flax import struct
 from src.tabs.scenarios import Scenario
 from src.tabs import TABSBattleSimulator
 from src.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
+from src.tabs.config import TABSHeuristicConfig
 
 
 class TABSBattleSimulatorWrapper:
@@ -49,8 +50,7 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
         self,
         env: TABSBattleSimulator,
         heuristic_units: List[str] | str = "enemy",
-        epsilon: float = 0.1,
-        aggressive_threshold: float = 0.3,
+        heuristic_config: TABSHeuristicConfig = TABSHeuristicConfig(),
         heuristic_obs: bool = False,
         only_ally_reward: bool = True,
     ):
@@ -68,8 +68,7 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
         else:
             raise ValueError(f"Invalid heuristic units: {heuristic_units}")
 
-        self.epsilon = epsilon
-        self.aggressive_threshold = aggressive_threshold
+        self.heuristic_config = heuristic_config
         self.heuristic_obs = heuristic_obs
         self.only_ally_reward = only_ally_reward
         self.non_heuristic_units = [
@@ -96,8 +95,7 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
                 heuristic_key,
                 obs[unit],
                 self.env.num_agents,
-                self.epsilon,
-                self.aggressive_threshold,
+                self.heuristic_config,
             )
         obs, next_state, reward, done, info = self.env.step(key, state, action)
         target_obs = self.filter_obs(obs)
