@@ -9,7 +9,7 @@ import wandb
 import hashlib
 import numpy as np
 
-from src.baseline.configs.config import PQNConfig, PPOConfig
+from src.baseline.configs.config import PPOConfig, IPPOConfig
 from src.tabs.config import TABSConfig
 
 
@@ -18,11 +18,15 @@ class Config:
     seed: int = 42
     n_env: int = 64  # the number of environments to run in parallel
     tabs: TABSConfig = TABSConfig()
-    comb: PQNConfig = PQNConfig(rollout_step=tabs.max_n_ally, n_env=n_env, batch_size=32)
-    deploy: PQNConfig = PQNConfig(rollout_step=tabs.max_n_ally, n_env=n_env, batch_size=32)
-    battle: PPOConfig = PPOConfig(rollout_step=512, n_env=n_env, batch_size=n_env)
-    base_path: str = "./ckpt/tabs_st_pqn_mappo"
-    project_name: str = "tabs_st_pqn_mappo"
+    comb: PPOConfig = PPOConfig(
+        rollout_step=tabs.max_n_ally, n_env=n_env, entropy_coef=0.1, batch_size=32
+    )
+    deploy: PPOConfig = PPOConfig(
+        rollout_step=tabs.max_n_ally, n_env=n_env, entropy_coef=0.1, batch_size=32
+    )
+    battle: PPOConfig = IPPOConfig(rollout_step=512, n_env=n_env, batch_size=n_env)
+    base_path: str = "./ckpt/tabs_st_ppo_ippo"
+    project_name: str = "tabs_st_ppo_ippo"
     gpu_id: int = 0
     iter_per_step: int = 100
     total_train_iter: int = 10
@@ -36,7 +40,7 @@ if __name__ == "__main__":
     import jax
     import jax.numpy as jnp
 
-    from src.baseline.algorithm import PQN, MAPPO
+    from src.baseline.algorithm import PPO, IPPO
     from src.tabs.wrappers import (
         TABSBattleSimulatorLogWrapper,
         TABSBattleSimulatorHeuristicWrapper,
@@ -86,9 +90,9 @@ if __name__ == "__main__":
     env_bs = TABSBattleSimulatorLogWrapper(env_bs)
 
     # Agents
-    unit_comb_agent = PQN(config.comb, env_unit_comb)
-    unit_deploy_agent = PQN(config.deploy, env_unit_deploy)
-    battle_agent = MAPPO(config.battle, env_bs)
+    unit_comb_agent = PPO(config.comb, env_unit_comb)
+    unit_deploy_agent = PPO(config.deploy, env_unit_deploy)
+    battle_agent = IPPO(config.battle, env_bs)
 
     key = jax.random.key(config.seed)
     key_comb, key_deploy, key_bs = jax.random.split(key, 3)
@@ -170,8 +174,8 @@ if __name__ == "__main__":
             wandb.log(wandb_log)
 
         # Save models
-        unit_comb_agent.save_state(carry[0], os.path.join(config.save_path, f"comb/pqn/{step}"))
-        unit_deploy_agent.save_state(carry[1], os.path.join(config.save_path, f"deploy/pqn/{step}"))
+        unit_comb_agent.save_state(carry[0], os.path.join(config.save_path, f"comb/ppo/{step}"))
+        unit_deploy_agent.save_state(carry[1], os.path.join(config.save_path, f"deploy/ppo/{step}"))
         battle_agent.save_state(carry[2], os.path.join(config.save_path, f"bs/mappo/{step}"))
 
         np_result = jax.tree.map(lambda x: np.array(x).tolist(), result)

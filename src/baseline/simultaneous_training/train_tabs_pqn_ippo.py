@@ -9,7 +9,7 @@ import wandb
 import hashlib
 import numpy as np
 
-from src.baseline.configs.config import PQNConfig, PPOConfig
+from src.baseline.configs.config import PQNConfig, IPPOConfig
 from src.tabs.config import TABSConfig
 
 
@@ -20,9 +20,9 @@ class Config:
     tabs: TABSConfig = TABSConfig()
     comb: PQNConfig = PQNConfig(rollout_step=tabs.max_n_ally, n_env=n_env, batch_size=32)
     deploy: PQNConfig = PQNConfig(rollout_step=tabs.max_n_ally, n_env=n_env, batch_size=32)
-    battle: PPOConfig = PPOConfig(rollout_step=512, n_env=n_env, batch_size=n_env)
-    base_path: str = "./ckpt/tabs_st_pqn_mappo"
-    project_name: str = "tabs_st_pqn_mappo"
+    battle: IPPOConfig = IPPOConfig(rollout_step=512, n_env=n_env, batch_size=n_env)
+    base_path: str = "./ckpt/tabs_st_pqn_ippo"
+    project_name: str = "tabs_st_pqn_ippo"
     gpu_id: int = 0
     iter_per_step: int = 100
     total_train_iter: int = 10
@@ -36,7 +36,7 @@ if __name__ == "__main__":
     import jax
     import jax.numpy as jnp
 
-    from src.baseline.algorithm import PQN, MAPPO
+    from src.baseline.algorithm import PQN, IPPO
     from src.tabs.wrappers import (
         TABSBattleSimulatorLogWrapper,
         TABSBattleSimulatorHeuristicWrapper,
@@ -88,7 +88,7 @@ if __name__ == "__main__":
     # Agents
     unit_comb_agent = PQN(config.comb, env_unit_comb)
     unit_deploy_agent = PQN(config.deploy, env_unit_deploy)
-    battle_agent = MAPPO(config.battle, env_bs)
+    battle_agent = IPPO(config.battle, env_bs)
 
     key = jax.random.key(config.seed)
     key_comb, key_deploy, key_bs = jax.random.split(key, 3)
@@ -172,7 +172,7 @@ if __name__ == "__main__":
         # Save models
         unit_comb_agent.save_state(carry[0], os.path.join(config.save_path, f"comb/pqn/{step}"))
         unit_deploy_agent.save_state(carry[1], os.path.join(config.save_path, f"deploy/pqn/{step}"))
-        battle_agent.save_state(carry[2], os.path.join(config.save_path, f"bs/mappo/{step}"))
+        battle_agent.save_state(carry[2], os.path.join(config.save_path, f"bs/ippo/{step}"))
 
         np_result = jax.tree.map(lambda x: np.array(x).tolist(), result)
         with open(os.path.join(logs_dir, f"result_{step}.json"), "w") as f:
