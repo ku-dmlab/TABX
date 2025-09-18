@@ -4,8 +4,7 @@ import chex
 import jax
 import jax.numpy as jnp
 from flax import struct, nnx
-from dataclasses import dataclass, replace, asdict, is_dataclass
-# ... existing imports ...
+from dataclasses import asdict, is_dataclass
 
 
 def dataclass_to_dict(obj):
