@@ -9,7 +9,7 @@ import wandb
 import hashlib
 import numpy as np
 
-from src.baseline.configs.config import PPOConfig
+from src.baseline.configs.config import PPOConfig, IPPOConfig
 from src.tabs.config import TABSConfig
 from src.tabs.constants import ALL_UNIT_NAMES
 
@@ -25,7 +25,7 @@ class Config:
     deploy_ppo: PPOConfig = PPOConfig(
         rollout_step=tabs.max_n_ally, n_env=n_env, entropy_coef=0.1, batch_size=32
     )
-    ippo: PPOConfig = PPOConfig(rollout_step=512, n_env=n_env, batch_size=n_env)
+    ippo: PPOConfig = IPPOConfig(rollout_step=512, n_env=n_env, batch_size=n_env)
     base_path: str = "/ckpt/tabs_at_ppo_ippo"
     gpu_id: int = 0
     iter_per_comb_step: int = 50

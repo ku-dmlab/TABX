@@ -293,12 +293,12 @@ class IPPO(BaseAlgo):
             "discrete_actions": batch["discrete_actions"],
             "log_probs": batch["log_probs"],
             "returns": batch["returns"],
+            "state_value": batch["state_value"],
         }
 
         batch2 = {
             "dones": batch["dones"],
             "observations": batch["observations"],
-            "state_value": batch["state_value"],
         }
 
         def train_body(carry, _):
@@ -314,7 +314,7 @@ class IPPO(BaseAlgo):
                     lambda idx: jax.tree.map(lambda x: x[:, :, idx], batch1), out_axes=2
                 )(batch_idx)
                 batch2_ = jax.vmap(
-                    lambda idx: jax.tree.map(lambda x: x[:, idx, :], batch2), out_axes=1
+                    lambda idx: jax.tree.map(lambda x: x[:, idx], batch2), out_axes=1
                 )(batch_idx)
 
                 batch1_.update(batch2_)
