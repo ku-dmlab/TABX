@@ -18,6 +18,7 @@ class PPOConfig:
     n_env: int = 128  # the number of environments to run in parallel
     batch_size: int = 128
 
+
 @dataclass(frozen=True)
 class IPPOConfig:
     gamma: float = 0.99  # The discount factor
