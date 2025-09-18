@@ -84,17 +84,20 @@ class IPPO(BaseAlgo):
 
         # Get hybrid action
         discrete_key, continuous_key = jax.random.split(key)
-        discrete_distribution = tfd.Categorical(logits=logits)
-        continuous_distribution = tfd.Normal(mean, jnp.exp(log_std))
-        discrete_actions = discrete_distribution.sample(seed=discrete_key)[:, None]
-        continuous_actions = continuous_distribution.sample(seed=continuous_key)
+        continuous_dist, discrete_dist = model.get_distribution(logits, mean, log_std)
+        discrete_actions = discrete_dist.sample(seed=discrete_key)[:, None]
+        continuous_actions = jnp.clip(
+            continuous_dist.sample(seed=continuous_key),
+            -jnp.pi / 12 + 1e-5,
+            jnp.pi / 12 - 1e-5,
+        )
 
         actions = jnp.concatenate([continuous_actions, discrete_actions], axis=-1)
 
-        discrete_log_probs = discrete_distribution.log_prob(
+        discrete_log_probs = discrete_dist.log_prob(
             discrete_actions[:, 0].astype(jnp.int32)
         )[:, None]
-        continuous_log_probs = continuous_distribution.log_prob(continuous_actions)
+        continuous_log_probs = continuous_dist.log_prob(continuous_actions)
         log_probs = discrete_log_probs + continuous_log_probs
         result = {
             "actions": actions,
