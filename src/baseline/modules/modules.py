@@ -285,5 +285,14 @@ class RNNActorCritic(nnx.Module):
 
         return next_state, logits, mean, std, value
 
+    def get_distribution(self, logits, mean, log_std):
+        std = jnp.exp(log_std)
+        continuous_distribution = tfd.Normal(mean, std)
+        continuous_distribution = tfd.TransformedDistribution(
+            continuous_distribution, tfb.Chain([tfb.Scale(jnp.pi / 12.0), tfb.Tanh()])
+        )
+        discrete_distribution = tfd.Categorical(logits=logits)
+        return continuous_distribution, discrete_distribution
+
     def initialize_carry(self, shape):
         return self.gru.initialize_carry(shape)
