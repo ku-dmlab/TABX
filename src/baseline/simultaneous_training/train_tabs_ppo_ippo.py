@@ -28,7 +28,7 @@ class Config:
     base_path: str = "./ckpt/tabs_st_ppo_ippo"
     project_name: str = "tabs_st_ppo_ippo"
     gpu_id: int = 0
-    iter_per_step: int = 100
+    iter_per_step: int = 150
     total_train_iter: int = 10
     debug: bool = False
 
