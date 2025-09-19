@@ -29,7 +29,7 @@ def dataclass_to_dict(obj):
 
 def get_abs_path(path):
     if not os.path.isdir(path):
-        path = os.getcwd() + path
+        path = os.path.join(os.getcwd(), path)
     return path
 
 
