@@ -29,3 +29,4 @@ save/
 *.json
 *.npy
 *.npz
+*.gif
