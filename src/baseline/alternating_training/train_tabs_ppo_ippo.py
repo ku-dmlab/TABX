@@ -26,7 +26,7 @@ class Config:
     )
     battle: PPOConfig = PPOConfig(rollout_step=512, n_env=n_env, batch_size=n_env)
     base_path: str = "./ckpt/tabs_at_ppo_ippo"
-    wandb_project: str = "tabs_at_ppo_ippo"
+    project_name: str = "tabs_at_ppo_ippo"
     gpu_id: int = 0
     iter_per_step_comb: int = 50
     iter_per_step_deploy: int = 50
@@ -70,7 +70,7 @@ if __name__ == "__main__":
         json.dump(config_dict, f, indent=2)
 
     wandb.init(
-        project=config.wandb_project,
+        project=config.project_name,
         config=config,
         mode="online" if not config.debug else "disabled",
     )
@@ -161,7 +161,7 @@ if __name__ == "__main__":
 
     def train_bs(carry, _):
         (train_state_comb, train_state_deploy, train_state_bs) = carry
-        
+
         # Rollout
         (train_state_comb, train_state_deploy, train_state_bs), rollout_result = rollout_tabs(
             unit_comb_agent,
@@ -224,7 +224,9 @@ if __name__ == "__main__":
         carry, result = train_fn(carry)
 
         # Log metrics
-        for i in range(config.iter_per_step_comb): # NOTE: iter_per_step of each environment should be same
+        for i in range(
+            config.iter_per_step_comb
+        ):  # NOTE: iter_per_step of each environment should be same
             # Log comb metrics
             wandb_log = {}
             for result_key, result_value in result.items():
