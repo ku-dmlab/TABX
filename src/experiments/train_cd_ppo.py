@@ -115,7 +115,7 @@ if __name__ == "__main__":
     bs_v_step = jax.vmap(partial(battle_simulator.step), in_axes=(0, 0, 0))
 
     def get_ally_heuristic_config(step):
-        weight = jnp.clip(1 - step / (config.total_iter * config.iter_per_train_step), 0.0, 1.0)
+        weight = jnp.clip(1 - 2 * step / (config.total_iter * config.iter_per_train_step), 0.0, 1.0)
 
         return TABSHeuristicConfig(
             epsilon=weight * config.initial_ally_heuristic_config.epsilon
