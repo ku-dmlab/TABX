@@ -9,7 +9,7 @@ import wandb
 import hashlib
 import numpy as np
 
-from src.baseline.configs.config import PQNConfig, PPOConfig
+from src.baseline.configs.config import PQNConfig, IPPOConfig
 from src.tabs.config import TABSConfig
 
 
@@ -20,7 +20,7 @@ class Config:
     tabs: TABSConfig = TABSConfig()
     comb: PQNConfig = PQNConfig(rollout_step=tabs.max_n_ally, n_env=n_env, batch_size=32)
     deploy: PQNConfig = PQNConfig(rollout_step=tabs.max_n_ally, n_env=n_env, batch_size=32)
-    battle: PPOConfig = PPOConfig(rollout_step=512, n_env=n_env, batch_size=n_env)
+    battle: IPPOConfig = IPPOConfig(rollout_step=512, n_env=n_env, batch_size=n_env)
     base_path: str = "./ckpt/tabs_at_pqn_ippo"
     project_name: str = "tabs_at_pqn_ippo"
     gpu_id: int = 0
