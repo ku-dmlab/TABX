@@ -21,6 +21,7 @@ wandb/
 # Saves
 ckpt/
 save/
+ckpt*/
 
 # Output files
 *.csv
