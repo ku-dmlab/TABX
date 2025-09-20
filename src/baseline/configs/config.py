@@ -45,7 +45,7 @@ class PQNConfig:
     eps_decay: float = 0.2
     batch_size: float = 4
     num_epochs: int = 4
-    max_grad_norm: float = 0.25
+    max_grad_norm: float = 50.0
     lr: float = 1e-4
     gamma: float = 0.99
     n_env: int = 128
@@ -53,6 +53,6 @@ class PQNConfig:
     seed: int = 42
     rollout_step: int = 32
     learning_scheduler: bool = True
-    reward_scale: float = 1.0
+    reward_scale: float = 100.0
     layer_dim: int = 256
     batch_norm = False
