@@ -41,7 +41,7 @@ class IPPOConfig:
 @dataclass(frozen=True)
 class PQNConfig:
     eps_start: float = 1.0
-    eps_finish: float = 0.01
+    eps_finish: float = 0.05
     eps_decay: float = 0.2
     batch_size: float = 4
     num_epochs: int = 4
@@ -53,6 +53,6 @@ class PQNConfig:
     seed: int = 42
     rollout_step: int = 32
     learning_scheduler: bool = True
-    reward_scale: float = 50.0
+    reward_scale: float = 1.0
     layer_dim: int = 256
     batch_norm = False
