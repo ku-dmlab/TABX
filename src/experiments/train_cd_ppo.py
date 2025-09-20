@@ -1,6 +1,10 @@
-from dataclasses import dataclass, replace
-from tqdm import tqdm
+import os
 import json
+import datetime
+from functools import partial
+from dataclasses import dataclass, replace
+
+from tqdm import tqdm
 import tyro
 import wandb
 import hashlib
@@ -37,20 +41,19 @@ class Config:
     deploy_ppo: PPOConfig = PPOConfig(
         rollout_step=tabs.max_n_ally, n_env=n_env, entropy_coef=1.0, batch_size=32
     )
-    save_path: str = "/save"
-    gpu_id: int = 3
+    base_path: str = "ckpt/tabs_cd_ppo"
+    project_name: str = "tabs_cd_ppo"
+    gpu_id: int = 0
 
     total_iter: int = 10
-    iter_per_train_step: int = 100
+    iter_per_train_step: int = 150
     battle_simulator_rollout_step: int = 512
+
+    debug: bool = False
 
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
-
-    import os
-    from functools import partial
-
     os.environ["CUDA_VISIBLE_DEVICES"] = str(config.gpu_id)
 
     import jax
@@ -66,29 +69,35 @@ if __name__ == "__main__":
     from src.tabs.scenarios import pprint_grid_with_units
     from src.baseline.utils import get_abs_path, dataclass_to_dict
     from src.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
-    import datetime
 
     # Create a hash of the config for unique folder naming
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     config_dict = dataclass_to_dict(config)
     config_str = json.dumps(config_dict, sort_keys=True)
     config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
-    config.save_path = f"/save/{config.tabs.scenario_name}_{current_time}_{config_hash}"
+    config.save_path = os.path.join(
+        config.base_path, f"{config.tabs.scenario_name}_{current_time}_{config_hash}"
+    )
 
-    wandb.init(project="comb_deploy_ppo", config=config)
+    wandb.init(
+        project=config.project_name,
+        config=config,
+        mode="online" if not config.debug else "disabled",
+    )
 
     scenario = generate_scenario(config.tabs)
     config.tabs = replace(config.tabs, max_n_enemy=int(scenario.enemy_unit_comp.sum().item()))
     repeated_scenario = jax.tree.map(lambda x: jnp.repeat(x[None], config.n_env, axis=0), scenario)
 
+    # Environments
     env_unit_deploy = TABSUnitDeploy(config.tabs)
     env_unit_comb = TABSUnitComb(config.tabs)
 
+    # Agents
     ppo_unit_deploy = PPO(config.deploy_ppo, env_unit_deploy)
     ppo_unit_comb = PPO(config.comb_ppo, env_unit_comb)
 
     deploy_key, comb_key = jax.random.split(jax.random.key(config.seed))
-
     unit_deploy_train_state = ppo_unit_deploy.init_train_state(
         deploy_key, config.iter_per_train_step * config.total_iter
     )
