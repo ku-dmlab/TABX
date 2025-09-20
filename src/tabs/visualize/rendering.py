@@ -4,6 +4,7 @@ import numpy as np
 
 from src.tabs.constants import ALL_UNIT_NAMES
 from src.tabs.tabs_unit_comb.tabs_unit_comb import State as CombState
+from src.tabs.tabs_unit_deploy.tabs_unit_deploy import State as DeployState
 from src.tabs.units import get_all_unit_spec
 
 BLACK = (0, 0, 0)
@@ -43,7 +44,6 @@ def draw_text(
         _canvas.blit(_text, (width - text_width - 10, height // 2 - text_height // 2 + 1))
 
     canvas.blit(_canvas, (x, y))
-    return canvas
 
 
 def draw_comb_unit_list(
@@ -77,7 +77,6 @@ def draw_comb_unit_list(
         _canvas.blit(_text, (_x, _y))
 
     canvas.blit(_canvas, (x, y))
-    return canvas
 
 
 def draw_catalog(
@@ -138,7 +137,85 @@ def draw_catalog(
         _canvas.blit(_unit, (_x, _y))
 
     canvas.blit(_canvas, (x, y))
-    return canvas
+
+
+def draw_remaining_units(
+    canvas: pygame.Surface,
+    remaining_units: List,
+    width: int,
+    height: int,
+    x: int,
+    y: int,
+    size: int = 20,
+):
+    _canvas = pygame.Surface((width, height), pygame.SRCALPHA)
+
+    font = pygame.font.SysFont(name=None, size=size, bold=False)
+
+    _w, _h = 54, 24  # width and height of text box
+    for idx, n in enumerate(remaining_units):
+        text_width, text_height = font.size(str(n))
+        _text = font.render(str(n), True, TEXT_COLOR, None)
+        # Align center
+        _x = _w // 2 - text_width // 2 + _w * idx
+        _y = _h // 2 - text_height // 2 + 6
+        _canvas.blit(_text, (_x, _y))
+
+    canvas.blit(_canvas, (x, y))
+
+
+def draw_deployment(
+    canvas: pygame.Surface,
+    battle_field: List,
+    body_radiuses: List,
+    space_occupied: List,
+    is_ally: bool,
+    width: int,
+    height: int,
+    x: int,
+    y: int,
+):
+    _canvas = pygame.Surface((height, width), pygame.SRCALPHA)  # Because of rotation
+
+    n_row, n_col = battle_field.shape
+    _w, _h = 69, 69  # width and height of unit space
+    _portrait_pad = 37
+    for i in range(n_row):
+        for j in range(n_col):
+            unit = int(battle_field[i, j])  # unit id
+            if unit == 0:
+                continue
+
+            w = int(_w * np.sqrt(space_occupied[unit - 1]))
+            h = int(_h * np.sqrt(space_occupied[unit - 1]))
+            _unit = pygame.Surface((w, h), pygame.SRCALPHA)
+
+            # Rotate battle_field facing each other
+            if is_ally:
+                portrait = pygame.image.load(f"./assets/units/{ALL_UNIT_NAMES[unit - 1]}_ally.png")
+            else:
+                portrait = pygame.image.load(f"./assets/units/{ALL_UNIT_NAMES[unit - 1]}_enemy.png")
+
+            # Scale by body radius
+            size = (
+                int((_w - _portrait_pad) * body_radiuses[unit - 1]),
+                int((_h - _portrait_pad) * body_radiuses[unit - 1]),
+            )
+            portrait = pygame.transform.scale(portrait, size)
+            _unit.blit(portrait, ((w - size[0]) // 2, (h - size[1]) // 2))
+
+            # Draw unit spec
+            _x = _w * j
+            _y = _h * i
+            _canvas.blit(_unit, (_x, _y))
+
+    # Rotate battle_field facing each other
+    if is_ally:
+        _canvas = pygame.transform.rotate(_canvas, 270)
+    else:
+        _canvas = pygame.transform.rotate(_canvas, 90)
+
+    canvas.blit(_canvas, (x, y))
 
 
 def get_comb_render(scenario_name: str, state: CombState):
@@ -158,23 +235,80 @@ def get_comb_render(scenario_name: str, state: CombState):
     # NOTE: width, height, x, y are contants fitting to the TABSUnitComb.png
 
     # Draw scenario name
-    canvas = draw_text(canvas, text=scenario_name, width=256, height=30, x=377, y=8, size=28)
+    draw_text(canvas, text=scenario_name, width=256, height=30, x=377, y=8, size=28)
     # Draw timestep
-    canvas = draw_text(canvas, text=timestep, width=38, height=29, x=430, y=49, align_center=False)
+    draw_text(canvas, text=timestep, width=38, height=29, x=430, y=49, align_center=False)
     # Draw remaining budget
-    canvas = draw_text(
-        canvas, text=remaining_budget, width=66, height=29, x=567, y=49, align_center=False
-    )
+    draw_text(canvas, text=remaining_budget, width=66, height=29, x=567, y=49, align_center=False)
     # Draw purchased ally unit list
-    canvas = draw_comb_unit_list(
+    draw_comb_unit_list(
         canvas, unit_list=unit_list, price=prices, width=256, height=184, x=377, y=91
     )
     # Draw enemy composition
-    canvas = draw_comb_unit_list(
+    draw_comb_unit_list(
         canvas, unit_list=enemy_unit_list, price=prices, width=256, height=184, x=377, y=287
     )
     # Draw all unit specification
-    canvas = draw_catalog(canvas, all_spec=all_spec, width=357, height=463, x=8, y=8)
+    draw_catalog(canvas, all_spec=all_spec, width=357, height=463, x=8, y=8)
+
+    array = np.transpose(np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2))  # Rotate
+    array = np.flip(array, axis=0)  # Flip because of matplotlib axis
+
+    return array
+
+
+def get_deploy_render(scenario_name: str, state: DeployState):
+    """Return the step frame of TABSUnitDeploy formatted as a NumPy array"""
+    timestep = str(state.timestep.item())
+    remaining_units = state.remaining_units
+    if remaining_units.sum() == 0:
+        next_unit = "-"
+    else:
+        next_unit = ALL_UNIT_NAMES[state.next_unit.item() - 1].title()
+    space_occupied = state.space_occupied_spec
+    body_radiuses = all_spec["body_radiuses"]
+
+    canvas = pygame.Surface((WIDTH, HEIGHT))
+    canvas.fill(BG_MAIN)
+
+    bg = pygame.image.load("./assets/TABSUnitDeploy.png")
+    canvas.blit(bg, (0, 0))
+
+    # NOTE: width, height, x, y are contants fitting to the TABSUnitDeploy.png
+
+    # Draw scenario name
+    draw_text(canvas, text=scenario_name, width=433, height=28, x=199, y=10, size=28)
+    # Draw timestep
+    draw_text(canvas, text=timestep, width=55, height=28, x=140, y=10, align_center=False)
+    # Draw next unit
+    draw_text(canvas, text=next_unit, width=60, height=45, x=10, y=37, size=16)
+    # Draw remaining unit list
+    draw_remaining_units(
+        canvas, remaining_units=remaining_units, width=486, height=25, x=145, y=51, size=20
+    )
+    # Draw deployment
+    draw_deployment(
+        canvas,
+        battle_field=state.battle_field,
+        body_radiuses=body_radiuses,
+        space_occupied=space_occupied,
+        is_ally=True,
+        width=277,
+        height=345,
+        x=10,
+        y=127,
+    )  # ally
+    draw_deployment(
+        canvas,
+        battle_field=state.enemy_battle_field,
+        body_radiuses=body_radiuses,
+        space_occupied=space_occupied,
+        is_ally=False,
+        width=277,
+        height=345,
+        x=356,
+        y=127,
+    )  # enemy
 
     array = np.transpose(np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2))  # Rotate
     array = np.flip(array, axis=0)  # Flip because of matplotlib axis

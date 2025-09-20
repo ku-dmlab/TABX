@@ -24,6 +24,7 @@ class State:
     space_occupied_spec: chex.Array
     all_spec: chex.Array
     scenario: Scenario
+    timestep: chex.Array
 
 
 class TABSUnitDeploy(BaseMAEnv):
@@ -153,6 +154,7 @@ class TABSUnitDeploy(BaseMAEnv):
             space_occupied_spec=scenario.space_occupied,
             all_spec=all_spec,
             scenario=scenario,
+            timestep=jnp.array([0]),
         )
         return self.get_obs(state), state
 
@@ -206,6 +208,7 @@ class TABSUnitDeploy(BaseMAEnv):
             battle_field=battle_field.astype(jnp.float32),
             battle_field_occupied=battle_field_occupied.astype(jnp.float32),
             unavail_action=unavail_action.flatten(),
+            timestep=state.timestep + 1,
         )
 
         # NOTE: Reward would be computed by the result of battle with this unit deployment.
@@ -215,3 +218,23 @@ class TABSUnitDeploy(BaseMAEnv):
         done = jnp.where(state.remaining_units.sum(keepdims=True), 0, 1)
 
         return self.get_obs(state), state, reward, done, {}
+
+    def init_render(self, ax, state: State, scenario_name: str):
+        from src.tabs.visualize.rendering import get_deploy_render
+
+        self.scenario_name = scenario_name
+
+        frame = get_deploy_render(scenario_name=self.scenario_name, state=state)
+
+        # Render
+        ax.clear()
+        # NOTE: We fix 480p
+        ax.set_xlim([0.0, 640])
+        ax.set_ylim([0.0, 480])
+        ax.axis("off")
+
+        return ax.imshow(frame)
+
+    def update_render(self, im, state: State):
+        ax = im.axes
+        return self.init_render(ax, state, self.scenario_name)

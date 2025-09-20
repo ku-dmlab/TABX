@@ -1,1 +1,1 @@
-from src.tabs.visualize.visualizer import UnitCombVisualizer
+from src.tabs.visualize.visualizer import UnitCombVisualizer, UnitDeployVisualizer

@@ -22,10 +22,10 @@ def remove_white_bg(img_path: str, white_level: int = 255) -> None:
     img_a_array[:, :, -1] = np.where(mask, 0, img_a_array[:, :, -1])
 
     res = Image.fromarray(img_a_array, mode="RGBA")
-    res.save(os.path.join("./alpha/units", img_path.split("/")[-1]), format="PNG")
+    res.save(os.path.join("./assets/", img_path.split("/")[-1]), format="PNG")
 
 
 if __name__ == "__main__":
-    img_paths = glob.glob("./assets/*.png")
+    img_paths = glob.glob("./assets/units/*.png")
     for img_path in tqdm.tqdm(img_paths):
-        remove_white_bg(img_path, 230)
+        remove_white_bg(img_path, 250)

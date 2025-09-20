@@ -61,3 +61,10 @@ class UnitCombVisualizer(Visualizer):
 
     def __init__(self, env, scenario_name, state_seq, reward_seq=None, interval=1024):
         super().__init__(env, scenario_name, state_seq, reward_seq, interval)
+
+
+class UnitDeployVisualizer(Visualizer):
+    """Visualizer especially for the TABSUnitDeploy environment."""
+
+    def __init__(self, env, scenario_name, state_seq, reward_seq=None, interval=1024):
+        super().__init__(env, scenario_name, state_seq, reward_seq, interval)
