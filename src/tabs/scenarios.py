@@ -110,10 +110,10 @@ def generate_scenario(cfg: TABSConfig):
             budget = 2650
         elif _scenario_level == "high":
             budget = 2320
-        _battle_field = jnp.array(  # 2650
+        _battle_field = jnp.array(  # 2640
             [
-                [0, UnitID.TheKing, UnitID.Mammoth, 0, UnitID.Farmer],
-                [UnitID.Healer, 0, 0, 0, 0],
+                [0, 0, UnitID.Mammoth, UnitID.Farmer, 0],
+                [UnitID.Healer, UnitID.Archer, UnitID.Archer, UnitID.Archer, 0],
                 [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
             ],
@@ -176,10 +176,10 @@ def generate_scenario(cfg: TABSConfig):
             budget = 3370
         elif _scenario_level == "high":
             budget = 2570
-        _battle_field = jnp.array(  # 3320
+        _battle_field = jnp.array(  # 3360
             [
                 [UnitID.Farmer, UnitID.Farmer, UnitID.TheKing, UnitID.Farmer, UnitID.Farmer],
-                [0, UnitID.Assassin, UnitID.Paladin, UnitID.Assassin, UnitID.Assassin],
+                [0, UnitID.Archer, UnitID.Paladin, UnitID.Archer, UnitID.Assassin],
                 [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
             ],
@@ -222,7 +222,7 @@ def generate_scenario(cfg: TABSConfig):
             [
                 [UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer],
                 [0, UnitID.Farmer, 0, UnitID.Farmer, 0],
-                [UnitID.Deadeye, 0, 0, 0, 0],
+                [UnitID.Deadeye, 0, 0, 0, UnitID.Deadeye],
                 [UnitID.Healer, 0, 0, 0, 0],
             ],
             dtype=jnp.float32,
