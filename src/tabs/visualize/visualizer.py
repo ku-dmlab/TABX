@@ -68,3 +68,10 @@ class UnitDeployVisualizer(Visualizer):
 
     def __init__(self, env, scenario_name, state_seq, reward_seq=None, interval=1024):
         super().__init__(env, scenario_name, state_seq, reward_seq, interval)
+
+
+class BattleSimulatorVisualizer(Visualizer):
+    """Visualizer especially for the TABSBattleSimulator environment."""
+
+    def __init__(self, env, scenario_name, state_seq, reward_seq=None, interval=150):
+        super().__init__(env, scenario_name, state_seq, reward_seq, interval)

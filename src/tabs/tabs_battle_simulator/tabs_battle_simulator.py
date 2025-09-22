@@ -747,5 +747,24 @@ class TABSBattleSimulator(BaseMAEnv):
 
         return self.get_obs(state), state, rewards, dones, info
 
-    def render(self, state):
-        return None
+    def init_render(self, ax, state: Dict, scenario_name: str):
+        from src.tabs.visualize.rendering import get_battle_simulator_render
+
+        self.scenario_name = scenario_name
+
+        frame = get_battle_simulator_render(
+            scenario_name=self.scenario_name, state=state, unit_keys=self.unit_keys
+        )
+
+        # Render
+        ax.clear()
+        # NOTE: We fix 480p
+        ax.set_xlim([0.0, 640])
+        ax.set_ylim([0.0, 480])
+        ax.axis("off")
+
+        return ax.imshow(frame)
+
+    def update_render(self, im, state: Dict):
+        ax = im.axes
+        return self.init_render(ax, state, self.scenario_name)
