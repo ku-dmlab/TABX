@@ -56,9 +56,9 @@ class Scenario:
 def get_scenario_list():
     name_list = []
     for name in SCENARIOS:
-        name_list.append(name + "_easy")
-        name_list.append(name + "_normal")
-        name_list.append(name + "_hard")
+        name_list.append(name + "_low")
+        name_list.append(name + "_medium")
+        name_list.append(name + "_high")
 
     return name_list
 
@@ -104,17 +104,17 @@ def generate_scenario(cfg: TABSConfig):
     if _scenario_name == SCENARIOS[0]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        if _scenario_level == "easy":
-            budget = 2800
-        elif _scenario_level == "normal":
-            budget = 2630
-        elif _scenario_level == "hard":
-            budget = 2410
-        _battle_field = jnp.array(
+        if _scenario_level == "low":
+            budget = 2930
+        elif _scenario_level == "medium":
+            budget = 2650
+        elif _scenario_level == "high":
+            budget = 2320
+        _battle_field = jnp.array(  # 2650
             [
-                [0, UnitID.Farmer, UnitID.TheKing, UnitID.Farmer, 0],
-                [0, 0, UnitID.Healer, 0, 0],
-                [UnitID.Archer, 0, 0, 0, UnitID.Archer],
+                [0, UnitID.TheKing, UnitID.Mammoth, 0, UnitID.Farmer],
+                [UnitID.Healer, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
             ],
             dtype=jnp.float32,
@@ -137,16 +137,16 @@ def generate_scenario(cfg: TABSConfig):
     elif _scenario_name == SCENARIOS[1]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        if _scenario_level == "easy":
-            budget = 2050
-        elif _scenario_level == "normal":
-            budget = 1930
-        elif _scenario_level == "hard":
-            budget = 1630
-        _battle_field = jnp.array(
+        if _scenario_level == "low":
+            budget = 2420
+        elif _scenario_level == "medium":
+            budget = 2180
+        elif _scenario_level == "high":
+            budget = 1940
+        _battle_field = jnp.array(  # 2120
             [
-                [0, 0, UnitID.TheKing, 0, 0],
-                [UnitID.Assassin, 0, 0, 0, UnitID.Assassin],
+                [UnitID.Farmer, UnitID.Farmer, UnitID.Mammoth, 0, 0],
+                [0, UnitID.Archer, 0, UnitID.Archer, 0],
                 [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
             ],
@@ -170,18 +170,18 @@ def generate_scenario(cfg: TABSConfig):
     elif _scenario_name == SCENARIOS[2]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        if _scenario_level == "easy":
+        if _scenario_level == "low":
+            budget = 3520
+        elif _scenario_level == "medium":
             budget = 3370
-        elif _scenario_level == "normal":
-            budget = 2700
-        elif _scenario_level == "hard":
-            budget = 2300
-        _battle_field = jnp.array(
+        elif _scenario_level == "high":
+            budget = 2570
+        _battle_field = jnp.array(  # 3320
             [
-                [0, 0, UnitID.Mammoth, 0, 0],
+                [UnitID.Farmer, UnitID.Farmer, UnitID.TheKing, UnitID.Farmer, UnitID.Farmer],
+                [0, UnitID.Assassin, UnitID.Paladin, UnitID.Assassin, UnitID.Assassin],
                 [0, 0, 0, 0, 0],
-                [0, UnitID.Cannon, 0, UnitID.Cannon, 0],
-                [0, 0, UnitID.Paladin, 0, 0],
+                [0, 0, 0, 0, 0],
             ],
             dtype=jnp.float32,
         )
@@ -203,18 +203,18 @@ def generate_scenario(cfg: TABSConfig):
     elif _scenario_name == SCENARIOS[3]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        if _scenario_level == "easy":
-            budget = 2250
-        elif _scenario_level == "normal":
-            budget = 1820
-        elif _scenario_level == "hard":
-            budget = 1430
-        _battle_field = jnp.array(
+        if _scenario_level == "low":
+            budget = 2450
+        elif _scenario_level == "medium":
+            budget = 1970
+        elif _scenario_level == "high":
+            budget = 1720
+        _battle_field = jnp.array(  # 1950
             [
                 [UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer],
-                [0, UnitID.Farmer, 0, UnitID.Farmer, 0],
-                [UnitID.Deadeye, 0, 0, 0, 0],
-                [UnitID.Healer, 0, 0, 0, 0],
+                [UnitID.Assassin, 0, UnitID.Archer, 0, UnitID.Deadeye],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
             ],
             dtype=jnp.float32,
         )
