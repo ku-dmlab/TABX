@@ -1,10 +1,12 @@
-import hashlib
-from dataclasses import dataclass, replace
+import os
 import json
+import datetime
+from dataclasses import dataclass, replace
 
 from tqdm import tqdm
 import tyro
 import wandb
+import hashlib
 import numpy as np
 
 from src.baseline.configs.config import PPOConfig
@@ -14,48 +16,43 @@ from src.tabs.scenarios import TABSConfig
 @dataclass
 class Config:
     seed: int = 42
-    n_env: int = 32  # the number of environments to run in parallel
+    n_env: int = 64  # the number of environments to run in parallel
     tabs: TABSConfig = TABSConfig()
-    mappo: PPOConfig = PPOConfig(n_env=n_env, seed=seed, batch_size=n_env)
-    save_path: str = "/save"
-    gpu_id: int = 3
-
-    total_iter: int = 40
-    iter_per_train_step: int = 100
+    battle: PPOConfig = PPOConfig(rollout_step=512, n_env=n_env, batch_size=n_env)
+    base_path: str = "./ckpt/tabs_bs_mappo"
+    project_name: str = "tabs_bs_mappo"
+    gpu_id: int = 0
+    total_iter: int = 50
+    iter_per_train_step: int = 10
+    debug: bool = False
 
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
-
-    import os
-    from functools import partial
-    import datetime
-
     os.environ["CUDA_VISIBLE_DEVICES"] = str(config.gpu_id)
+
     import jax
     import jax.numpy as jnp
 
     from src.baseline.algorithm import MAPPO
     from src.tabs.wrappers import (
-        TABSBattleSimulatorAutoResetWrapper,
         TABSBattleSimulatorLogWrapper,
         TABSBattleSimulatorHeuristicWrapper,
+        TABSBattleSimulatorAutoResetWrapper,
     )
-    from src.tabs.constants import ALL_UNIT_NAMES
     from src.tabs import TABSBattleSimulator
-    from src.tabs.scenarios import (
-        TABSConfig,
-        generate_scenario,
-        get_vectorized_scenario,
-        VectorizedScenario,
-    )
+    from src.tabs.scenarios import generate_scenario
     from src.baseline.utils import dataclass_to_dict, get_abs_path
+    from src.baseline.train_utils import get_battle_metric
 
+    # Create a hash of the config for unique folder naming
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     config_dict = dataclass_to_dict(config)
-    config_hash = hashlib.md5(str(config).encode()).hexdigest()[:8]
-    config.save_path = f"/save/{config.tabs.scenario_name}_{current_time}_{config_hash}"
-    wandb.init(project="battle_simulator_mappo", config=config)
+    config_str = json.dumps(config_dict, sort_keys=True)
+    config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
+    config.save_path = os.path.join(
+        config.base_path, f"{config.tabs.scenario_name}_{current_time}_{config_hash}"
+    )
 
     logs_dir = get_abs_path(config.save_path)
     os.makedirs(logs_dir, exist_ok=True)
@@ -64,125 +61,77 @@ if __name__ == "__main__":
     with open(os.path.join(logs_dir, "config.json"), "w") as f:
         json.dump(config_dict, f, indent=2)
 
-    tabs_conf = config.tabs
-    scenario = generate_scenario(tabs_conf)
+    wandb.init(
+        project=config.project_name,
+        config=config,
+        mode="online" if not config.debug else "disabled",
+    )
+
+    scenario = generate_scenario(config.tabs)
     config.tabs = replace(
         config.tabs,
         max_n_ally=int(scenario.ally_unit_comp.sum().item()),
         max_n_enemy=int(scenario.enemy_unit_comp.sum().item()),
     )
+    # Duplicate the scenario for parallel runs
     repeated_scenarios = jax.tree.map(lambda x: jnp.repeat(x[None], config.n_env, axis=0), scenario)
 
-    env = TABSBattleSimulator(tabs_conf)
-    env = TABSBattleSimulatorHeuristicWrapper(env, "enemy")
+    # Environments
+    env = TABSBattleSimulator(config.tabs)
+    env = TABSBattleSimulatorHeuristicWrapper(env)
     env = TABSBattleSimulatorAutoResetWrapper(env)
     env = TABSBattleSimulatorLogWrapper(env)
 
-    mappo = MAPPO(config.mappo, env)
+    # Agent
+    mappo = MAPPO(config.battle, env)
     train_state = mappo.init_train_state(
         jax.random.key(config.seed), config.total_iter * config.iter_per_train_step
     )
 
-    v_vectorize_scenario = jax.vmap(
-        partial(
-            get_vectorized_scenario,
-            n_ally=config.tabs.max_n_ally,
-            n_enemy=config.tabs.max_n_enemy,
-        )
-    )
-    vectorized_scenario: VectorizedScenario = v_vectorize_scenario(repeated_scenarios)
+    # Create logs directory if it doesn't exist
+    logs_dir = get_abs_path(config.save_path + "/logs")
+    os.makedirs(logs_dir, exist_ok=True)
 
-    def train_body(carry, _):
-        train_state = carry
-        train_state, rollout_result = mappo.rollout(train_state, repeated_scenarios)
-        train_state, train_info = mappo.train(train_state, rollout_result)
+    @jax.jit
+    def train_fn(carry):
+        def train_body(carry, _):
+            train_state = carry
+            train_state, rollout_result = mappo.rollout(train_state, repeated_scenarios)
+            train_state, train_info = mappo.train(train_state, rollout_result)
 
-        last_state = rollout_result["last_state"]
-
-        battle_metric = {
-            "returned_cumulative_is_attackings": last_state.returned_cumulative_is_attackings,
-            "returned_cumulative_damage_dealts": last_state.returned_cumulative_damage_dealts,
-            "returned_cumulative_attack_success": last_state.returned_cumulative_attack_success,
-        }
-
-        ally_battle_metric = jax.tree.map(lambda x: x[:, : config.tabs.max_n_ally], battle_metric)
-        ally_is_disabled = vectorized_scenario.is_disabled[:, : config.tabs.max_n_ally]
-        ally_unit_ids = vectorized_scenario.unit_ids[:, : config.tabs.max_n_ally]
-
-        def unit_condition_sum(target_unit_id, unit_ids, is_disabled, values):
-            return ((unit_ids == target_unit_id) * (1 - is_disabled) * values).sum()
-
-        unit_battle_metric = jax.tree.map(
-            lambda x: jax.vmap(unit_condition_sum, in_axes=(0, None, None, None))(
-                jnp.arange(config.tabs.max_num_units), ally_unit_ids, ally_is_disabled, x
-            ),
-            ally_battle_metric,
-        )
-
-        unit_counts = jax.vmap(unit_condition_sum, in_axes=(0, None, None, None))(
-            jnp.arange(config.tabs.max_num_units),
-            ally_unit_ids,
-            ally_is_disabled,
-            jnp.ones_like(ally_is_disabled),
-        )
-
-        unit_battle_metric["attack_success_rate"] = (
-            unit_battle_metric["returned_cumulative_attack_success"]
-            / unit_battle_metric["returned_cumulative_is_attackings"]
-        )
-
-        unit_specific_metric = {}
-        for key, value in unit_battle_metric.items():
-            for i, name in enumerate(ALL_UNIT_NAMES):
-                unit_specific_metric[f"{key}/{name}"] = value[i] / (
-                    unit_counts[i] if key != "attack_success_rate" else 1
-                )
-
-        team_fight_metric = {
-            "cumulative_is_attackings": unit_battle_metric[
-                "returned_cumulative_is_attackings"
-            ].sum()
-            / config.n_env,
-            "cumulative_damage_dealts": jnp.nansum(
-                unit_battle_metric["returned_cumulative_damage_dealts"]
-                * (unit_battle_metric["returned_cumulative_damage_dealts"] > 0)
+            metric = get_battle_metric(config, rollout_result["last_state"], repeated_scenarios)
+            metric.update(
+                {
+                    "episode_returns": rollout_result["returned_episode_returns"][:, 0].mean(),
+                    "episode_lengths": rollout_result["returned_episode_lengths"][:, 0].mean(),
+                    "episode_wins": rollout_result["returned_episode_wins"][:, 0].mean(),
+                    "reward_sum": rollout_result["common_reward"].sum() / config.n_env,
+                }
             )
-            / config.n_env,
-            "cumulative_heal_amount": jnp.nansum(
-                unit_battle_metric["returned_cumulative_damage_dealts"]
-                * (unit_battle_metric["returned_cumulative_damage_dealts"] < 0)
-            )
-            / config.n_env,
-            "attack_success_rate": jnp.nansum(
-                unit_battle_metric["returned_cumulative_attack_success"]
-            )
-            / jnp.nansum(unit_battle_metric["returned_cumulative_is_attackings"]),
-            "first_kill_rate": last_state.returned_first_kills[:, 0].mean(),
-        }
 
-        train_info.update(unit_specific_metric)
-        train_info.update(team_fight_metric)
+            result = {"train_info": train_info, "metric": metric}
 
-        return train_state, train_info
+            return train_state, result
 
+        carry, result = jax.lax.scan(train_body, carry, None, config.iter_per_train_step)
+
+        return carry, result
+
+    carry = train_state
     for step in tqdm(range(config.total_iter)):
-        result = jax.lax.scan(train_body, train_state, None, config.iter_per_train_step)
-        train_state, train_info = result
-        mappo.save_state(train_state, config.save_path + f"/{step}")
+        carry, result = train_fn(carry)
 
-        train_info["returned_episode_returns"] = (
-            train_info["returned_episode_returns"][:, :, 0].mean(axis=1).flatten()
-        )
-        train_info["returned_episode_lengths"] = (
-            train_info["returned_episode_lengths"][:, :, 0].mean(axis=1).flatten()
-        )
-        train_info["returned_episode_wins"] = (
-            train_info["returned_episode_wins"][:, :, 0].mean(axis=1).flatten()
-        )
+        # Log metrics
+        for i in range(config.iter_per_step):
+            # Log comb metrics
+            wandb_log = {}
+            for result_key, result_value in result.items():
+                for key_, value in result_value.items():
+                    wandb_log[f"{result_key}/{key_}"] = jax.tree.map(lambda x: x[i], value)
+            wandb.log(wandb_log)
 
-        for i in range(config.iter_per_train_step):
-            wandb.log(jax.tree.map(lambda x: x[i], train_info))
+        mappo.save_state(carry[0], config.save_path + f"bs/mappo/{step}")
 
-        np_result = jax.tree.map(lambda x: np.array(x).tolist(), train_info)
+        np_result = jax.tree.map(lambda x: np.array(x).tolist(), result)
         with open(os.path.join(logs_dir, f"result_{step}.json"), "w") as f:
             json.dump(np_result, f)
