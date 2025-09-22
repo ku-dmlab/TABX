@@ -1,1 +1,5 @@
-from src.tabs.visualize.visualizer import UnitCombVisualizer, UnitDeployVisualizer
+from src.tabs.visualize.visualizer import (
+    UnitCombVisualizer,
+    UnitDeployVisualizer,
+    BattleSimulatorVisualizer,
+)

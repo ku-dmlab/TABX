@@ -30,9 +30,8 @@ if __name__ == "__main__":
 
         return (next_state, rng), next_state
 
-    carry, stacked = jax.lax.scan(rollout_body, (env_state, rng), None, bs_num_steps)
-
-    state_seq = [jax.tree.map(lambda x: x[i], stacked) for i in range(bs_num_steps)]
+    carry, stacked = jax.lax.scan(rollout_body, (env_state, rng), None, num_steps)
+    state_seq = [jax.tree.map(lambda x: x[i], stacked) for i in range(num_steps)]
 
     visualizer = UnitCombVisualizer(env, tabs_conf.scenario_name, state_seq)
     visualizer.animate(save_fname="tabsunitcomb.gif", view=False)
@@ -54,9 +53,8 @@ if __name__ == "__main__":
 
         return (next_state, rng), next_state
 
-    carry, stacked = jax.lax.scan(rollout_body, (env_state, rng), None, bs_num_steps)
-
-    state_seq = [jax.tree.map(lambda x: x[i], stacked) for i in range(bs_num_steps)]
+    carry, stacked = jax.lax.scan(rollout_body, (env_state, rng), None, num_steps)
+    state_seq = [jax.tree.map(lambda x: x[i], stacked) for i in range(num_steps)]
 
     visualizer = UnitDeployVisualizer(env, tabs_conf.scenario_name, state_seq)
     visualizer.animate(save_fname="tabsunitdeploy.gif", view=False)
@@ -83,7 +81,6 @@ if __name__ == "__main__":
         return (next_state, rng), next_state
 
     carry, stacked = jax.lax.scan(rollout_body, (env_state, rng), None, bs_num_steps)
-
     state_seq = [jax.tree.map(lambda x: x[i], stacked) for i in range(bs_num_steps)]
 
     visualizer = BattleSimulatorVisualizer(env, tabs_conf.scenario_name, state_seq)

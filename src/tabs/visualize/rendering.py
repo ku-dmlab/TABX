@@ -104,7 +104,14 @@ def draw_comb_unit_list(
 
 
 def draw_catalog(
-    canvas: pygame.Surface, all_spec: List, width: int, height: int, x: int, y: int, size: int = 20
+    canvas: pygame.Surface,
+    all_spec: List,
+    purchasable: List,
+    width: int,
+    height: int,
+    x: int,
+    y: int,
+    size: int = 20,
 ):
     _canvas = pygame.Surface((width, height), pygame.SRCALPHA)
 
@@ -125,7 +132,7 @@ def draw_catalog(
 
     _w_pad, _h_pad = 3, 4
     _width, _height = 117, 152  # unit spec canvas size
-    _x_portrait, _y_portrait = 33, 6  # (x, y) in unit spec canvas window
+    _x_portrait, _y_portrait = 37, 6  # (x, y) in unit spec canvas window
     _stats_font_size = 8
     for idx in range(n_units):
         _unit = pygame.Surface((_width, _height), pygame.SRCALPHA)
@@ -156,9 +163,16 @@ def draw_catalog(
             _unit.blit(_text, (94 - text_width // 2, _y))
 
         # Draw unit spec
-        _x = _width * (idx % 3) + _w_pad * (idx % 3 + 1)
+        _x = _width * (idx % 3) + _w_pad * (idx % 3 + 1) - 3
         _y = _height * (idx // 3) + _h_pad * (idx // 3) - 1
         _canvas.blit(_unit, (_x, _y))
+
+        # Info purchasable
+        if not purchasable[idx]:
+            _blind = pygame.Surface((_width, _height), pygame.SRCALPHA)
+            _blind.fill(BLACK)
+            _blind.set_alpha(ALPHA[0])
+            _canvas.blit(_blind, (_x, _y))
 
     canvas.blit(_canvas, (x, y))
 
@@ -518,7 +532,15 @@ def get_comb_render(scenario_name: str, state: CombState):
         canvas, unit_list=enemy_unit_list, price=prices, width=256, height=184, x=377, y=287
     )
     # Draw all unit specification
-    draw_catalog(canvas, all_spec=all_spec, width=357, height=463, x=8, y=8)
+    draw_catalog(
+        canvas,
+        all_spec=all_spec,
+        purchasable=np.logical_not(np.array(state.unavail_action)),
+        width=357,
+        height=463,
+        x=8,
+        y=8,
+    )
 
     array = np.transpose(np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2))  # Rotate
     array = np.flip(array, axis=0)  # Flip because of matplotlib axis
