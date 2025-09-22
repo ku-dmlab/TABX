@@ -315,14 +315,23 @@ def get_vectorized_scenario(
         x, y = jnp.unravel_index(unit_idx, battle_field.shape)
 
         deployed_unit_id = battle_field[x, y].astype(int) - 1
+        _space_occupied = jnp.sqrt(scenario.space_occupied[deployed_unit_id])
+        space_occupied_offset = unit_spacing * (_space_occupied - 1) / 2
         positions = vectorized_scenario.positions.at[i].set(
             jnp.stack(
                 (
+                    # x
                     (
-                        (1 - is_ally) * (x * unit_spacing + side_gap / 2)
-                        + is_ally * -(x * unit_spacing + side_gap / 2)
+                        (1 - is_ally) * (x * unit_spacing + side_gap / 2 + space_occupied_offset)
+                        + is_ally * -(x * unit_spacing + side_gap / 2 + space_occupied_offset)
                     ),
-                    (unit_spacing * (y - scenario.battle_field.shape[0] / 2)) * (0.5 - is_ally) * 2,
+                    # y
+                    (
+                        unit_spacing * (y - scenario.battle_field.shape[0] / 2)
+                        + space_occupied_offset
+                    )
+                    * (0.5 - is_ally)
+                    * 2,
                 )
             )
             * unit_remain
