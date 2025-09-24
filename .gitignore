@@ -30,3 +30,4 @@ ckpt*/
 *.json
 *.npy
 *.npz
+*.gif
