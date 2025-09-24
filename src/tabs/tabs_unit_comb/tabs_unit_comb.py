@@ -17,6 +17,7 @@ class State:
     unit_comp_mask: chex.Array
     unavail_action: chex.Array
     scenario: Scenario
+    timestep: chex.Array
 
 
 class TABSUnitComb(BaseMAEnv):
@@ -84,6 +85,7 @@ class TABSUnitComb(BaseMAEnv):
             unit_comp_mask=scenario.unit_comp_mask,
             unavail_action=unavail_action,
             scenario=scenario,
+            timestep=jnp.array([0]),
         )
         return self.get_obs(state), state
 
@@ -114,6 +116,7 @@ class TABSUnitComb(BaseMAEnv):
             budget=budget,
             current_unit_list=new_unit_list.astype(jnp.int32),
             unavail_action=unavail_action,
+            timestep=state.timestep + 1,
         )
         # NOTE: Reward would be computed by the result of battle with this unit combination.
         reward = None
@@ -128,3 +131,23 @@ class TABSUnitComb(BaseMAEnv):
         )
 
         return self.get_obs(state), state, reward, done, {}
+
+    def init_render(self, ax, state: State, scenario_name: str):
+        from src.tabs.visualize.rendering import get_comb_render
+
+        self.scenario_name = scenario_name
+
+        frame = get_comb_render(scenario_name=self.scenario_name, state=state)
+
+        # Render
+        ax.clear()
+        # NOTE: We fix 480p
+        ax.set_xlim([0.0, 640])
+        ax.set_ylim([0.0, 480])
+        ax.axis("off")
+
+        return ax.imshow(frame)
+
+    def update_render(self, im, state: State):
+        ax = im.axes
+        return self.init_render(ax, state, self.scenario_name)

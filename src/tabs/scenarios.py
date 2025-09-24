@@ -56,9 +56,9 @@ class Scenario:
 def get_scenario_list():
     name_list = []
     for name in SCENARIOS:
-        name_list.append(name + "_easy")
-        name_list.append(name + "_normal")
-        name_list.append(name + "_hard")
+        name_list.append(name + "_abandunt")
+        name_list.append(name + "_medium")
+        name_list.append(name + "_tight")
 
     return name_list
 
@@ -104,17 +104,17 @@ def generate_scenario(cfg: TABSConfig):
     if _scenario_name == SCENARIOS[0]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        if _scenario_level == "easy":
-            budget = 2800
-        elif _scenario_level == "normal":
-            budget = 2630
-        elif _scenario_level == "hard":
-            budget = 2410
-        _battle_field = jnp.array(
+        if _scenario_level.lower() == "abandunt":
+            budget = 2930
+        elif _scenario_level.lower() == "medium":
+            budget = 2650
+        elif _scenario_level.lower() == "tight":
+            budget = 2320
+        _battle_field = jnp.array(  # 2640
             [
-                [0, UnitID.Farmer, UnitID.TheKing, UnitID.Farmer, 0],
-                [0, 0, UnitID.Healer, 0, 0],
-                [UnitID.Archer, 0, 0, 0, UnitID.Archer],
+                [0, 0, UnitID.Mammoth, UnitID.Farmer, 0],
+                [UnitID.Healer, UnitID.Archer, UnitID.Archer, UnitID.Archer, 0],
+                [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
             ],
             dtype=jnp.float32,
@@ -137,16 +137,16 @@ def generate_scenario(cfg: TABSConfig):
     elif _scenario_name == SCENARIOS[1]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        if _scenario_level == "easy":
-            budget = 2050
-        elif _scenario_level == "normal":
-            budget = 1930
-        elif _scenario_level == "hard":
-            budget = 1630
-        _battle_field = jnp.array(
+        if _scenario_level.lower() == "abandunt":
+            budget = 2420
+        elif _scenario_level.lower() == "medium":
+            budget = 2180
+        elif _scenario_level.lower() == "tight":
+            budget = 1940
+        _battle_field = jnp.array(  # 2120
             [
-                [0, 0, UnitID.TheKing, 0, 0],
-                [UnitID.Assassin, 0, 0, 0, UnitID.Assassin],
+                [UnitID.Farmer, UnitID.Farmer, UnitID.Mammoth, 0, 0],
+                [0, UnitID.Archer, 0, UnitID.Archer, 0],
                 [0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0],
             ],
@@ -170,18 +170,18 @@ def generate_scenario(cfg: TABSConfig):
     elif _scenario_name == SCENARIOS[2]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        if _scenario_level == "easy":
+        if _scenario_level.lower() == "abandunt":
+            budget = 3520
+        elif _scenario_level.lower() == "medium":
             budget = 3370
-        elif _scenario_level == "normal":
-            budget = 2700
-        elif _scenario_level == "hard":
-            budget = 2300
-        _battle_field = jnp.array(
+        elif _scenario_level.lower() == "tight":
+            budget = 2570
+        _battle_field = jnp.array(  # 3360
             [
-                [0, 0, UnitID.Mammoth, 0, 0],
+                [UnitID.Farmer, UnitID.Farmer, UnitID.TheKing, UnitID.Farmer, UnitID.Farmer],
+                [0, UnitID.Archer, UnitID.Paladin, UnitID.Archer, UnitID.Assassin],
                 [0, 0, 0, 0, 0],
-                [0, UnitID.Cannon, 0, UnitID.Cannon, 0],
-                [0, 0, UnitID.Paladin, 0, 0],
+                [0, 0, 0, 0, 0],
             ],
             dtype=jnp.float32,
         )
@@ -203,18 +203,18 @@ def generate_scenario(cfg: TABSConfig):
     elif _scenario_name == SCENARIOS[3]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        if _scenario_level == "easy":
-            budget = 2250
-        elif _scenario_level == "normal":
-            budget = 1820
-        elif _scenario_level == "hard":
-            budget = 1430
-        _battle_field = jnp.array(
+        if _scenario_level.lower() == "abandunt":
+            budget = 2450
+        elif _scenario_level.lower() == "medium":
+            budget = 1970
+        elif _scenario_level.lower() == "tight":
+            budget = 1720
+        _battle_field = jnp.array(  # 1950
             [
                 [UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer],
-                [0, UnitID.Farmer, 0, UnitID.Farmer, 0],
-                [UnitID.Deadeye, 0, 0, 0, 0],
-                [UnitID.Healer, 0, 0, 0, 0],
+                [UnitID.Assassin, 0, UnitID.Archer, 0, UnitID.Deadeye],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
             ],
             dtype=jnp.float32,
         )
@@ -222,7 +222,7 @@ def generate_scenario(cfg: TABSConfig):
             [
                 [UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer],
                 [0, UnitID.Farmer, 0, UnitID.Farmer, 0],
-                [UnitID.Deadeye, 0, 0, 0, 0],
+                [UnitID.Deadeye, 0, 0, 0, UnitID.Deadeye],
                 [UnitID.Healer, 0, 0, 0, 0],
             ],
             dtype=jnp.float32,
@@ -315,14 +315,23 @@ def get_vectorized_scenario(
         x, y = jnp.unravel_index(unit_idx, battle_field.shape)
 
         deployed_unit_id = battle_field[x, y].astype(int) - 1
+        _space_occupied = jnp.sqrt(scenario.space_occupied[deployed_unit_id])
+        space_occupied_offset = unit_spacing * (_space_occupied - 1) / 2
         positions = vectorized_scenario.positions.at[i].set(
             jnp.stack(
                 (
+                    # x
                     (
-                        (1 - is_ally) * (x * unit_spacing + side_gap / 2)
-                        + is_ally * -(x * unit_spacing + side_gap / 2)
+                        (1 - is_ally) * (x * unit_spacing + side_gap / 2 + space_occupied_offset)
+                        + is_ally * -(x * unit_spacing + side_gap / 2 + space_occupied_offset)
                     ),
-                    (unit_spacing * (y - scenario.battle_field.shape[0] / 2)) * (0.5 - is_ally) * 2,
+                    # y
+                    (
+                        unit_spacing * (y - scenario.battle_field.shape[0] / 2)
+                        + space_occupied_offset
+                    )
+                    * (0.5 - is_ally)
+                    * 2,
                 )
             )
             * unit_remain

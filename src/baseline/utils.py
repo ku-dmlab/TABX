@@ -4,8 +4,7 @@ import chex
 import jax
 import jax.numpy as jnp
 from flax import struct, nnx
-from dataclasses import dataclass, replace, asdict, is_dataclass
-# ... existing imports ...
+from dataclasses import asdict, is_dataclass
 
 
 def dataclass_to_dict(obj):
@@ -30,7 +29,7 @@ def dataclass_to_dict(obj):
 
 def get_abs_path(path):
     if not os.path.isdir(path):
-        path = os.getcwd() + path
+        path = os.path.join(os.getcwd(), path)
     return path
 
 

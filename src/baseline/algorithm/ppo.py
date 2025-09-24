@@ -48,7 +48,7 @@ class PPO(BaseAlgo):
                 end_value=0.0,
                 transition_steps=num_updates
                 * self.config.epochs
-                * (self.config.n_env // self.config.batch_size),
+                * ((self.config.n_env * self.config.rollout_step) // self.config.batch_size),
             )
         else:
             learning_rate = self.config.lr
@@ -162,7 +162,7 @@ class PPO(BaseAlgo):
             dist = tfd.Categorical(logits=logits)
             log_pi = dist.log_prob(batch["actions"])
 
-            log_diff = log_pi - batch["log_probs"]
+            log_diff = log_pi.reshape(batch["advantages"].shape) - batch["log_probs"]
             all_masks = batch["unavail_actions"].astype(jnp.bool_).all(axis=-1, keepdims=True)
 
             ratio = jnp.exp(log_diff).reshape(batch["advantages"].shape)
@@ -244,18 +244,25 @@ class PPO(BaseAlgo):
             "unavail_actions": batch["unavail_actions"],
         }
 
+        batchfied_train_batch = jax.tree.map(
+            lambda x: x.reshape(self.config.n_env * self.config.rollout_step, -1), train_batch
+        )
+
         def train_body(carry, _):
             (train_state,) = carry
             batch_key, key = jax.random.split(train_state.key)
-            batch_idx = jax.random.permutation(batch_key, self.config.n_env).reshape(
-                -1, self.config.batch_size
+            train_batch = jax.tree.map(
+                lambda x: jax.random.permutation(batch_key, x).reshape(
+                    (self.config.n_env * self.config.rollout_step) // self.config.batch_size,
+                    self.config.batch_size,
+                    -1,
+                ),
+                batchfied_train_batch,
             )
+            train_batch["actions"] = train_batch["actions"].squeeze(-1)
 
-            def batch_scan_body(carry, batch_idx):
+            def batch_scan_body(carry, mini_batch):
                 (train_state,) = carry
-                mini_batch = jax.vmap(
-                    lambda idx: jax.tree.map(lambda x: x[:, idx], train_batch), out_axes=1
-                )(batch_idx)
                 mini_batch["advantages"] = (
                     mini_batch["advantages"] - mini_batch["advantages"].mean()
                 ) / (mini_batch["advantages"].std() + 1e-8)
@@ -265,7 +272,9 @@ class PPO(BaseAlgo):
                 ) = self.train_step(train_state, mini_batch)
                 return (train_state,), train_result
 
-            (train_state,), train_result = jax.lax.scan(batch_scan_body, (train_state,), batch_idx)
+            (train_state,), train_result = jax.lax.scan(
+                batch_scan_body, (train_state,), train_batch
+            )
 
             return (train_state.replace(key=key),), train_result
 

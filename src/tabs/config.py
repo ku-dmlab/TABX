@@ -4,7 +4,7 @@ from src.tabs.constants import ALL_UNIT_NAMES
 
 @dataclass(frozen=True)
 class TABSConfig:
-    scenario_name: str = "2F1K2A1H_hard"  # The predefined scenario name
+    scenario_name: str = "2F1K2A1H_tight"  # The predefined scenario name
     max_num_units: int = len(ALL_UNIT_NAMES)  # The maximum number of unit types
     max_field_height: int = 4  # The maximum height size of battle field
     max_field_width: int = 5  # The maximum width size of battle field

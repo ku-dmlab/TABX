@@ -372,9 +372,6 @@ class MAPPO(BaseAlgo):
             "approx_kl_max": train_result["approx_kl"].max(),
             "approx_kl_min": train_result["approx_kl"].min(),
             "approx_kl_mean": train_result["approx_kl"].mean(),
-            "returned_episode_returns": batch["returned_episode_returns"],
-            "returned_episode_lengths": batch["returned_episode_lengths"],
-            "returned_episode_wins": batch["returned_episode_wins"],
             "discrete_entropy": train_result["discrete_entropy"].mean(),
             "continuous_entropy": train_result["continuous_entropy"].mean(),
         }

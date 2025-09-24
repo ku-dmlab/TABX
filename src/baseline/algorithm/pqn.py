@@ -10,10 +10,9 @@ from flax import nnx, struct
 
 from src.baseline.algorithm.base_algo import BaseAlgo
 from src.baseline.configs.config import PQNConfig
-from src.baseline.modules import PQN_Critic
+from src.baseline.modules import PQNCritic
 from src.baseline.utils import (
     NetworkState,
-    TrainState,
     get_model,
 )
 from src.tabs import TABSUnitComb, TABSUnitDeploy
@@ -61,7 +60,7 @@ class PQN(BaseAlgo):
         rngs = nnx.Rngs(self.config.seed)
 
         # Instantiate policy and critic functions
-        critic = PQN_Critic(
+        critic = PQNCritic(
             action_dim=self.action_dim,
             state_dim=self.observation_dim,
             layer_dim=self.config.layer_dim,
@@ -71,9 +70,12 @@ class PQN(BaseAlgo):
         if self.config.learning_scheduler:
             learning_rate = optax.linear_schedule(
                 init_value=self.config.lr,
-                end_value=0.0,
+                end_value=1e-20,
                 transition_steps=num_updates
-                * ((self.config.n_env // self.config.batch_size) * self.config.num_epochs),
+                * (
+                    ((self.config.n_env * self.config.rollout_step) // self.config.batch_size)
+                    * self.config.num_epochs
+                ),
             )
         else:
             learning_rate = self.config.lr
@@ -183,6 +185,7 @@ class PQN(BaseAlgo):
             "next_obs": rollout_result["next_obs"],
             "dones": rollout_result["dones"],
             "q_val": rollout_result["q_val"],
+            "target_transitions": rollout_result["dones"].cumsum(axis=0) <= 1,
         }
         last_q = jnp.max(
             critic(rollout_result["last_obs"]) - rollout_result["last_state"].unavail_action * 1e9,
@@ -216,14 +219,19 @@ class PQN(BaseAlgo):
         def batch_scan_body(train_state, _):
             batch_key, key = jax.random.split(train_state.key)
 
-            batch_idx = jax.random.permutation(batch_key, self.config.n_env).reshape(
-                -1, self.config.batch_size
+            batchfied_transitions = jax.tree.map(
+                lambda x: x.reshape(self.config.n_env * self.config.rollout_step, -1),
+                (transitions, lambda_targets),
             )
-            batch = jax.vmap(
-                lambda batch_idx: jax.tree.map(
-                    lambda x: x[:, batch_idx], (transitions, lambda_targets)
-                )
-            )(batch_idx)
+            batchfied_transitions = jax.tree.map(
+                lambda x: jax.random.permutation(batch_key, x).reshape(
+                    (self.config.n_env * self.config.rollout_step) // self.config.batch_size,
+                    self.config.batch_size,
+                    -1,
+                ),
+                batchfied_transitions,
+            )
+            batchfied_transitions[0]["actions"] = batchfied_transitions[0]["actions"].squeeze(-1)
 
             def train_body(train_state, batch):
                 transitions, targets = batch
@@ -231,12 +239,12 @@ class PQN(BaseAlgo):
                 critic, critic_optimizer = get_model(train_state.critic_state)
                 critic.train()
 
-                def critic_loss_fn(critic: PQN_Critic):
+                def critic_loss_fn(critic: PQNCritic):
                     q_vals = critic(transitions["observations"])
                     chosen_action_qvals = jnp.take_along_axis(
                         q_vals, jnp.expand_dims(transitions["actions"], axis=-1), axis=-1
                     )
-                    target_transitions = transitions["dones"].cumsum(axis=0) <= 1
+                    target_transitions = transitions["target_transitions"]
                     loss = (
                         0.5
                         * (jnp.square(targets - chosen_action_qvals) * target_transitions).sum()
@@ -255,7 +263,7 @@ class PQN(BaseAlgo):
                 )
                 return train_state, critic_loss
 
-            train_state, critic_loss = jax.lax.scan(train_body, train_state, batch)
+            train_state, critic_loss = jax.lax.scan(train_body, train_state, batchfied_transitions)
             return train_state, critic_loss.mean()
 
         train_state, critic_loss = jax.lax.scan(

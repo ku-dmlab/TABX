@@ -9,7 +9,7 @@ LOG_STD_MAX = 0.0
 LOG_STD_MIN = -3.0
 
 
-class PQN_Critic(nnx.Module):
+class PQNCritic(nnx.Module):
     def __init__(self, state_dim, action_dim, layer_dim=64, rngs=nnx.Rngs(0), batch_norm=False):
         self.batch_norm = batch_norm
         if self.batch_norm:

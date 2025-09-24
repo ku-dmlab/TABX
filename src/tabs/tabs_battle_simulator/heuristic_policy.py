@@ -109,7 +109,7 @@ def heuristic_policy(
     other_rotation = other_features[:, 4] * jnp.pi * 2
     other_radius = other_features[:, 9]
     other_is_ally = other_features[:, -3].astype(jnp.bool_)
-    other_injured_ally = other_is_ally & (other_max_health < 1)
+    other_injured_ally = other_is_ally & (other_max_health < 1) & (other_max_health > 0)
     exist_injured_ally = jnp.sum(other_injured_ally) > 0
     other_enemy_max_hp = jnp.where(
         other_is_ally | (other_hp == 0),
@@ -128,7 +128,9 @@ def heuristic_policy(
     target_move_position = jnp.where(
         own_is_assassin,
         other_relative_position - backward_rotate_vector,
-        other_relative_position + backward_rotate_vector,
+        jnp.where(
+            own_is_healer, other_relative_position, other_relative_position + backward_rotate_vector
+        ),
     )  # If assassin, target move position is the target's back
     # If there is injured ally, healer target is the injured ally, otherwise healer target is the closest ally
     healer_target = (

@@ -21,3 +21,13 @@ wandb/
 # Saves
 ckpt/
 save/
+ckpt*/
+
+# Output files
+*.csv
+*.txt
+*.pkl
+*.json
+*.npy
+*.npz
+*.gif
