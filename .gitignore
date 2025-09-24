@@ -13,8 +13,21 @@ wheels/
 .vscode/
 
 # W&B
-# Not wand'a'b
-wandb/ 
+wandb/
 
-# Jupyter notebooks
+# jupyter notebook
 *.ipynb
+
+# Saves
+ckpt/
+save/
+ckpt*/
+
+# Output files
+*.csv
+*.txt
+*.pkl
+*.json
+*.npy
+*.npz
+*.gif
