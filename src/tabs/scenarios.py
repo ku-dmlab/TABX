@@ -56,7 +56,7 @@ class Scenario:
 def get_scenario_list():
     name_list = []
     for name in SCENARIOS:
-        name_list.append(name + "_abandunt")
+        name_list.append(name + "_abundant")
         name_list.append(name + "_medium")
         name_list.append(name + "_tight")
 
@@ -104,7 +104,7 @@ def generate_scenario(cfg: TABSConfig):
     if _scenario_name == SCENARIOS[0]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        if _scenario_level.lower() == "abandunt":
+        if _scenario_level.lower() == "abundant":
             budget = 2930
         elif _scenario_level.lower() == "medium":
             budget = 2650
@@ -137,7 +137,7 @@ def generate_scenario(cfg: TABSConfig):
     elif _scenario_name == SCENARIOS[1]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        if _scenario_level.lower() == "abandunt":
+        if _scenario_level.lower() == "abundant":
             budget = 2420
         elif _scenario_level.lower() == "medium":
             budget = 2180
@@ -170,7 +170,7 @@ def generate_scenario(cfg: TABSConfig):
     elif _scenario_name == SCENARIOS[2]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        if _scenario_level.lower() == "abandunt":
+        if _scenario_level.lower() == "abundant":
             budget = 3520
         elif _scenario_level.lower() == "medium":
             budget = 3370
@@ -203,7 +203,7 @@ def generate_scenario(cfg: TABSConfig):
     elif _scenario_name == SCENARIOS[3]:
         h, w = 4, 5
         assert max_shape[0] >= h and max_shape[1] >= w
-        if _scenario_level.lower() == "abandunt":
+        if _scenario_level.lower() == "abundant":
             budget = 2450
         elif _scenario_level.lower() == "medium":
             budget = 1970
