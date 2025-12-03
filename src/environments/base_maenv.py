@@ -4,9 +4,8 @@ import chex
 
 
 class BaseMAEnv:
-    def __init__(self, num_agents: int, physics_config: Dict[str, float]) -> None:
+    def __init__(self, num_agents: int) -> None:
         self.num_agents = num_agents
-        self.physics_config = physics_config
 
     def get_obs(self, state: Dict[str, Any]) -> chex.Array:
         raise NotImplementedError

@@ -8,7 +8,7 @@ from flax import struct
 
 from src.tabs.utils import notify
 from src.environments.base_maenv import BaseMAEnv
-from src.environments.spaces import DiscreteContinuous, Box
+from src.environments.spaces import Discrete, DiscreteContinuous, Box
 from src.environments.physics import (
     Transform,
     RigidBody,
@@ -19,16 +19,18 @@ from src.environments.physics import (
 from src.tabs.scenarios import TABSConfig, Scenario, get_vectorized_scenario, VectorizedScenario
 
 
-move_table = jnp.array(
+action_table = jnp.array(
     [
-        [0, 1.0],
-        [0, -1.0],
-        [-1.0, 0],
-        [1.0, 0],
-        [0.0, 0.0],
-        [0.0, 0.0],
+        [0, 1.0, 0.0],
+        [0, -1.0, 0.0],
+        [-1.0, 0, 0.0],
+        [1.0, 0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, -0.1],
+        [0.0, 0.0, 0.1],
+        [0.0, 0.0, 0.0],
     ]
-)
+)  # [x_move, y_move, rotate_angle]
 
 
 class AttackType:
@@ -42,7 +44,17 @@ class UnitAction:
     LEFT = 2
     RIGHT = 3
     ATTACK = 4
-    IDLE = 5
+    TURN_LEFT = 5
+    TURN_RIGHT = 6
+    IDLE = 7
+
+
+@struct.dataclass
+class PhysicsParams:
+    dt: float = jnp.array([0.5])
+    percent: float = jnp.array([0.5])
+    slop: float = jnp.array([0.01])
+    restitution: float = jnp.array([0.8])
 
 
 @struct.dataclass
@@ -78,7 +90,7 @@ class DefaultUnit:
 
     def update(self, **kwargs):
         config = kwargs["config"]
-        next_cooldown = self.status.cooldown + config["dt"]
+        next_cooldown = self.status.cooldown + config.dt
         updated_object = physics_update(config, self)
 
         updated_transform = self.transform._replace(
@@ -93,10 +105,7 @@ class DefaultUnit:
         )
 
     def act(self, objects, action, **kwargs):
-        # action : [rotate_angle, discrete action]
-
-        discrete_action = action[1].astype(int).reshape()
-        is_attack = UnitAction.ATTACK == discrete_action
+        is_attack = UnitAction.ATTACK == action
         game_manager: GameManager = objects["game_manager"]
         target_id = game_manager.attack_target[self.status.id.reshape()]
         target_attackable = game_manager.attackable_matrix[self.status.id.reshape()]
@@ -109,19 +118,15 @@ class DefaultUnit:
         attack_success = can_attack & is_attack & target_attackable[target_id.reshape()]
 
         move_action = (
-            move_table[discrete_action] * action_able * self.status.speed
+            action_table[action, :2] * action_able * self.status.speed
         )  # if unit is dead, do not move
-
+        rotate_action = action_table[action, 2] * action_able
         cooldown = is_attack & can_attack
 
         return self.replace(
             rigidbody=self.rigidbody._replace(velocity=move_action),
             transform=self.transform._replace(
-                rotation=(
-                    self.transform.rotation
-                    + jnp.clip(action[0].reshape(), -jnp.pi / 12, jnp.pi / 12) * action_able
-                )
-                % (2 * jnp.pi)
+                rotation=(self.transform.rotation + rotate_action) % (2 * jnp.pi)
             ),
             status=self.status.replace(
                 cooldown=jnp.clip(
@@ -329,26 +334,21 @@ class TABSBattleSimulator(BaseMAEnv):
     def __init__(
         self,
         cfg: TABSConfig,
-        physics_config: Dict[str, float] = EasyDict(
-            {"dt": 0.5, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
-        ),
         obs_type: str = "unit_spec",
-        max_team: int = 2,
         max_episode_steps: int = 512,
     ):
         max_n_ally = cfg.max_n_ally
         max_n_enemy = cfg.max_n_enemy
-        super().__init__(max_n_ally + max_n_enemy, physics_config)
-        self.physics_config = physics_config
+
+        super().__init__(max_n_ally + max_n_enemy)
         self.obs_type = obs_type
         self.ally_keys = [f"unit_{i}" for i in range(max_n_ally)]
         self.enemy_keys = [f"unit_{i}" for i in range(max_n_ally, max_n_ally + max_n_enemy)]
         self.unit_keys = self.ally_keys + self.enemy_keys
-        self.max_team = max_team
-
         self.max_n_ally = max_n_ally
         self.max_n_enemy = max_n_enemy
         self.max_episode_steps = max_episode_steps
+        self.max_team = 2
 
         self.empty_state = {
             name: DefaultUnit(
@@ -396,9 +396,7 @@ class TABSBattleSimulator(BaseMAEnv):
             last_team_hp_ratio=jnp.ones(self.max_team),
         )
 
-        self.action_space = DiscreteContinuous(
-            num_categories=6, low=-jnp.pi / 12, high=jnp.pi / 12, shape=(1,)
-        )
+        self.action_space = Discrete(num_categories=6)
         if self.obs_type == "unit_spec":
             self.observation_spaces = {
                 agent: Box(
@@ -614,9 +612,10 @@ class TABSBattleSimulator(BaseMAEnv):
         observations = {key: concated_obs[i] for i, key in enumerate(keys)}
         return observations
 
-    def reset(self, key, senario: Scenario):
+    def reset(self, key, env_params):
+        scenario = env_params["scenario"]
         vectorized_scenario: VectorizedScenario = get_vectorized_scenario(
-            senario, self.max_n_ally, self.max_n_enemy
+            scenario, self.max_n_ally, self.max_n_enemy
         )
 
         state = {}
@@ -667,20 +666,23 @@ class TABSBattleSimulator(BaseMAEnv):
 
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
 
-        return self.get_obs(state), state
+        return self.get_obs(state), {"state": state, "physics_params": env_params["physics_params"]}
 
-    def step(self, key, state, action):
+    def step(self, key, _state, action):
+        state = _state["state"]
+        physics_params = _state["physics_params"]
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
 
         for sprite in state.keys():
             if hasattr(state[sprite], "update"):
-                state[sprite] = state[sprite].update(config=self.physics_config)
+                state[sprite] = state[sprite].update(config=physics_params)
 
         collider_filter = {
-            unit: [key for key in state if "unit" in key and key != unit] for unit in self.unit_keys
+            unit: [key for key in state if hasattr(state[key], "collider") and key != unit]
+            for unit in self.unit_keys
         }
 
-        state = physics_step(self.physics_config, state, list(state.keys()), collider_filter)
+        state = physics_step(physics_params, state, list(state.keys()), collider_filter)
 
         # action processing
         for sprite in self.unit_keys:
@@ -745,7 +747,13 @@ class TABSBattleSimulator(BaseMAEnv):
             "team_dead_units": team_dead_units,
         }
 
-        return self.get_obs(state), state, rewards, dones, info
+        return (
+            self.get_obs(state),
+            {"state": state, "physics_params": physics_params},
+            rewards,
+            dones,
+            info,
+        )
 
     def init_render(self, ax, state: Dict, scenario_name: str):
         from src.tabs.visualize.rendering import get_battle_simulator_render
@@ -753,7 +761,7 @@ class TABSBattleSimulator(BaseMAEnv):
         self.scenario_name = scenario_name
 
         frame = get_battle_simulator_render(
-            scenario_name=self.scenario_name, state=state, unit_keys=self.unit_keys
+            scenario_name=self.scenario_name, state=state["state"], unit_keys=self.unit_keys
         )
 
         # Render
