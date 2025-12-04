@@ -26,8 +26,8 @@ action_table = jnp.array(
         [-1.0, 0, 0.0],
         [1.0, 0, 0.0],
         [0.0, 0.0, 0.0],
-        [0.0, 0.0, -0.1],
-        [0.0, 0.0, 0.1],
+        [0.0, 0.0, -jnp.pi / 6],
+        [0.0, 0.0, jnp.pi / 6],
         [0.0, 0.0, 0.0],
     ]
 )  # [x_move, y_move, rotate_angle]
@@ -120,7 +120,7 @@ class DefaultUnit:
         move_action = (
             action_table[action, :2] * action_able * self.status.speed
         )  # if unit is dead, do not move
-        rotate_action = action_table[action, 2] * action_able
+        rotate_action = action_table[action, 2] * action_able * kwargs["physics_params"].dt
         cooldown = is_attack & can_attack
 
         return self.replace(
@@ -686,7 +686,7 @@ class TABSBattleSimulator(BaseMAEnv):
 
         # action processing
         for sprite in self.unit_keys:
-            state[sprite] = state[sprite].act(state, action[sprite])
+            state[sprite] = state[sprite].act(state, action[sprite], physics_params=physics_params)
 
         # alive processing after action step, for independent unit sequence
         dones = {}
