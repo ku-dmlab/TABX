@@ -1,5 +1,8 @@
 from dataclasses import dataclass
+from flax import struct
 from src.tabs.constants import ALL_UNIT_NAMES
+import jax.numpy as jnp
+import chex
 
 
 @dataclass(frozen=True)
@@ -12,12 +15,14 @@ class TABSConfig:
     max_n_enemy: int = 10  # The maximum number of enemy agents
 
 
-@dataclass(frozen=True)
+@struct.dataclass
 class TABSHeuristicConfig:
-    epsilon: float = 0.1
-    aggressive_threshold: float = 0.3
-    rotate_noise_scale: float = 0.5
-    healer_rotate_noise_scale: float = 0.1
-    healer_aggressive_threshold: float = 0.85
-    assasin_speed: float = 1.4
-    ranger_attack_range: float = 10.0
+    epsilon: chex.Array = struct.field(default_factory=lambda: jnp.array([0.1]))
+    aggressive_threshold: chex.Array = struct.field(default_factory=lambda: jnp.array([0.3]))
+    rotate_noise_scale: chex.Array = struct.field(default_factory=lambda: jnp.array([0.5]))
+    healer_rotate_noise_scale: chex.Array = struct.field(default_factory=lambda: jnp.array([0.1]))
+    healer_aggressive_threshold: chex.Array = struct.field(
+        default_factory=lambda: jnp.array([0.85])
+    )
+    assasin_speed: chex.Array = struct.field(default_factory=lambda: jnp.array([1.4]))
+    ranger_attack_range: chex.Array = struct.field(default_factory=lambda: jnp.array([10.0]))

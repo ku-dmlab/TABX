@@ -243,6 +243,4 @@ def heuristic_policy(
     # 4. If there exists no target, turn left to find target
 
     is_random = jax.random.bernoulli(key, heuristic_config.epsilon)
-    return jnp.array([discrete_action * ~is_random + random_discrete_action * is_random]).astype(
-        jnp.int32
-    )
+    return (discrete_action * ~is_random + random_discrete_action * is_random).astype(jnp.int32)

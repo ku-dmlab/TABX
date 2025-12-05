@@ -8,7 +8,7 @@ from flax import struct
 
 from src.tabs.utils import notify
 from src.environments.base_maenv import BaseMAEnv
-from src.environments.spaces import Discrete, DiscreteContinuous, Box
+from src.environments.spaces import Discrete, Box
 from src.environments.physics import (
     Transform,
     RigidBody,
@@ -16,7 +16,7 @@ from src.environments.physics import (
     physics_step,
     physics_update,
 )
-from src.tabs.scenarios import TABSConfig, Scenario, get_vectorized_scenario, VectorizedScenario
+from src.tabs.scenarios import TABSConfig, get_vectorized_scenario, VectorizedScenario
 
 
 action_table = jnp.array(
@@ -51,10 +51,10 @@ class UnitAction:
 
 @struct.dataclass
 class PhysicsParams:
-    dt: float = jnp.array([0.5])
-    percent: float = jnp.array([0.5])
-    slop: float = jnp.array([0.01])
-    restitution: float = jnp.array([0.8])
+    dt: float = struct.field(default_factory=lambda: jnp.array([0.5]))
+    percent: float = struct.field(default_factory=lambda: jnp.array([0.5]))
+    slop: float = struct.field(default_factory=lambda: jnp.array([0.01]))
+    restitution: float = struct.field(default_factory=lambda: jnp.array([0.8]))
 
 
 @struct.dataclass
@@ -105,6 +105,7 @@ class DefaultUnit:
         )
 
     def act(self, objects, action, **kwargs):
+        action = action.reshape()
         is_attack = UnitAction.ATTACK == action
         game_manager: GameManager = objects["game_manager"]
         target_id = game_manager.attack_target[self.status.id.reshape()]
@@ -396,20 +397,22 @@ class TABSBattleSimulator(BaseMAEnv):
             last_team_hp_ratio=jnp.ones(self.max_team),
         )
 
-        self.action_space = Discrete(num_categories=6)
+        self.action_spaces = {
+            agent: Discrete(num_categories=action_table.shape[0]) for agent in self.unit_keys
+        }
         if self.obs_type == "unit_spec":
             self.observation_spaces = {
                 agent: Box(
                     low=0, high=1, shape=(14 + 16 * (len(self.unit_keys) - 1),), dtype=jnp.float32
                 )
-                for agent in self.ally_keys
+                for agent in self.unit_keys
             }
         elif self.obs_type == "unit_id":
             self.observation_spaces = {
                 agent: Box(
                     low=0, high=1, shape=(6 + 9 * (len(self.unit_keys) - 1),), dtype=jnp.float32
                 )
-                for agent in self.ally_keys
+                for agent in self.unit_keys
             }
         else:
             raise ValueError(f"Invalid observation type: {self.obs_type}")
@@ -610,6 +613,24 @@ class TABSBattleSimulator(BaseMAEnv):
 
         concated_obs = jnp.concatenate((own_feature, other_feature), axis=1)
         observations = {key: concated_obs[i] for i, key in enumerate(keys)}
+        observations["world_state"] = jnp.concatenate(
+            (
+                healths,
+                max_healths,
+                positions,
+                rotations,
+                attack_ranges,
+                attack_damages,
+                cooldowns,
+                attack_cooldowns,
+                body_radiuss,
+                body_weights,
+                sight_angles,
+                is_alives,
+                speeds,
+            ),
+            axis=-1,
+        ).flatten()
         return observations
 
     def reset(self, key, env_params):
@@ -668,7 +689,7 @@ class TABSBattleSimulator(BaseMAEnv):
 
         return self.get_obs(state), {"state": state, "physics_params": env_params["physics_params"]}
 
-    def step(self, key, _state, action):
+    def step(self, key, _state, actions):
         state = _state["state"]
         physics_params = _state["physics_params"]
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
@@ -686,7 +707,7 @@ class TABSBattleSimulator(BaseMAEnv):
 
         # action processing
         for sprite in self.unit_keys:
-            state[sprite] = state[sprite].act(state, action[sprite], physics_params=physics_params)
+            state[sprite] = state[sprite].act(state, actions[sprite], physics_params=physics_params)
 
         # alive processing after action step, for independent unit sequence
         dones = {}
