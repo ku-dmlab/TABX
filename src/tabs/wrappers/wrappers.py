@@ -19,6 +19,62 @@ class TABSBattleSimulatorWrapper:
         self.env = env
 
 
+class TABSEnemyHeuristicWrapper(TABSBattleSimulatorWrapper):
+    def __init__(
+        self,
+        env: TABSBattleSimulator,
+    ):
+        super().__init__(env)
+
+        self.action_spaces = {
+            action_space
+            for (agent, action_space) in self.env.action_spaces.items()
+            if agent in self.env.ally_keys
+        }
+
+        self.observation_spaces = {
+            observation_space
+            for (agent, observation_space) in self.env.observation_spaces.items()
+            if agent in self.env.ally_keys
+        }
+
+    def filter_obs(self, obs):
+        target_obs = {}
+        for obs_key in obs.keys():
+            if obs_key in self.env.enemy_keys:
+                continue
+            target_obs[obs_key] = obs[obs_key]
+        return target_obs
+
+    def reset(self, key, env_params: Dict[str, Any]):
+        if "heuristic_params" not in env_params:
+            raise ValueError("heuristic_params is not in env_params")
+        obs, state = self.env.reset(key, env_params)
+        target_obs = self.filter_obs(obs)
+        return target_obs, state | {"heuristic_params": env_params["heuristic_params"]}
+
+    def step(self, key, state, action):
+        obs = self.env.get_obs(state["state"])
+        # Add enemy actions based on heuristic policy
+        for unit in self.env.enemy_keys:
+            heuristic_key, key = jax.random.split(key)
+            action[unit] = heuristic_policy(
+                heuristic_key,
+                obs[unit],
+                self.env.num_agents,
+                state["heuristic_params"],
+            )
+        obs, next_state, reward, done, info = self.env.step(key, state, action)
+        target_obs = self.filter_obs(obs)
+        return (
+            target_obs,
+            next_state | {"heuristic_params": state["heuristic_params"]},
+            reward[0],
+            done,
+            info,
+        )
+
+
 class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
     """
     Wrapper for BattleSimulator that adds heuristic policy to specified units.
