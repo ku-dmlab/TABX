@@ -22,3 +22,9 @@ class BaseMAEnv:
 
     def rollout(self, key: chex.PRNGKey, cfg: Dict[str, Any]) -> float:
         raise NotImplementedError
+
+    def action_space(self, agent: str):
+        return self.action_spaces[agent]
+
+    def observation_space(self, agent: str):
+        return self.observation_spaces[agent]

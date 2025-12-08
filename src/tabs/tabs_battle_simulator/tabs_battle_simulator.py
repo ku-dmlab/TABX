@@ -346,6 +346,7 @@ class TABSBattleSimulator(BaseMAEnv):
         self.ally_keys = [f"unit_{i}" for i in range(max_n_ally)]
         self.enemy_keys = [f"unit_{i}" for i in range(max_n_ally, max_n_ally + max_n_enemy)]
         self.unit_keys = self.ally_keys + self.enemy_keys
+        self.agents = self.unit_keys
         self.max_n_ally = max_n_ally
         self.max_n_enemy = max_n_enemy
         self.max_episode_steps = max_episode_steps
@@ -735,7 +736,8 @@ class TABSBattleSimulator(BaseMAEnv):
         truncation = state["game_manager"].timestep >= self.max_episode_steps
         # If all teams except one are eliminated or truncated, the episode is done
         # Note that truncation does not mean the episode is done, but set done to True (please refer to https://github.com/FLAIROx/JaxMARL/blob/main/jaxmarl/environments/smax/smax_env.py)
-        dones["__all__"] = jnp.array([team_dones.sum() >= self.max_team - 1]) | truncation
+        dones["__all__"] = (team_dones.sum() >= self.max_team - 1) | truncation
+        print(dones["__all__"].shape)
         state["game_manager"] = state["game_manager"].update_team_hp_ratio(
             state, teams, is_disabled, self.unit_keys, self.max_team
         )
@@ -776,6 +778,9 @@ class TABSBattleSimulator(BaseMAEnv):
             info,
         )
 
+    def world_state_size(self):
+        return 14 * self.num_agents
+
     def init_render(self, ax, state: Dict, scenario_name: str):
         from src.tabs.visualize.rendering import get_battle_simulator_render
 
@@ -797,3 +802,6 @@ class TABSBattleSimulator(BaseMAEnv):
     def update_render(self, im, state: Dict):
         ax = im.axes
         return self.init_render(ax, state, self.scenario_name)
+
+    def get_avail_actions(self, state):
+        return {agent: jnp.ones((self.action_spaces[agent].n,)) for agent in self.unit_keys}

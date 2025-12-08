@@ -27,16 +27,19 @@ class TABSEnemyHeuristicWrapper(TABSBattleSimulatorWrapper):
         super().__init__(env)
 
         self.action_spaces = {
-            action_space
-            for (agent, action_space) in self.env.action_spaces.items()
+            agent: action_space_
+            for (agent, action_space_) in self.env.action_spaces.items()
             if agent in self.env.ally_keys
         }
 
         self.observation_spaces = {
-            observation_space
+            agent: observation_space
             for (agent, observation_space) in self.env.observation_spaces.items()
             if agent in self.env.ally_keys
         }
+
+        self.agents = self.env.ally_keys
+        self.num_agents = len(self.agents)
 
     def filter_obs(self, obs):
         target_obs = {}
@@ -69,10 +72,13 @@ class TABSEnemyHeuristicWrapper(TABSBattleSimulatorWrapper):
         return (
             target_obs,
             next_state | {"heuristic_params": state["heuristic_params"]},
-            reward[0],
+            {agent: reward[0] for agent in self.agents},
             done,
             info,
         )
+
+    def get_avail_actions(self, state):
+        return {agent: jnp.ones((self.env.action_spaces[agent].n,)) for agent in self.env.ally_keys}
 
 
 class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
@@ -160,12 +166,6 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
         return target_obs, next_state, reward, done, info
 
 
-@struct.dataclass
-class AutoResetEnvState:
-    env_state: Dict[str, Any]
-    scenario: Scenario
-
-
 class TABSBattleSimulatorAutoResetWrapper(TABSBattleSimulatorWrapper):
     """
     Wrapper for BattleSimulator that adds automatic reset functionality.
@@ -174,32 +174,30 @@ class TABSBattleSimulatorAutoResetWrapper(TABSBattleSimulatorWrapper):
     def __init__(self, env: TABSBattleSimulator):
         super().__init__(env)
 
-    def reset(self, key, senario: Scenario):
-        obs, state = self.env.reset(key, senario)
-        state = AutoResetEnvState(env_state=state, scenario=senario)
-        return obs, state
-
-    def step(self, key, state, action):
-        reset_obs, reset_state = self.reset(key, state.scenario)
-        next_obs, next_state, reward, done, info = self.env.step(key, state.env_state, action)
+    def step(self, key, state, action, env_params: Dict[str, Any] = None):
+        reset_obs, reset_state = self.reset(key, env_params)
+        next_obs, next_state, reward, done, info = self.env.step(key, state, action)
         ep_done = done["__all__"]
         next_env_state = jax.tree.map(
             lambda x, y: jnp.where(ep_done, x, y),
-            reset_state.env_state,
+            reset_state,
             next_state,
         )
+
+        # log state is not reset
+        if "log_state" in next_state:
+            next_env_state["log_state"] = next_state["log_state"]
+
         next_obs = jax.tree.map(
             lambda x, y: jnp.where(ep_done, x, y),
             reset_obs,
             next_obs,
         )
-        next_state = state.replace(env_state=next_env_state)
-        return next_obs, next_state, reward, done, info
+        return next_obs, next_env_state, reward, done, info
 
 
 @struct.dataclass
 class LogEnvState:
-    env_state: Dict[str, Any]
     episode_returns: chex.Array
     episode_lengths: chex.Array
     returned_episode_returns: chex.Array
@@ -229,11 +227,10 @@ class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
 
         self.reset_when_done = reset_when_done
 
-    def reset(self, key, senario: Scenario):
-        obs, state = self.env.reset(key, senario)
+    def reset(self, key, env_params: Dict[str, Any]):
+        obs, state = self.env.reset(key, env_params)
 
         log_state = LogEnvState(
-            env_state=state,
             episode_returns=jnp.zeros((self.env.max_team, 1)),
             episode_lengths=jnp.zeros((self.env.max_team, 1)),
             returned_episode_returns=jnp.zeros((self.env.max_team, 1)),
@@ -258,12 +255,14 @@ class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
             ),
         )
 
-        return obs, log_state
+        return obs, state | {"log_state": log_state}
 
-    def step(self, key, state: LogEnvState, action):
-        obs, next_state, reward, done, info = self.env.step(key, state.env_state, action)
+    def step(self, key, _state: Dict[str, Any], action):
+        obs, next_state, reward, done, info = self.env.step(key, _state, action)
 
         ep_done = done["__all__"]
+
+        state = _state["log_state"]
 
         if self.reset_when_done:
             new_episode_return = state.episode_returns + reward
@@ -287,7 +286,6 @@ class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
             attack_success_rates = new_cumulative_attack_success / new_cumulative_is_attackings
 
             log_state = LogEnvState(
-                env_state=next_state,
                 episode_returns=new_episode_return * (1 - ep_done),
                 episode_lengths=net_epsiode_length * (1 - ep_done),
                 returned_episode_returns=state.returned_episode_returns * (1 - ep_done)
@@ -336,7 +334,6 @@ class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
             ).reshape(self.env.max_team, 1)
 
             log_state = LogEnvState(
-                env_state=next_state,
                 episode_returns=new_episode_return,
                 episode_lengths=net_epsiode_length,
                 returned_episode_returns=new_episode_return,
@@ -363,4 +360,4 @@ class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
         info["returned_cumulative_is_attackings"] = log_state.returned_cumulative_is_attackings
         info["returned_cumulative_damage_dealts"] = log_state.returned_cumulative_damage_dealts
 
-        return obs, log_state, reward, done, info
+        return obs, next_state | {"log_state": log_state}, reward, done, info
