@@ -4,6 +4,7 @@ import chex
 import jax
 import jax.numpy as jnp
 from flax import struct
+
 from src.tabs.units import get_all_unit_spec
 from src.tabs.constants import UNITID2CHAR, SCENARIOS, UnitID
 from src.tabs.config import TABSConfig

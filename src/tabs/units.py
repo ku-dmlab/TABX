@@ -1,8 +1,10 @@
 from typing import Dict
+
 import chex
-from src.tabs.constants import ALL_UNIT_NAMES, UnitID, SIGHT_ANGLE
-from flax import struct
 import jax.numpy as jnp
+from flax import struct
+
+from src.tabs.constants import ALL_UNIT_NAMES, UnitID, SIGHT_ANGLE
 
 
 @struct.dataclass

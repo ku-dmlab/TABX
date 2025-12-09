@@ -5,24 +5,24 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from src.tabs import TABS
 from src.tabs.scenarios import Scenario
-from src.tabs import TABSBattleSimulator
-from src.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
+from src.tabs.heuristic_policy import heuristic_policy
 from src.tabs.config import TABSHeuristicConfig
 
 
-class TABSBattleSimulatorWrapper:
+class BaseWrapper:
     def __getattr__(self, name: str):
         return getattr(self.env, name)
 
-    def __init__(self, env: TABSBattleSimulator):
+    def __init__(self, env: TABS):
         self.env = env
 
 
-class TABSEnemyHeuristicWrapper(TABSBattleSimulatorWrapper):
+class TABSEnemyHeuristicWrapper(BaseWrapper):
     def __init__(
         self,
-        env: TABSBattleSimulator,
+        env: TABS,
     ):
         super().__init__(env)
 
@@ -51,7 +51,7 @@ class TABSEnemyHeuristicWrapper(TABSBattleSimulatorWrapper):
 
     def reset(self, key, env_params: Dict[str, Any]):
         if "heuristic_params" not in env_params:
-            raise ValueError("heuristic_params is not in env_params")
+            raise ValueError("The heuristic_params is not in env_params.")
         obs, state = self.env.reset(key, env_params)
         target_obs = self.filter_obs(obs)
         return target_obs, state | {"heuristic_params": env_params["heuristic_params"]}
@@ -81,22 +81,20 @@ class TABSEnemyHeuristicWrapper(TABSBattleSimulatorWrapper):
         return {agent: jnp.ones((self.env.action_spaces[agent].n,)) for agent in self.env.ally_keys}
 
 
-class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
+class TABSHeuristicWrapper(BaseWrapper):
     """
-    Wrapper for BattleSimulator that adds heuristic policy to specified units.
+    Wrapper for TABS that adds heuristic policy to specified units.
 
     This wrapper allows certain units to be controlled by a heuristic policy instead of
     requiring manual actions. It can filter observations to only return non-heuristic
     units and optionally filter rewards to only ally teams.
 
     Args:
-        env: TABSBattleSimulator environment to wrap
+        env: TABS environment to wrap
         heuristic_units: Units to control with heuristic policy
             - "all": All units in the environment
             - "enemy": Only enemy units
             - List[str]: Specific list of unit keys
-        epsilon: Probability of taking random action in heuristic policy (0.0-1.0)
-        aggressive_threshold: Threshold for aggressive behavior in heuristic policy (0.0-1.0)
         heuristic_obs: Whether to include heuristic units in observation output
             - True: Return observations for all units
             - False: Return observations only for non-heuristic units
@@ -110,7 +108,7 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
 
     def __init__(
         self,
-        env: TABSBattleSimulator,
+        env: TABS,
         heuristic_units: List[str] | str = "enemy",
         heuristic_config: TABSHeuristicConfig = TABSHeuristicConfig(),
         heuristic_obs: bool = False,
@@ -166,12 +164,12 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
         return target_obs, next_state, reward, done, info
 
 
-class TABSBattleSimulatorAutoResetWrapper(TABSBattleSimulatorWrapper):
+class TABSAutoResetWrapper(BaseWrapper):
     """
-    Wrapper for BattleSimulator that adds automatic reset functionality.
+    Wrapper for TABS that adds automatic reset functionality.
     """
 
-    def __init__(self, env: TABSBattleSimulator):
+    def __init__(self, env: TABS):
         super().__init__(env)
 
     def step(self, key, state, action, env_params: Dict[str, Any] = None):
@@ -215,14 +213,14 @@ class LogEnvState:
 
 
 # ref : https://github.com/FLAIROx/JaxMARL/blob/main/jaxmarl/wrappers/baselines.py
-class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
+class TABSLogWrapper(BaseWrapper):
     """
-    Wrapper for BattleSimulator that logs the episode returns, lengths, and wins.
+    Wrapper for TABS that logs the episode returns, lengths, and wins.
 
     Note: When done but no reset occurs, returned_episode_returns and lengths may not be accurate. Set reset_when_done to False if you don't want to reset when done.
     """
 
-    def __init__(self, env: TABSBattleSimulator, reset_when_done: bool = True):
+    def __init__(self, env: TABS, reset_when_done: bool = True):
         super().__init__(env)
 
         self.reset_when_done = reset_when_done
