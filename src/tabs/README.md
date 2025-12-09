@@ -1,7 +1,6 @@
 
-# TABS Battle Simulator
-
-This module provides a simple, vectorized battle simulation environment for multiple units, inspired by TABS. Implemented with JAX for efficient computation, it is designed for research and prototyping of multi-agent environments. The environment allows you to run battle simulations.
+# Totally Accelerated Battle Simulator (TABS)
+This environment provides a simple, vectorized battle simulation environment for multiple units, inspired by [TABS](https://store.steampowered.com/app/508440/Totally_Accurate_Battle_Simulator/). Implemented with JAX for efficient computation, it is designed for research and prototyping of multi-agent environments. The environment allows you to run battle simulations.
 
 ## Overview
 
@@ -12,61 +11,43 @@ The core components of the battle simulator are:
 - **GameManager**: Manages the global state, including reward, done flag, timestep, and target assignments.
 
 ## Getting Started
-
-Below is an example of how to instantiate units and the game manager, update the target matrix, and perform an action:
-
+Begin by instantiating a `TABSConfig`, generating a scenario, and initializing the base environment:
 ```python
-import jax.numpy as jnp
-from src.tabs.tabs_battle_simulator.battle_simulator import DefaultUnit, GameManager, UnitStatus
-from src.physics import Transform, RigidBody, CircleCollider
+import jax
 
-
-unit1 = DefaultUnit(
-    transform=Transform(position=jnp.array([1.0, 2.0]), rotation=jnp.array([0.0])),
-    rigidbody=RigidBody(mass=jnp.array([1.0]), velocity=jnp.array([0.0, 0.0]), acceleration=jnp.array([0.0, 0.0]), is_kinematic=jnp.array([False])),
-    collider=CircleCollider(radius=jnp.array([1.0])),
-    team=jnp.array([0]),
-    pos_limit=jnp.array([-10.0, 10.0]),
-    status=UnitStatus(id=jnp.array([0]), health=jnp.array([100.0]), attack_damage=jnp.array([10.0]), attack_range=jnp.array([1000.0]), attack_cooldown=jnp.array([0.0]), cooldown=jnp.array([0.0]), sight_angle=jnp.array([4 * jnp.pi]), sight_radius=jnp.array([10.0])),
-    attacking=jnp.array([False])
+from src.tabs import TABS
+from src.tabs.scenarios import generate_scenario
+from src.tabs.config import TABSConfig, PhysicsParams, TABSHeuristicConfig
+from src.tabs.wrappers.wrappers import (
+    TABSEnemyHeuristicWrapper,
+    TABSAutoResetWrapper,
+    TABSLogWrapper,
 )
 
-unit2 = DefaultUnit(
-    transform=Transform(position=jnp.array([3.0, 4.0]), rotation=jnp.array([jnp.pi / 4])),
-    rigidbody=RigidBody(mass=jnp.array([1.0]), velocity=jnp.array([0.0, 0.0]), acceleration=jnp.array([0.0, 0.0]), is_kinematic=jnp.array([False])),
-    collider=CircleCollider(radius=jnp.array([1.0])),
-    team=jnp.array([1]),
-    pos_limit=jnp.array([-10.0, 10.0]),
-    status=UnitStatus(id=jnp.array([1]), health=jnp.array([100.0]), attack_damage=jnp.array([10.0]), attack_range=jnp.array([1.0]), attack_cooldown=jnp.array([0.0]), cooldown=jnp.array([0.0]), sight_angle=jnp.array([jnp.pi /2]), sight_radius=jnp.array([10.0])), 
-    attacking=jnp.array([False])
-)
+tabs_config = TABSConfig(scenario_name="2F1K2A1H_tight")
+scenario = generate_scenario(tabs_config)
 
-unit3 = DefaultUnit(
-    transform=Transform(position=jnp.array([2.0, 2.0]), rotation=jnp.array([jnp.pi / 2])),
-    rigidbody=RigidBody(mass=jnp.array([1.0]), velocity=jnp.array([0.0, 0.0]), acceleration=jnp.array([0.0, 0.0]), is_kinematic=jnp.array([False])),
-    collider=CircleCollider(radius=jnp.array([1.0])),
-    team=jnp.array([1]),
-    pos_limit=jnp.array([-10.0, 10.0]),
-    status=UnitStatus(id=jnp.array([1]), health=jnp.array([100.0]), attack_damage=jnp.array([10.0]), attack_range=jnp.array([1.0]), attack_cooldown=jnp.array([0.0]), cooldown=jnp.array([0.0]), sight_angle=jnp.array([jnp.pi / 4]), sight_radius=jnp.array([10.0])),
-    attacking=jnp.array([False])
-)
-
-game_manager = GameManager(
-    reward=jnp.array([0.0]),
-    done=jnp.array([False]),
-    timestep=jnp.array([0]),
-    target=jnp.array([-1])
-)
-
-objects = {
-    'unit1' : unit1,
-    'unit2' : unit2,
-    'unit3' : unit3,
-    'game_manager' : game_manager
-}
-
-objects['game_manager'] = objects['game_manager'].update_distance_matrix(objects)
-objects['unit1'].act(objects, jnp.array([0.0]), config={
-    'dt' : 1.0
-})
+env = TABS(cfg=tabs_config)
+env = TABSLogWrapper(env)
+env = TABSEnemyHeuristicWrapper(env)
+env = TABSAutoResetWrapper(env)
 ```
+
+Some components require parameters during `env.reset()`. Create an env_params dictionary:
+```python
+env_params = {
+    "scenario": scenario,
+    "physics_params": PhysicsParams(),
+    "heuristic_params": TABSHeuristicConfig(),
+}
+```
+You can then pass these parameters directly during environment reset,
+```python
+obs, env_state = env.reset(jax.random.PRNGKey(0), env_params)
+```
+
+A ready-to-run example is included:
+```
+uv run run_example.py
+```
+This script demonstrates the full setup, including environment creation, wrapper application, and a minimal control loop.
