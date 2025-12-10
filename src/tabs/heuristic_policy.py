@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import chex
 
-from src.tabs.tabs_battle_simulator.tabs_battle_simulator import UnitAction
+from src.tabs.tabs import UnitAction
 from src.tabs.config import TABSHeuristicConfig
 
 

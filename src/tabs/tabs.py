@@ -1,5 +1,4 @@
 from typing import Dict
-from easydict import EasyDict
 
 import chex
 import jax
@@ -7,9 +6,9 @@ import jax.numpy as jnp
 from flax import struct
 
 from src.tabs.utils import notify
-from src.environments.base_maenv import BaseMAEnv
-from src.environments.spaces import Discrete, Box
-from src.environments.physics import (
+from src.tabs.environments.base_maenv import BaseMAEnv
+from src.tabs.environments.spaces import Discrete, Box
+from src.tabs.environments.physics import (
     Transform,
     RigidBody,
     CircleCollider,
@@ -47,14 +46,6 @@ class UnitAction:
     TURN_LEFT = 5
     TURN_RIGHT = 6
     IDLE = 7
-
-
-@struct.dataclass
-class PhysicsParams:
-    dt: float = struct.field(default_factory=lambda: jnp.array([0.5]))
-    percent: float = struct.field(default_factory=lambda: jnp.array([0.5]))
-    slop: float = struct.field(default_factory=lambda: jnp.array([0.01]))
-    restitution: float = struct.field(default_factory=lambda: jnp.array([0.8]))
 
 
 @struct.dataclass
@@ -197,7 +188,7 @@ class GameManager:
             unit_rotation_vector (jnp.ndarray): [N, 1] Rotation angle of each unit in radians
             unit_body_radius_vector (jnp.ndarray): [N, 1] Body radius of each unit
             unit_attack_range_vector (jnp.ndarray): [N, 1] Attack range distance of each unit
-            attack_range_angle (float): Half-width of the attack cone in radians (default: pi/4)
+            unit_sight_angle_vector (float): Half-width of the attack cone in radians (default: pi/4)
 
         Returns:
             jnp.ndarray: [N, N] Boolean matrix where result[i][j] is True if unit i can attack/detect unit j
@@ -205,7 +196,7 @@ class GameManager:
 
         Note:
             The attack zone is shaped like a rectangle extending forward from each unit's position,
-            with width determined by the attack_range_angle and length by the unit's attack_range.
+            with width determined by the unit_sight_angle_vector and length by the unit's attack_range.
         """
 
         cos_attack_range_half_angle = jnp.cos(unit_sight_angle_vector / 2) * unit_body_radius_vector
@@ -331,7 +322,7 @@ class GameManager:
         )
 
 
-class TABSBattleSimulator(BaseMAEnv):
+class TABS(BaseMAEnv):
     def __init__(
         self,
         cfg: TABSConfig,
@@ -737,7 +728,6 @@ class TABSBattleSimulator(BaseMAEnv):
         # If all teams except one are eliminated or truncated, the episode is done
         # Note that truncation does not mean the episode is done, but set done to True (please refer to https://github.com/FLAIROx/JaxMARL/blob/main/jaxmarl/environments/smax/smax_env.py)
         dones["__all__"] = (team_dones.sum() >= self.max_team - 1) | truncation
-        print(dones["__all__"].shape)
         state["game_manager"] = state["game_manager"].update_team_hp_ratio(
             state, teams, is_disabled, self.unit_keys, self.max_team
         )
@@ -779,7 +769,10 @@ class TABSBattleSimulator(BaseMAEnv):
         )
 
     def world_state_size(self):
-        return 14 * self.num_agents
+        return 14 * self.num_agents  # n_features * n_agents
+
+    def get_avail_actions(self, state):
+        return {agent: jnp.ones((self.action_spaces[agent].n,)) for agent in self.unit_keys}
 
     def init_render(self, ax, state: Dict, scenario_name: str):
         from src.tabs.visualize.rendering import get_battle_simulator_render
@@ -802,6 +795,3 @@ class TABSBattleSimulator(BaseMAEnv):
     def update_render(self, im, state: Dict):
         ax = im.axes
         return self.init_render(ax, state, self.scenario_name)
-
-    def get_avail_actions(self, state):
-        return {agent: jnp.ones((self.action_spaces[agent].n,)) for agent in self.unit_keys}

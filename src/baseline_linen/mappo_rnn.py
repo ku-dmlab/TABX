@@ -1,34 +1,34 @@
 """
 Based on JaxMARL Implementation of MAPPO
 """
-import tyro
+
+import os
+import functools
 from dataclasses import dataclass
+from typing import Sequence, Dict
+
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+
+import tyro
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
 import numpy as np
+import distrax
 import optax
 from flax.linen.initializers import constant, orthogonal
-from typing import Sequence, NamedTuple, Dict
-import wandb
-import functools
 from flax.training.train_state import TrainState
-import distrax
-import os
+import wandb
 
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-from src.tabs.tabs_battle_simulator.tabs_battle_simulator import (
-    TABSBattleSimulator,
-    TABSConfig,
-    PhysicsParams,
-)
+from src.tabs import TABS
 from src.tabs.scenarios import generate_scenario
-from src.tabs.config import TABSHeuristicConfig
+from src.tabs.config import TABSConfig, PhysicsParams, TABSHeuristicConfig
 from src.tabs.wrappers.wrappers import (
     TABSEnemyHeuristicWrapper,
-    TABSBattleSimulatorAutoResetWrapper,
-    TABSBattleSimulatorLogWrapper,
+    TABSAutoResetWrapper,
+    TABSLogWrapper,
 )
+from src.tabs.utils import Transition
 
 
 class ScannedRNN(nn.Module):
@@ -113,19 +113,6 @@ class CriticRNN(nn.Module):
         return hidden, jnp.squeeze(critic, axis=-1)
 
 
-class Transition(NamedTuple):
-    global_done: jnp.ndarray
-    done: jnp.ndarray
-    action: jnp.ndarray
-    value: jnp.ndarray
-    reward: jnp.ndarray
-    log_prob: jnp.ndarray
-    obs: jnp.ndarray
-    world_state: jnp.ndarray
-    info: jnp.ndarray
-    avail_actions: jnp.ndarray
-
-
 def batchify(x: dict, agent_list, num_actors):
     x = jnp.stack([x[a] for a in agent_list])
     # print('batchify', x.shape)
@@ -145,10 +132,10 @@ def make_train(config):
         max_n_ally=int(scenario.ally_unit_comp.sum().item()),
         max_n_enemy=int(scenario.enemy_unit_comp.sum().item()),
     )
-    env = TABSBattleSimulator(cfg=tabs_config)
-    env = TABSBattleSimulatorLogWrapper(env)
+    env = TABS(cfg=tabs_config)
+    env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
-    env = TABSBattleSimulatorAutoResetWrapper(env)
+    env = TABSAutoResetWrapper(env)
 
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
@@ -226,11 +213,10 @@ def make_train(config):
         reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
 
         env_params = {
-            "scenario": generate_scenario(tabs_config),
+            "scenario": scenario,
             "physics_params": PhysicsParams(),
             "heuristic_params": TABSHeuristicConfig(),
         }
-
         env_params = jax.tree.map(
             lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0), env_params
         )
@@ -529,6 +515,7 @@ def make_train(config):
         return {"runner_state": runner_state, "metric": metric}
 
     return train
+
 
 @dataclass
 class Config:
