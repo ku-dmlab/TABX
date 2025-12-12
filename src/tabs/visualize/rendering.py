@@ -3,11 +3,11 @@ import math
 import pygame
 import numpy as np
 
+from src.tabs.tabs import DefaultUnit
+from src.tabs.units import get_all_unit_spec
 from src.tabs.constants import ALL_UNIT_NAMES
 from src.tabs.tabs_unit_comb.tabs_unit_comb import State as CombState
 from src.tabs.tabs_unit_deploy.tabs_unit_deploy import State as DeployState
-from src.tabs.tabs_battle_simulator.tabs_battle_simulator import DefaultUnit
-from src.tabs.units import get_all_unit_spec
 
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
