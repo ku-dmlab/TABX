@@ -563,6 +563,6 @@ class Config:
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
-    wandb.init(project="dr_mappo_rnn", mode="online")
+    wandb.init(project="dr_spec_mappo_rnn", mode="online")
     train = make_train(config.__dict__)
     result = train(jax.random.key(0))
