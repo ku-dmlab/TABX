@@ -213,7 +213,7 @@ def make_train(config):
                     rngs[0], shape=(1,), minval=ranges["epsilon"][0], maxval=ranges["epsilon"][1]
                 ).astype(jnp.float32),
                 aggressive_threshold=jax.random.uniform(
-                    rngs[0],
+                    rngs[1],
                     shape=(1,),
                     minval=ranges["aggressive_threshold"][0],
                     maxval=ranges["aggressive_threshold"][1],

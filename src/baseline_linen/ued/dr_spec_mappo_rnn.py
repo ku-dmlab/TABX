@@ -211,10 +211,10 @@ def make_train(config):
                     rngs[0], shape=(1,), minval=ranges["health"][0], maxval=ranges["health"][1]
                 ).astype(jnp.float32),
                 speed=jax.random.uniform(
-                    rngs[0], shape=(1,), minval=ranges["speed"][0], maxval=ranges["speed"][1]
+                    rngs[1], shape=(1,), minval=ranges["speed"][0], maxval=ranges["speed"][1]
                 ).astype(jnp.float32),
                 attack_damage=jax.random.uniform(
-                    rngs[0],
+                    rngs[2],
                     shape=(1,),
                     minval=ranges["attack_damage"][0],
                     maxval=ranges["attack_damage"][1],
