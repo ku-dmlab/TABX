@@ -1,13 +1,10 @@
 from typing import Optional
 
-import jax
-import jax.numpy as jnp
 import chex
-
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-from src.environments.base_maenv import BaseMAEnv
+from src.tabs.environments.base_maenv import BaseMAEnv
 
 
 class Visualizer:
@@ -16,8 +13,8 @@ class Visualizer:
         env: BaseMAEnv,
         scenario_name: str,
         state_seq: chex.Array,
-        reward_seq: chex.Array,
-        interval: int = 64,
+        reward_seq: chex.Array = None,
+        interval: int = 150,
     ):
         self.env = env
         self.scenario_name = scenario_name
@@ -67,11 +64,4 @@ class UnitDeployVisualizer(Visualizer):
     """Visualizer especially for the TABSUnitDeploy environment."""
 
     def __init__(self, env, scenario_name, state_seq, reward_seq=None, interval=1024):
-        super().__init__(env, scenario_name, state_seq, reward_seq, interval)
-
-
-class BattleSimulatorVisualizer(Visualizer):
-    """Visualizer especially for the TABSBattleSimulator environment."""
-
-    def __init__(self, env, scenario_name, state_seq, reward_seq=None, interval=150):
         super().__init__(env, scenario_name, state_seq, reward_seq, interval)

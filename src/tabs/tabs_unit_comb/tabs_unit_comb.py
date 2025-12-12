@@ -2,8 +2,8 @@ import jax.numpy as jnp
 import chex
 from flax import struct
 
-from src.environments.base_maenv import BaseMAEnv
-from src.environments.spaces import Discrete, Box
+from src.tabs.environments.base_maenv import BaseMAEnv
+from src.tabs.environments.spaces import Discrete, Box
 from src.tabs.scenarios import Scenario, TABSConfig
 
 
