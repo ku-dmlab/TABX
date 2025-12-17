@@ -4,14 +4,12 @@ Based on JaxMARL Implementation of MAPPO
 
 import os
 from dataclasses import dataclass
-from typing import Dict
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 import tyro
 import jax
 import jax.numpy as jnp
-import chex
 import optax
 import numpy as np
 from flax.training.train_state import TrainState
@@ -25,10 +23,10 @@ from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
     TABSLogWrapper,
 )
-from src.tabs.scenarios import Scenario
+from src.baseline_linen.ued.level_generator import generate_level, FREE_PARAM_TYPES
 from src.baseline_linen.layers import ActorRNN, CriticRNN, ScannedRNN
-from src.tabs.utils import Transition
 from src.baseline_linen.utils import batchify, unbatchify
+from src.tabs.utils import Transition
 
 
 def make_train(config):
@@ -116,46 +114,18 @@ def make_train(config):
         )
 
         # INIT ENV
-        rng, _rng = jax.random.split(rng)
+        rng, _rng, _rng2 = jax.random.split(rng, 3)
         reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
 
-        def randomize_unit_specs(scenario: Scenario, ranges: Dict, rng: chex.PRNGKey):
-            # Randomly set unit specifications (health, speed, attack_damage)
-            rngs = jax.random.split(rng, 3)
-            scenario.replace(
-                health=jax.random.uniform(
-                    rngs[0], shape=(1,), minval=ranges["health"][0], maxval=ranges["health"][1]
-                ).astype(jnp.float32),
-                speed=jax.random.uniform(
-                    rngs[1], shape=(1,), minval=ranges["speed"][0], maxval=ranges["speed"][1]
-                ).astype(jnp.float32),
-                attack_damage=jax.random.uniform(
-                    rngs[2],
-                    shape=(1,),
-                    minval=ranges["attack_damage"][0],
-                    maxval=ranges["attack_damage"][1],
-                ).astype(jnp.float32),
-            )
+        env_params = {
+            "scenario": scenario,
+            "physics_params": PhysicsParams(),
+            "heuristic_params": TABSHeuristicConfig(),
+        }
+        env_params = generate_level(env_params, FREE_PARAM_TYPES[config["FREE_PARAM_TYPE"]], _rng2)
 
-            return scenario
-
-        rng, _rng = jax.random.split(rng)
-        # NOTE: For each spec, minval and maxval represent the minimum and maximum values of the predefined units, respectively.
-        #       You need to change this for the evaluation phase with unseen unit specs.
-        ranges = {"health": [25, 685], "speed": [0.5, 1.4], "attack_damage": [-7, 80]}
-        randomized_scenario = jax.vmap(randomize_unit_specs, in_axes=(None, None, 0))(
-            scenario, ranges, jax.random.split(_rng, config["NUM_ENVS"])
-        )
-
-        def get_env_params(scenario, physics_params, heuristic_params):
-            return {
-                "scenario": scenario,
-                "physics_params": physics_params,
-                "heuristic_params": heuristic_params,
-            }
-
-        env_params = jax.vmap(get_env_params, in_axes=(0, None, None))(
-            randomized_scenario, PhysicsParams(), TABSHeuristicConfig()
+        env_params = jax.tree.map(
+            lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0), env_params
         )
 
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, 0))(reset_rng, env_params)
@@ -475,10 +445,11 @@ class Config:
     SEED: int = 0
     ANNEAL_LR: bool = True
     SENARIO: str = "2F1K2A1H_tight"
+    FREE_PARAM_TYPE: str = "unit_spec"
 
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
-    wandb.init(project="dr_spec_mappo_rnn", mode="online")
+    wandb.init(project="dr_mappo_rnn", mode="online")
     train = make_train(config.__dict__)
     result = train(jax.random.key(0))
