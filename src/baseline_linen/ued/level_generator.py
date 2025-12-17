@@ -1,4 +1,5 @@
-from typing import Dict
+from typing import Callable
+from typing import Dict as Level
 
 import jax
 import jax.numpy as jnp
@@ -10,7 +11,7 @@ from src.tabs.config import TABSHeuristicConfig
 FREE_PARAM_TYPES = {"unit_spec": 0, "heuristic_config": 1}
 
 
-def randomize_unit_specs(env_params: Dict, rng: chex.PRNGKey) -> Dict:
+def randomize_unit_specs(env_params: Level, rng: chex.PRNGKey) -> Level:
     # NOTE: For each spec, minval and maxval represent the minimum and maximum values of the predefined units, respectively.
     #       You need to change this for the evaluation phase with unseen unit specs.
     unit_spec_ranges = {"health": [25, 685], "speed": [0.5, 1.4], "attack_damage": [-7, 80]}
@@ -51,7 +52,7 @@ def randomize_unit_specs(env_params: Dict, rng: chex.PRNGKey) -> Dict:
     return env_params
 
 
-def randomize_heuristic_config(env_params: Dict, rng: chex.PRNGKey) -> Dict:
+def randomize_heuristic_config(env_params: Level, rng: chex.PRNGKey) -> Level:
     # NOTE: Each element represents the probability of taking a random action and aggressive behavior, respectively.
     #       You need to change this for the evaluation phase with unseen configuration.
     heuristic_config_ranges = {"epsilon": [0.0, 1.0], "aggressive_threshold": [0.0, 1.0]}
@@ -78,14 +79,27 @@ def randomize_heuristic_config(env_params: Dict, rng: chex.PRNGKey) -> Dict:
 
         return config
 
-    env_params["heuristic_params"] = _randomize_heuristic_config(
-        env_params["heuristic_params"], rng
-    )
+    env_params = {
+        "scenario": env_params["scenario"],
+        "physics_params": env_params["physics_params"],
+        "heuristic_params": _randomize_heuristic_config(env_params["heuristic_params"], rng),
+    }
 
     return env_params
 
 
-def generate_level(env_params: Dict, free_param_type: int, rng: chex.PRNGKey) -> Dict:
-    return jax.lax.switch(
-        free_param_type, [randomize_unit_specs, randomize_heuristic_config], env_params, rng
-    )
+def level_generator(free_param_type: int) -> Callable:
+    def generate_level(env_params: Level, rng: chex.PRNGKey) -> Level:
+        return jax.lax.switch(
+            free_param_type, [randomize_unit_specs, randomize_heuristic_config], env_params, rng
+        )
+
+    return generate_level
+
+
+# TODO
+def mutate_level_generator(free_param_type: int) -> Callable:
+    def mutate_level(env_params: Level, rng: chex.PRNGKey, num_edits: int) -> Level:
+        return env_params
+
+    return mutate_level
