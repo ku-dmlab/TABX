@@ -760,6 +760,10 @@ class TABS(BaseMAEnv):
             "team_dead_units": team_dead_units,
         }
 
+        rewards = rewards.reshape(-1)
+        dones = jax.tree.map(lambda x: x.reshape(), dones)
+        info = jax.tree.map(lambda x: x.reshape(-1), info)
+
         return (
             self.get_obs(state),
             {"state": state, "physics_params": physics_params},

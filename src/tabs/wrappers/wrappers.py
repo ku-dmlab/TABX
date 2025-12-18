@@ -69,10 +69,14 @@ class TABSEnemyHeuristicWrapper(BaseWrapper):
             )
         obs, next_state, reward, done, info = self.env.step(key, state, action)
         target_obs = self.filter_obs(obs)
+        done = self.filter_obs(done) | {"__all__": done["__all__"]}
+        rewards = {agent: reward[0] for agent in self.agents}
+        rewards["__all__"] = reward[0]
+
         return (
             target_obs,
             next_state | {"heuristic_params": state["heuristic_params"]},
-            {agent: reward[0] for agent in self.agents},
+            rewards,
             done,
             info,
         )
@@ -229,27 +233,25 @@ class TABSLogWrapper(BaseWrapper):
         obs, state = self.env.reset(key, env_params)
 
         log_state = LogEnvState(
-            episode_returns=jnp.zeros((self.env.max_team, 1)),
-            episode_lengths=jnp.zeros((self.env.max_team, 1)),
-            returned_episode_returns=jnp.zeros((self.env.max_team, 1)),
-            returned_episode_lengths=jnp.zeros((self.env.max_team, 1)),
-            returned_episode_wins=jnp.zeros((self.env.max_team, 1)),
-            first_kills=jnp.zeros((self.env.max_team, 1)),
-            cumulative_is_attackings=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy, 1)),
-            cumulative_damage_dealts=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy, 1)),
-            cumulative_attack_success=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy, 1)),
-            returned_first_kills=jnp.zeros((self.env.max_team, 1)),
-            returned_attack_success_rates=jnp.zeros(
-                (self.env.max_n_ally + self.env.max_n_enemy, 1)
-            ),
+            episode_returns=jnp.zeros((self.env.max_team,)),
+            episode_lengths=jnp.zeros((self.env.max_team,)),
+            returned_episode_returns=jnp.zeros((self.env.max_team,)),
+            returned_episode_lengths=jnp.zeros((self.env.max_team,)),
+            returned_episode_wins=jnp.zeros((self.env.max_team,)),
+            first_kills=jnp.zeros((self.env.max_team,)),
+            cumulative_is_attackings=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy,)),
+            cumulative_damage_dealts=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy,)),
+            cumulative_attack_success=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy,)),
+            returned_first_kills=jnp.zeros((self.env.max_team,)),
+            returned_attack_success_rates=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy,)),
             returned_cumulative_is_attackings=jnp.zeros(
-                (self.env.max_n_ally + self.env.max_n_enemy, 1)
+                (self.env.max_n_ally + self.env.max_n_enemy,)
             ),
             returned_cumulative_damage_dealts=jnp.zeros(
-                (self.env.max_n_ally + self.env.max_n_enemy, 1)
+                (self.env.max_n_ally + self.env.max_n_enemy,)
             ),
             returned_cumulative_attack_success=jnp.zeros(
-                (self.env.max_n_ally + self.env.max_n_enemy, 1)
+                (self.env.max_n_ally + self.env.max_n_enemy,)
             ),
         )
 
@@ -266,20 +268,16 @@ class TABSLogWrapper(BaseWrapper):
             new_episode_return = state.episode_returns + reward
             net_epsiode_length = state.episode_lengths + 1
 
-            team_dead_units = info["team_dead_units"].reshape(self.env.max_team, 1)
+            team_dead_units = info["team_dead_units"]
 
             new_first_kill = jnp.where(
                 jnp.any(state.first_kills), state.first_kills, team_dead_units > 0
-            ).reshape(self.env.max_team, 1)
-            new_cumulative_is_attackings = state.cumulative_is_attackings + info[
-                "is_attacking"
-            ].reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
-            new_cumulative_damage_dealts = state.cumulative_damage_dealts + info[
-                "damage_dealt"
-            ].reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
+            )
+            new_cumulative_is_attackings = state.cumulative_is_attackings + info["is_attacking"]
+            new_cumulative_damage_dealts = state.cumulative_damage_dealts + info["damage_dealt"]
             new_cumulative_attack_success = state.cumulative_attack_success + (
                 jnp.abs(info["damage_dealt"]) > 1e-6
-            ).reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
+            )
 
             attack_success_rates = new_cumulative_attack_success / new_cumulative_is_attackings
 
@@ -315,21 +313,17 @@ class TABSLogWrapper(BaseWrapper):
         else:
             new_episode_return = state.episode_returns + reward * (1 - ep_done)
             net_epsiode_length = state.episode_lengths + 1 * (1 - ep_done)
-            new_cumulative_is_attackings = state.cumulative_is_attackings + info[
-                "is_attacking"
-            ].reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
-            new_cumulative_damage_dealts = state.cumulative_damage_dealts + info[
-                "damage_dealt"
-            ].reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
-            team_dead_units = info["team_dead_units"].reshape(self.env.max_team, 1)
+            new_cumulative_is_attackings = state.cumulative_is_attackings + info["is_attacking"]
+            new_cumulative_damage_dealts = state.cumulative_damage_dealts + info["damage_dealt"]
+            team_dead_units = info["team_dead_units"]
             new_cumulative_attack_success = state.cumulative_attack_success + (
                 jnp.abs(info["damage_dealt"]) > 1e-6
-            ).reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
+            )
             attack_success_rates = new_cumulative_attack_success / new_cumulative_is_attackings
 
             new_first_kill = jnp.where(
                 jnp.any(state.first_kills), state.first_kills, team_dead_units > 0
-            ).reshape(self.env.max_team, 1)
+            )
 
             log_state = LogEnvState(
                 episode_returns=new_episode_return,
