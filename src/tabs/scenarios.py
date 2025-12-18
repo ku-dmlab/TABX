@@ -32,6 +32,14 @@ class VectorizedScenario:
 
 
 @struct.dataclass
+class ZoneScenario:
+    zone_type: chex.Array
+    position: chex.Array
+    axes: chex.Array
+    damage: chex.Array
+
+
+@struct.dataclass
 class Scenario:
     budget: int
     ally_unit_comp: chex.Array
@@ -268,7 +276,7 @@ def get_vectorized_scenario(
     scenario,
     n_ally,
     n_enemy,
-    unit_spacing=4.5,
+    unit_spacing=8.5,
     side_gap=16.0,
     field_margin_width=10.0,
     field_margin_height=10.0,
