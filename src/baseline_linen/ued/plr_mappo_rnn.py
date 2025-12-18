@@ -856,7 +856,7 @@ class Config:
     NUM_STEPS: int = 128
     GRU_HIDDEN_DIM: int = 128
     FC_DIM_SIZE: int = 128
-    TOTAL_TIMESTEPS: int = 1e7
+    TOTAL_TIMESTEPS: int = 1e8  # NOTE
     UPDATE_EPOCHS: int = 4
     NUM_MINIBATCHES: int = 4
     GAMMA: float = 0.99
