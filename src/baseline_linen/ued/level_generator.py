@@ -97,9 +97,52 @@ def level_generator(free_param_type: int) -> Callable:
     return generate_level
 
 
-# TODO
+def mutate_unit_spec(env_params: Level, rng: chex.PRNGKey, _) -> Level:
+    def _mutate_unit_spec(scenario: Scenario, rng: chex.PRNGKey) -> Scenario:
+        # Add noise
+        rngs = jax.random.split(rng, 3)
+        scenario = scenario.replace(
+            health=scenario.health + jax.random.normal(rngs[0]),
+            speed=scenario.speed + jax.random.normal(rngs[1]),
+            attack_damage=scenario.attack_damage + jax.random.normal(rngs[2]),
+        )
+        return scenario
+
+    env_params = {
+        "scenario": _mutate_unit_spec(env_params["scenario"], rng),
+        "physics_params": env_params["physics_params"],
+        "heuristic_params": env_params["heuristic_params"],
+    }
+
+    return env_params
+
+
+def mutate_heuristic_config(env_params: Level, rng: chex.PRNGKey, _) -> Level:
+    def _mutate_heuristic_config(
+        config: TABSHeuristicConfig, rng: chex.PRNGKey
+    ) -> TABSHeuristicConfig:
+        # Add noise
+        rngs = jax.random.split(rng)
+        config = config.replace(
+            epsilon=config.epsilon + jax.random.normal(rngs[0]),
+            aggressive_threshold=config.aggressive_threshold + jax.random.normal(rngs[1]),
+        )
+
+        return config
+
+    env_params = {
+        "scenario": env_params["scenario"],
+        "physics_params": env_params["physics_params"],
+        "heuristic_params": _mutate_heuristic_config(env_params["heuristic_params"], rng),
+    }
+
+    return env_params
+
+
 def mutate_level_generator(free_param_type: int) -> Callable:
     def mutate_level(env_params: Level, rng: chex.PRNGKey, num_edits: int) -> Level:
-        return env_params
+        return jax.lax.switch(
+            free_param_type, [mutate_unit_spec, mutate_heuristic_config], env_params, rng, num_edits
+        )
 
     return mutate_level
