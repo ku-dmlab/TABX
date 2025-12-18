@@ -1,3 +1,7 @@
+"""
+This implementation follows https://github.com/DramaCow/jaxued/blob/main/src/jaxued/level_sampler.py.
+"""
+
 from typing import Literal, Optional, TypedDict, Tuple
 from typing import Dict as Level
 import chex
