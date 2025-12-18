@@ -11,11 +11,12 @@ from src.tabs.config import TABSHeuristicConfig
 FREE_PARAM_TYPES = {"unit_spec": 0, "heuristic_config": 1}
 
 
-def randomize_unit_specs(env_params: Level, rng: chex.PRNGKey) -> Level:
-    # NOTE: For each spec, minval and maxval represent the minimum and maximum values of the predefined units, respectively.
-    #       You need to change this for the evaluation phase with unseen unit specs.
-    unit_spec_ranges = {"health": [25, 685], "speed": [0.5, 1.4], "attack_damage": [-7, 80]}
+# NOTE: For each spec, minval and maxval represent the minimum and maximum values of the predefined units, respectively.
+#       You need to change this for the evaluation phase with unseen unit specs.
+unit_spec_ranges = {"health": [25, 685], "speed": [0.5, 1.4], "attack_damage": [-7, 80]}
 
+
+def randomize_unit_specs(env_params: Level, rng: chex.PRNGKey) -> Level:
     def _randomize_unit_specs(scenario: Scenario, rng: chex.PRNGKey) -> Scenario:
         n_units = scenario.health.shape[0]
         # Randomly set unit specifications (health, speed, attack_damage)
@@ -52,11 +53,12 @@ def randomize_unit_specs(env_params: Level, rng: chex.PRNGKey) -> Level:
     return env_params
 
 
-def randomize_heuristic_config(env_params: Level, rng: chex.PRNGKey) -> Level:
-    # NOTE: Each element represents the probability of taking a random action and aggressive behavior, respectively.
-    #       You need to change this for the evaluation phase with unseen configuration.
-    heuristic_config_ranges = {"epsilon": [0.0, 1.0], "aggressive_threshold": [0.0, 1.0]}
+# NOTE: Each element represents the probability of taking a random action and aggressive behavior, respectively.
+#       You need to change this for the evaluation phase with unseen configuration.
+heuristic_config_ranges = {"epsilon": [0.0, 1.0], "aggressive_threshold": [0.0, 1.0]}
 
+
+def randomize_heuristic_config(env_params: Level, rng: chex.PRNGKey) -> Level:
     def _randomize_heuristic_config(
         config: TABSHeuristicConfig, rng: chex.PRNGKey
     ) -> TABSHeuristicConfig:
@@ -102,9 +104,21 @@ def mutate_unit_spec(env_params: Level, rng: chex.PRNGKey, _) -> Level:
         # Add noise
         rngs = jax.random.split(rng, 3)
         scenario = scenario.replace(
-            health=scenario.health + jax.random.normal(rngs[0]),
-            speed=scenario.speed + jax.random.normal(rngs[1]),
-            attack_damage=scenario.attack_damage + jax.random.normal(rngs[2]),
+            health=jnp.clip(
+                scenario.health + jax.random.uniform(rngs[0], minval=-0.1, maxval=0.1),
+                min=unit_spec_ranges["health"][0],
+                max=unit_spec_ranges["health"][1],
+            ),
+            speed=jnp.clip(
+                scenario.speed + jax.random.uniform(rngs[1], minval=-0.1, maxval=0.1),
+                min=unit_spec_ranges["speed"][0],
+                max=unit_spec_ranges["speed"][1],
+            ),
+            attack_damage=jnp.clip(
+                scenario.attack_damage + jax.random.uniform(rngs[2], minval=-0.1, maxval=0.1),
+                min=unit_spec_ranges["attack_damage"][0],
+                max=unit_spec_ranges["attack_damage"][1],
+            ),
         )
         return scenario
 
@@ -124,8 +138,16 @@ def mutate_heuristic_config(env_params: Level, rng: chex.PRNGKey, _) -> Level:
         # Add noise
         rngs = jax.random.split(rng)
         config = config.replace(
-            epsilon=config.epsilon + jax.random.normal(rngs[0]),
-            aggressive_threshold=config.aggressive_threshold + jax.random.normal(rngs[1]),
+            epsilon=jnp.clip(
+                config.epsilon + jax.random.uniform(rngs[0], minval=-0.1, maxval=0.1),
+                min=heuristic_config_ranges["epsilon"][0],
+                max=heuristic_config_ranges["epsilon"][1],
+            ),
+            aggressive_threshold=jnp.clip(
+                config.aggressive_threshold + jax.random.uniform(rngs[1], minval=-0.1, maxval=0.1),
+                min=heuristic_config_ranges["aggressive_threshold"][0],
+                max=heuristic_config_ranges["aggressive_threshold"][1],
+            ),
         )
 
         return config
