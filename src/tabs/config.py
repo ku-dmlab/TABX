@@ -23,6 +23,7 @@ class TABSConfig:
     max_field_width: int = 5  # The maximum width size of battle field
     max_n_ally: int = 10  # The maximum number of ally agents
     max_n_enemy: int = 10  # The maximum number of enemy agents
+    max_n_zone: int = 4  # The maximum number of zone
 
 
 @struct.dataclass

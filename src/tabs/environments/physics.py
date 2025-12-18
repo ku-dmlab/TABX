@@ -8,6 +8,11 @@ class Transform(namedtuple("Transform", ["position", "rotation"])):
     rotation: jnp.array
 
 
+class Ellipse(namedtuple("Ellipse", ["position", "axes"])):
+    position: jnp.array
+    axes: jnp.array
+
+
 class RigidBody(namedtuple("RigidBody", ["mass", "velocity", "acceleration", "is_kinematic"])):
     velocity: jnp.array
     mass: jnp.array

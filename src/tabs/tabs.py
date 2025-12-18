@@ -10,6 +10,7 @@ from src.tabs.environments.base_maenv import BaseMAEnv
 from src.tabs.environments.spaces import Discrete, Box
 from src.tabs.environments.physics import (
     Transform,
+    Ellipse,
     RigidBody,
     CircleCollider,
     physics_step,
@@ -153,6 +154,39 @@ class DefaultUnit:
         return self.status.replace(
             health=jnp.clip(self.status.health - damage, 0.0, self.status.max_health)
         )
+
+
+@struct.dataclass
+class Zone:
+    zone_type: chex.Array  # The zone type, 0 for lava, 1 for bush
+    ellipse: Ellipse  # The parameter of ellipse
+    damage: chex.Array  # The damage dealt by the lava zone
+
+    def act(self, objects, physics_params):
+        return jax.lax.switch(
+            self.zone_type, [self.act_lava, self.act_bush], objects, physics_params
+        )
+
+    def act_lava(self, objects, physics_params):
+        unit_objects = {key: value for (key, value) in objects.items() if "unit" in key}
+
+        unit_positions = jnp.array(
+            [value.transform.position for (key, value) in objects.items() if "unit" in key]
+        )
+        is_in = (
+            jnp.sum((unit_positions - self.ellipse.position) ** 2 / self.ellipse.axes**2, axis=1)
+            <= 1
+        )
+
+        for i, (key, unit) in enumerate(unit_objects.items()):
+            objects[key] = unit.replace(
+                status=unit.on_damage(is_in[i] * self.damage * physics_params.dt)
+            )
+
+        return objects
+
+    def act_bush(self, objects, physics_params):
+        return objects
 
 
 @struct.dataclass
@@ -331,6 +365,7 @@ class TABS(BaseMAEnv):
     ):
         max_n_ally = cfg.max_n_ally
         max_n_enemy = cfg.max_n_enemy
+        max_n_zone = cfg.max_n_zone
 
         super().__init__(max_n_ally + max_n_enemy)
         self.obs_type = obs_type
@@ -338,8 +373,10 @@ class TABS(BaseMAEnv):
         self.enemy_keys = [f"unit_{i}" for i in range(max_n_ally, max_n_ally + max_n_enemy)]
         self.unit_keys = self.ally_keys + self.enemy_keys
         self.agents = self.unit_keys
+        self.zone_keys = [f"zone_{i}" for i in range(max_n_zone)]
         self.max_n_ally = max_n_ally
         self.max_n_enemy = max_n_enemy
+        self.max_n_zone = max_n_zone
         self.max_episode_steps = max_episode_steps
         self.max_team = 2
 
@@ -375,6 +412,15 @@ class TABS(BaseMAEnv):
                 is_attacking=jnp.array([False]),
             )
             for i, name in enumerate(self.unit_keys)
+        }
+
+        self.empty_state["zone"] = {
+            name: Zone(
+                zone_type=jnp.array([0.0]),
+                ellipse=Ellipse(position=jnp.array([0.0, 0.0]), axes=jnp.array([1.0, 1.0])),
+                damage=jnp.array([0.0]),
+            )
+            for name in self.zone_keys
         }
 
         self.empty_state["game_manager"] = GameManager(
@@ -627,6 +673,7 @@ class TABS(BaseMAEnv):
 
     def reset(self, key, env_params):
         scenario = env_params["scenario"]
+        zone_scenario = env_params["zone_scenario"]
         vectorized_scenario: VectorizedScenario = get_vectorized_scenario(
             scenario, self.max_n_ally, self.max_n_enemy
         )
@@ -665,6 +712,19 @@ class TABS(BaseMAEnv):
                 damage_dealt=jnp.array([0.0]),
                 is_attacking=jnp.array([False]),
             )
+
+        for i, zone in enumerate(self.zone_keys):
+            state[zone] = Zone(
+                zone_type=zone_scenario.zone_type[i],
+                ellipse=Ellipse(position=zone_scenario.position[i], axes=zone_scenario.axes[i]),
+                damage=zone_scenario.damage[i],
+            )
+
+        # handling zone effect
+        for sprite in state.keys():
+            if hasattr(state[sprite], "zone_type"):
+                state = state[sprite].act(state, env_params["physics_params"])
+
         state["game_manager"] = GameManager(
             attack_target=jnp.array([0]),
             attackable_matrix=jnp.array([[False]]),
@@ -681,9 +741,9 @@ class TABS(BaseMAEnv):
 
         return self.get_obs(state), {"state": state, "physics_params": env_params["physics_params"]}
 
-    def step(self, key, _state, actions):
-        state = _state["state"]
-        physics_params = _state["physics_params"]
+    def step(self, key, env_state, actions):
+        state = env_state["state"]
+        physics_params = env_state["physics_params"]
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
 
         for sprite in state.keys():
@@ -700,6 +760,11 @@ class TABS(BaseMAEnv):
         # action processing
         for sprite in self.unit_keys:
             state[sprite] = state[sprite].act(state, actions[sprite], physics_params=physics_params)
+
+        # handling zone effect
+        for sprite in state.keys():
+            if hasattr(state[sprite], "zone_type"):
+                state = state[sprite].act(state, physics_params)
 
         # alive processing after action step, for independent unit sequence
         dones = {}
