@@ -32,6 +32,14 @@ class VectorizedScenario:
 
 
 @struct.dataclass
+class ZoneScenario:
+    zone_type: chex.Array
+    position: chex.Array
+    axes: chex.Array
+    damage: chex.Array
+
+
+@struct.dataclass
 class Scenario:
     budget: int
     ally_unit_comp: chex.Array
