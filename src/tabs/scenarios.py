@@ -276,7 +276,7 @@ def get_vectorized_scenario(
     scenario,
     n_ally,
     n_enemy,
-    unit_spacing=4.5,
+    unit_spacing=8.5,
     side_gap=16.0,
     field_margin_width=10.0,
     field_margin_height=10.0,
