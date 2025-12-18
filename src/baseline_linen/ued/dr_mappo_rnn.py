@@ -18,12 +18,9 @@ import wandb
 from src.tabs import TABS
 from src.tabs.scenarios import generate_scenario
 from src.tabs.config import TABSConfig, PhysicsParams, TABSHeuristicConfig
-from src.tabs.wrappers.wrappers import (
-    TABSEnemyHeuristicWrapper,
-    TABSAutoResetWrapper,
-    TABSLogWrapper,
-)
-from src.baseline_linen.ued.level_generator import generate_level, FREE_PARAM_TYPES
+from src.tabs.wrappers import TABSEnemyHeuristicWrapper, TABSLogWrapper
+from src.baseline_linen.ued.level_generator import level_generator, FREE_PARAM_TYPES
+from src.baseline_linen.ued.wrappers import LevelAutoResetWrapper
 from src.baseline_linen.layers import ActorRNN, CriticRNN, ScannedRNN
 from src.baseline_linen.utils import batchify, unbatchify
 from src.tabs.utils import Transition
@@ -40,7 +37,8 @@ def make_train(config):
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
-    env = TABSAutoResetWrapper(env)
+    sample_random_level = level_generator(FREE_PARAM_TYPES[config["FREE_PARAM_TYPE"]])
+    env = LevelAutoResetWrapper(env, sample_random_level)
 
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
@@ -114,7 +112,7 @@ def make_train(config):
         )
 
         # INIT ENV
-        rng, _rng, _rng2 = jax.random.split(rng, 3)
+        rng, _rng = jax.random.split(rng)
         reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
 
         env_params = {
@@ -122,7 +120,7 @@ def make_train(config):
             "physics_params": PhysicsParams(),
             "heuristic_params": TABSHeuristicConfig(),
         }
-        env_params = generate_level(env_params, FREE_PARAM_TYPES[config["FREE_PARAM_TYPE"]], _rng2)
+        env_params = sample_random_level(env_params, _rng)
 
         env_params = jax.tree.map(
             lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0), env_params
