@@ -218,77 +218,73 @@ def make_train(config):
                 )
                 return advantages, advantages + traj_batch.value
 
+            # Rollout
+            def _rollout(runner_state, unused):
+                train_states, env_state, last_obs, last_done, hstates, env_params, rng = (
+                    runner_state
+                )
+
+                # SELECT ACTION
+                rng, _rng = jax.random.split(rng)
+                avail_actions = jax.vmap(env.get_avail_actions)(env_state)
+                avail_actions = jax.lax.stop_gradient(
+                    batchify(avail_actions, env.agents, config["NUM_ACTORS"])
+                )
+                obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
+                ac_in = (
+                    obs_batch[np.newaxis, :],
+                    last_done[np.newaxis, :],
+                    avail_actions,
+                )
+                ac_hstate, pi = actor_network.apply(train_states[0].params, hstates[0], ac_in)
+                action = pi.sample(seed=_rng)
+                log_prob = pi.log_prob(action)
+                env_act = unbatchify(action, env.agents, config["NUM_ENVS"], env.num_agents)
+                env_act = {k: v.squeeze() for k, v in env_act.items()}
+
+                # VALUE
+                # world_state is (num_envs, world_state_size)
+                # repeat for each agent to get (num_actors, world_state_size)
+                world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
+                world_state = jnp.repeat(world_state, env.num_agents, axis=0)  # (NUM_ACTORS, 280)
+
+                cr_in = (
+                    world_state[None, :],
+                    last_done[np.newaxis, :],
+                )
+                cr_hstate, value = critic_network.apply(train_states[1].params, hstates[1], cr_in)
+
+                # STEP ENV
+                rng, _rng = jax.random.split(rng)
+                rng_step = jax.random.split(_rng, config["NUM_ENVS"])
+                obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, 0))(
+                    rng_step, env_state, env_act, env_params
+                )
+                done_batch = batchify(done, env.agents, config["NUM_ACTORS"]).squeeze()
+                transition = Transition(
+                    jnp.tile(done["__all__"][..., 0], env.num_agents),
+                    last_done,
+                    action.squeeze(),
+                    value.squeeze(),
+                    batchify(reward, env.agents, config["NUM_ACTORS"]).squeeze(),
+                    log_prob.squeeze(),
+                    obs_batch,
+                    world_state,
+                    info,
+                    avail_actions,
+                )
+                runner_state = (
+                    train_states,
+                    env_state,
+                    obsv,
+                    done_batch,
+                    (ac_hstate, cr_hstate),
+                    env_params,
+                    rng,
+                )
+                return runner_state, transition
+
             def _update(runner_state):
-                # Rollout
-                def _rollout(runner_state, unused):
-                    train_states, env_state, last_obs, last_done, hstates, env_params, rng = (
-                        runner_state
-                    )
-
-                    # SELECT ACTION
-                    rng, _rng = jax.random.split(rng)
-                    avail_actions = jax.vmap(env.get_avail_actions)(env_state)
-                    avail_actions = jax.lax.stop_gradient(
-                        batchify(avail_actions, env.agents, config["NUM_ACTORS"])
-                    )
-                    obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
-                    ac_in = (
-                        obs_batch[np.newaxis, :],
-                        last_done[np.newaxis, :],
-                        avail_actions,
-                    )
-                    ac_hstate, pi = actor_network.apply(train_states[0].params, hstates[0], ac_in)
-                    action = pi.sample(seed=_rng)
-                    log_prob = pi.log_prob(action)
-                    env_act = unbatchify(action, env.agents, config["NUM_ENVS"], env.num_agents)
-                    env_act = {k: v.squeeze() for k, v in env_act.items()}
-
-                    # VALUE
-                    # world_state is (num_envs, world_state_size)
-                    # repeat for each agent to get (num_actors, world_state_size)
-                    world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-                    world_state = jnp.repeat(
-                        world_state, env.num_agents, axis=0
-                    )  # (NUM_ACTORS, 280)
-
-                    cr_in = (
-                        world_state[None, :],
-                        last_done[np.newaxis, :],
-                    )
-                    cr_hstate, value = critic_network.apply(
-                        train_states[1].params, hstates[1], cr_in
-                    )
-
-                    # STEP ENV
-                    rng, _rng = jax.random.split(rng)
-                    rng_step = jax.random.split(_rng, config["NUM_ENVS"])
-                    obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, 0))(
-                        rng_step, env_state, env_act, env_params
-                    )
-                    done_batch = batchify(done, env.agents, config["NUM_ACTORS"]).squeeze()
-                    transition = Transition(
-                        jnp.tile(done["__all__"][..., 0], env.num_agents),
-                        last_done,
-                        action.squeeze(),
-                        value.squeeze(),
-                        batchify(reward, env.agents, config["NUM_ACTORS"]).squeeze(),
-                        log_prob.squeeze(),
-                        obs_batch,
-                        world_state,
-                        info,
-                        avail_actions,
-                    )
-                    runner_state = (
-                        train_states,
-                        env_state,
-                        obsv,
-                        done_batch,
-                        (ac_hstate, cr_hstate),
-                        env_params,
-                        rng,
-                    )
-                    return runner_state, transition
-
                 # Update network
                 def _update_epoch(
                     train_states,
@@ -530,7 +526,7 @@ def make_train(config):
                         sampler, new_levels, scores, {"max_return": max_returns}
                     )
 
-                    sample_state.replace(
+                    sample_state = sample_state.replace(
                         sampler=sampler,
                         update_state=UpdateState.DR,
                         num_dr_updates=sample_state.num_dr_updates + 1,
@@ -625,7 +621,7 @@ def make_train(config):
                         sampler, level_inds, scores, {"max_return": max_returns}
                     )
 
-                    sample_state.replace(
+                    sample_state = sample_state.replace(
                         sampler=sampler,
                         update_state=UpdateState.REPLAY,
                         num_replay_updates=sample_state.num_replay_updates + 1,
@@ -723,7 +719,7 @@ def make_train(config):
                         sampler, child_levels, scores, {"max_return": max_returns}
                     )
 
-                    sample_state.replace(
+                    sample_state = sample_state.replace(
                         sampler=sampler,
                         update_state=UpdateState.DR,
                         num_mutation_updates=sample_state.num_mutation_updates + 1,
@@ -801,6 +797,10 @@ def make_train(config):
             metric["episode_length"] = env_state["log_state"].returned_episode_lengths[:, 0].mean()
             metric["win_rate"] = env_state["log_state"].returned_episode_wins[:, 0].mean()
 
+            # UED logs
+            metric["num_dr_updates"] = sample_state.num_dr_updates
+            metric["num_replay_updates"] = sample_state.num_replay_updates
+            metric["num_mutation_updates"] = sample_state.num_mutation_updates
             metric["update_count"] = (
                 sample_state.num_dr_updates
                 + sample_state.num_replay_updates
@@ -873,7 +873,7 @@ class Config:
     FREE_PARAM_TYPE: str = "unit_spec"
     # PLR
     SCORE_FUNC: str = "MaxMC"  # MaxMC, pvl
-    EXPLORATORY_GRAD_UPDATES: bool = False
+    EXPLORATORY_GRAD_UPDATES: bool = False  # False if Robust PLR or ACCEL
     LEVEL_BUFFER_CAPACITY: int = 4000
     REPLAY_PROB: float = 0.8
     STALENESS_COEF: float = 0.3
@@ -893,4 +893,5 @@ if __name__ == "__main__":
     config = tyro.cli(Config)
     wandb.init(project="plr_mappo_rnn", mode="online", config=config)
     train = make_train(config.__dict__)
-    result = train(jax.random.key(0))
+    with jax.disable_jit(False):
+        result = train(jax.random.key(config.SEED))
