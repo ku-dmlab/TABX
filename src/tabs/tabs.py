@@ -178,9 +178,9 @@ class Zone:
             <= 1
         )
 
-        for i, (key, unit) in enumerate(unit_objects.items()):
+        for key, unit in unit_objects.items():
             objects[key] = unit.replace(
-                status=unit.on_damage(is_in[i] * self.damage * physics_params.dt)
+                status=unit.on_damage(is_in[unit.status.id] * self.damage * physics_params.dt)
             )
 
         return objects
