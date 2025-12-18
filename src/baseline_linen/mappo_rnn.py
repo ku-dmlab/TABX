@@ -29,6 +29,7 @@ from src.tabs.wrappers.wrappers import (
     TABSLogWrapper,
 )
 from src.tabs.utils import Transition
+from src.baseline_linen.utils import get_battle_metric
 
 
 class ScannedRNN(nn.Module):
@@ -273,7 +274,7 @@ def make_train(config):
                 # info = jax.tree.map(lambda x: x.reshape((config["NUM_ACTORS"])), info)
                 done_batch = batchify(done, env.agents, config["NUM_ACTORS"]).squeeze()
                 transition = Transition(
-                    jnp.tile(done["__all__"][..., 0], env.num_agents),
+                    jnp.tile(done["__all__"], env.num_agents),
                     last_done,
                     action.squeeze(),
                     value.squeeze(),
@@ -484,13 +485,8 @@ def make_train(config):
             loss_info = jax.tree.map(lambda x: x.mean(), loss_info)
 
             train_states = update_state[0]
-            metric = loss_info
+            metric = loss_info | get_battle_metric(env, env_state)
             rng = update_state[-1]
-
-            metric["update_steps"] = update_steps
-            metric["episode_return"] = env_state["log_state"].returned_episode_returns[:, 0].mean()
-            metric["episode_length"] = env_state["log_state"].returned_episode_lengths[:, 0].mean()
-            metric["win_rate"] = env_state["log_state"].returned_episode_wins[:, 0].mean()
 
             def callback(metric):
                 wandb.log(metric)
@@ -542,6 +538,6 @@ class Config:
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
-    wandb.init(project="mappo_rnn", mode="online")
+    wandb.init(project="mappo_rnn", mode="online", config=config)
     train = make_train(config.__dict__)
     result = train(jax.random.key(0))
