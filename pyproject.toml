@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "chex>=0.1.89",
-    "jax[cuda12]>=0.6.1",
+    "jax>=0.6.1",
     "flax>=0.10.6",
     "optax>=0.2.5",
     "tensorflow-probability>=0.25",

@@ -199,8 +199,12 @@ class Zone:
         # Hide if the unit is in the bush zone, but the unit become visible to the hit person.
         is_in = self.is_in(objects)
 
-        be_observed = jnp.logical_and(is_in.transpose(), objects["game_manager"].attack_matrix)
-        visible_matrix = jnp.logical_or(objects["game_manager"].visible_matrix, be_observed)
+        attacker_in_bush = jnp.logical_and(is_in[:, None], objects["game_manager"].attack_matrix)
+        visible_matrix = jnp.logical_and(
+            objects["game_manager"].visible_matrix,
+            jnp.logical_not(is_in[None, :]),
+        )
+        visible_matrix = jnp.logical_or(visible_matrix, attacker_in_bush.T)
         objects["game_manager"] = objects["game_manager"].replace(visible_matrix=visible_matrix)
 
         return objects
