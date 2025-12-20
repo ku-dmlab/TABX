@@ -110,6 +110,12 @@ class DefaultUnit:
         notify(objects, "hit", (self, is_attack, target_id, target_attackable, can_attack))
         attack_success = can_attack & is_attack & target_attackable[target_id.reshape()]
 
+        objects["game_manager"] = objects["game_manager"].replace(
+            attack_matrix=game_manager.attack_matrix.at[
+                self.status.id.reshape(), target_id.reshape()
+            ].set(attack_success.reshape())
+        )
+
         move_action = (
             action_table[action, :2] * action_able * self.status.speed
         )  # if unit is dead, do not move
@@ -164,19 +170,26 @@ class Zone:
 
     def act(self, objects, physics_params):
         return jax.lax.switch(
-            self.zone_type, [self.act_lava, self.act_bush], objects, physics_params
+            self.zone_type,
+            [self.act_nothing, self.act_lava, self.act_bush],
+            objects,
+            physics_params,
         )
 
-    def act_lava(self, objects, physics_params):
-        unit_objects = {key: value for (key, value) in objects.items() if "unit" in key}
-
+    def is_in(self, objects):
+        # Return whether an unit is in the zone or not.
         unit_positions = jnp.array(
             [value.transform.position for (key, value) in objects.items() if "unit" in key]
         )
-        is_in = (
+        return (
             jnp.sum((unit_positions - self.ellipse.position) ** 2 / self.ellipse.axes**2, axis=1)
             <= 1
         )
+
+    def act_lava(self, objects, physics_params):
+        # Get damaged if the unit is in the lava zone.
+        unit_objects = {key: value for (key, value) in objects.items() if "unit" in key}
+        is_in = self.is_in(objects)
 
         for key, unit in unit_objects.items():
             objects[key] = unit.replace(
@@ -186,6 +199,23 @@ class Zone:
         return objects
 
     def act_bush(self, objects, physics_params):
+        # Hide if the unit is in the bush zone, but the unit become visible to the hit person.
+        is_in = self.is_in(objects)
+
+        # The unit in bush isn't observed.
+        visible_matrix = jnp.logical_and(
+            objects["game_manager"].visible_matrix,
+            jnp.logical_not(is_in[None, :]),
+        )
+        # The attacker in bush can be observed.
+        attack_in_bush = jnp.logical_and(is_in[:, None], objects["game_manager"].attack_matrix)
+
+        visible_matrix = jnp.logical_or(visible_matrix, attack_in_bush.T)
+        objects["game_manager"] = objects["game_manager"].replace(visible_matrix=visible_matrix)
+
+        return objects
+
+    def act_nothing(self, objects, physics_params):
         return objects
 
 
@@ -196,6 +226,7 @@ class GameManager:
     timestep: chex.Array
     attack_target: chex.Array
     attackable_matrix: chex.Array
+    attack_matrix: chex.Array
     visible_matrix: chex.Array
     distance_matrix: chex.Array
     team_hp_ratio: chex.Array
@@ -327,6 +358,7 @@ class GameManager:
         return self.replace(
             attack_target=maksed_relative_distnace.argmin(axis=1),
             attackable_matrix=attackable_matrix,
+            attack_matrix=jnp.zeros_like(attackable_matrix, dtype=jnp.bool),
             visible_matrix=(sight_inside).squeeze().T,
             distance_matrix=position_diff,
         )
@@ -416,7 +448,7 @@ class TABS(BaseMAEnv):
 
         self.empty_state["zone"] = {
             name: Zone(
-                zone_type=jnp.array([0.0]),
+                zone_type=jnp.array([-1]),
                 ellipse=Ellipse(position=jnp.array([0.0, 0.0]), axes=jnp.array([1.0, 1.0])),
                 damage=jnp.array([0.0]),
             )
@@ -426,6 +458,7 @@ class TABS(BaseMAEnv):
         self.empty_state["game_manager"] = GameManager(
             attack_target=jnp.array([0]),
             attackable_matrix=jnp.array([[False]]),
+            attack_matrix=jnp.array([[False]]),
             visible_matrix=jnp.array([[False]]),
             distance_matrix=jnp.array([[0]]),
             reward=jnp.array([0.0]),
@@ -673,7 +706,6 @@ class TABS(BaseMAEnv):
 
     def reset(self, key, env_params):
         scenario = env_params["scenario"]
-        zone_scenario = env_params["zone_scenario"]
         vectorized_scenario: VectorizedScenario = get_vectorized_scenario(
             scenario, self.max_n_ally, self.max_n_enemy
         )
@@ -715,19 +747,18 @@ class TABS(BaseMAEnv):
 
         for i, zone in enumerate(self.zone_keys):
             state[zone] = Zone(
-                zone_type=zone_scenario.zone_type[i],
-                ellipse=Ellipse(position=zone_scenario.position[i], axes=zone_scenario.axes[i]),
-                damage=zone_scenario.damage[i],
+                zone_type=env_params["zone_scenario"].zone_type[i],
+                ellipse=Ellipse(
+                    position=env_params["zone_scenario"].position[i],
+                    axes=env_params["zone_scenario"].axes[i],
+                ),
+                damage=env_params["zone_scenario"].damage[i],
             )
-
-        # handling zone effect
-        for sprite in state.keys():
-            if hasattr(state[sprite], "zone_type"):
-                state = state[sprite].act(state, env_params["physics_params"])
 
         state["game_manager"] = GameManager(
             attack_target=jnp.array([0]),
             attackable_matrix=jnp.array([[False]]),
+            attack_matrix=jnp.array([[False]]),
             visible_matrix=jnp.array([[False]]),
             distance_matrix=jnp.array([[0]]),
             reward=jnp.array([0.0]),
@@ -738,6 +769,11 @@ class TABS(BaseMAEnv):
         )
 
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
+
+        # handling zone effect
+        for sprite in state.keys():
+            if hasattr(state[sprite], "zone_type"):
+                state = state[sprite].act(state, env_params["physics_params"])
 
         return self.get_obs(state), {"state": state, "physics_params": env_params["physics_params"]}
 
