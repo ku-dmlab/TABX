@@ -33,9 +33,9 @@ from src.baseline_linen.ued.level_generator import (
     mutate_level_generator,
     FREE_PARAM_TYPES,
 )
-from src.baseline_linen.ued.scores import max_mc, positive_value_loss, compute_max_returns
+from src.baseline_linen.ued.scores import compute_max_returns, max_mc, positive_value_loss
 from src.tabs.utils import Transition
-from src.baseline_linen.utils import batchify, unbatchify
+from src.baseline_linen.utils import batchify, unbatchify, get_battle_metric
 
 
 class UpdateState(IntEnum):
@@ -262,7 +262,7 @@ def make_train(config):
                 )
                 done_batch = batchify(done, env.agents, config["NUM_ACTORS"]).squeeze()
                 transition = Transition(
-                    jnp.tile(done["__all__"][..., 0], env.num_agents),
+                    jnp.tile(done["__all__"], env.num_agents),
                     last_done,
                     action.squeeze(),
                     value.squeeze(),
@@ -792,10 +792,7 @@ def make_train(config):
 
             metric = loss_info
 
-            metric["update_steps"] = update_steps
-            metric["episode_return"] = env_state["log_state"].returned_episode_returns[:, 0].mean()
-            metric["episode_length"] = env_state["log_state"].returned_episode_lengths[:, 0].mean()
-            metric["win_rate"] = env_state["log_state"].returned_episode_wins[:, 0].mean()
+            metric |= get_battle_metric(env, env_state)
 
             # UED logs
             metric["num_dr_updates"] = sample_state.num_dr_updates

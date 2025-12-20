@@ -22,7 +22,7 @@ from src.tabs.wrappers import TABSEnemyHeuristicWrapper, TABSLogWrapper
 from src.baseline_linen.ued.level_generator import level_generator, FREE_PARAM_TYPES
 from src.baseline_linen.ued.wrappers import LevelAutoResetWrapper
 from src.baseline_linen.layers import ActorRNN, CriticRNN, ScannedRNN
-from src.baseline_linen.utils import batchify, unbatchify
+from src.baseline_linen.utils import batchify, unbatchify, get_battle_metric
 from src.tabs.utils import Transition
 
 
@@ -178,7 +178,7 @@ def make_train(config):
                 # info = jax.tree.map(lambda x: x.reshape((config["NUM_ACTORS"])), info)
                 done_batch = batchify(done, env.agents, config["NUM_ACTORS"]).squeeze()
                 transition = Transition(
-                    jnp.tile(done["__all__"][..., 0], env.num_agents),
+                    jnp.tile(done["__all__"], env.num_agents),
                     last_done,
                     action.squeeze(),
                     value.squeeze(),
@@ -392,10 +392,7 @@ def make_train(config):
             metric = loss_info
             rng = update_state[-1]
 
-            metric["update_steps"] = update_steps
-            metric["episode_return"] = env_state["log_state"].returned_episode_returns[:, 0].mean()
-            metric["episode_length"] = env_state["log_state"].returned_episode_lengths[:, 0].mean()
-            metric["win_rate"] = env_state["log_state"].returned_episode_wins[:, 0].mean()
+            metric |= get_battle_metric(env, env_state)
 
             def callback(metric):
                 wandb.log(metric)
