@@ -171,7 +171,7 @@ class Zone:
     def act(self, objects, physics_params):
         return jax.lax.switch(
             self.zone_type,
-            [self.act_lava, self.act_bush, self.act_nothing],
+            [self.act_nothing, self.act_lava, self.act_bush],
             objects,
             physics_params,
         )
@@ -448,7 +448,7 @@ class TABS(BaseMAEnv):
 
         self.empty_state["zone"] = {
             name: Zone(
-                zone_type=jnp.array([0.0]),
+                zone_type=jnp.array([-1]),
                 ellipse=Ellipse(position=jnp.array([0.0, 0.0]), axes=jnp.array([1.0, 1.0])),
                 damage=jnp.array([0.0]),
             )
