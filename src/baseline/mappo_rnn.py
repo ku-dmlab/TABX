@@ -25,6 +25,29 @@ from src.tabs.wrappers.wrappers import (
 )
 
 
+@dataclass
+class Config:
+    LR: float = 0.004
+    NUM_ENVS: int = 128
+    NUM_STEPS: int = 128
+    GRU_HIDDEN_DIM: int = 128
+    FC_DIM_SIZE: int = 128
+    TOTAL_TIMESTEPS: int = 1e7
+    UPDATE_EPOCHS: int = 4
+    NUM_MINIBATCHES: int = 4
+    GAMMA: float = 0.99
+    GAE_LAMBDA: float = 0.95
+    CLIP_EPS: float = 0.05
+    SCALE_CLIP_EPS: bool = False
+    ENT_COEF: float = 0.01
+    VF_COEF: float = 0.5
+    MAX_GRAD_NORM: float = 0.25
+    ACTIVATION: str = "relu"
+    SEED: int = 0
+    ANNEAL_LR: bool = True
+    SENARIO: str = "2F1K2A1H_tight"
+
+
 def make_train(config):
     tabs_config = TABSConfig(scenario_name=config["SENARIO"])
     scenario = generate_scenario(tabs_config)
@@ -411,29 +434,6 @@ def make_train(config):
         return {"runner_state": runner_state, "metric": metric}
 
     return train
-
-
-@dataclass
-class Config:
-    LR: float = 0.004
-    NUM_ENVS: int = 128
-    NUM_STEPS: int = 128
-    GRU_HIDDEN_DIM: int = 128
-    FC_DIM_SIZE: int = 128
-    TOTAL_TIMESTEPS: int = 1e7
-    UPDATE_EPOCHS: int = 4
-    NUM_MINIBATCHES: int = 4
-    GAMMA: float = 0.99
-    GAE_LAMBDA: float = 0.95
-    CLIP_EPS: float = 0.05
-    SCALE_CLIP_EPS: bool = False
-    ENT_COEF: float = 0.01
-    VF_COEF: float = 0.5
-    MAX_GRAD_NORM: float = 0.25
-    ACTIVATION: str = "relu"
-    SEED: int = 0
-    ANNEAL_LR: bool = True
-    SENARIO: str = "2F1K2A1H_tight"
 
 
 if __name__ == "__main__":

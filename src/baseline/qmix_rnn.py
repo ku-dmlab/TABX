@@ -3,20 +3,17 @@ Based on JaxMARL Implementation of QMIX
 """
 
 from dataclasses import dataclass
-from typing import Any
 
-import chex
 import flashbax as fbx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import tyro
-from flax.training.train_state import TrainState
 
 import wandb
 from src.baseline.layers import MixingNetwork, RNNQNetwork, ScannedRNN
-from src.baseline.utils import get_battle_metric
+from src.baseline.utils import CustomTrainState, Timestep, get_battle_metric
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario
 from src.tabs.tabs import TABS, TABSConfig
@@ -25,22 +22,6 @@ from src.tabs.wrappers.wrappers import (
     TABSEnemyHeuristicWrapper,
     TABSLogWrapper,
 )
-
-
-@chex.dataclass(frozen=True)
-class Timestep:
-    obs: dict
-    actions: dict
-    rewards: dict
-    dones: dict
-    avail_actions: dict
-
-
-class CustomTrainState(TrainState):
-    target_network_params: Any
-    timesteps: int = 0
-    n_updates: int = 0
-    grad_steps: int = 0
 
 
 @dataclass

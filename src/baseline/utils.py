@@ -1,8 +1,28 @@
+from typing import Any
+
+import chex
 import jax
 import jax.numpy as jnp
+from flax.training.train_state import TrainState
 
 from src.tabs.constants import ALL_UNIT_NAMES
 from src.tabs.tabs import TABS
+
+
+@chex.dataclass(frozen=True)
+class Timestep:
+    obs: dict
+    actions: dict
+    rewards: dict
+    dones: dict
+    avail_actions: dict
+
+
+class CustomTrainState(TrainState):
+    target_network_params: Any
+    timesteps: int = 0
+    n_updates: int = 0
+    grad_steps: int = 0
 
 
 def batchify(x: dict, agent_list, num_actors):
