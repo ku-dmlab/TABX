@@ -448,7 +448,7 @@ class TABS(BaseMAEnv):
 
         self.empty_state["zone"] = {
             name: Zone(
-                zone_type=jnp.array([-1]),
+                zone_type=jnp.array([0.0]),
                 ellipse=Ellipse(position=jnp.array([0.0, 0.0]), axes=jnp.array([1.0, 1.0])),
                 damage=jnp.array([0.0]),
             )
@@ -706,6 +706,7 @@ class TABS(BaseMAEnv):
 
     def reset(self, key, env_params):
         scenario = env_params["scenario"]
+        zone_scenario = env_params["zone_scenario"]
         vectorized_scenario: VectorizedScenario = get_vectorized_scenario(
             scenario, self.max_n_ally, self.max_n_enemy
         )
