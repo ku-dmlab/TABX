@@ -697,7 +697,10 @@ class TABS(BaseMAEnv):
 
     def reset(self, key, env_params):
         scenario = env_params["scenario"]
-        zone_scenario = env_params["zone_scenario"]
+        if "zone_scenario" in env_params:
+            zone_scenario = env_params["zone_scenario"]
+        else:
+            zone_scenario = None
         vectorized_scenario: VectorizedScenario = get_vectorized_scenario(
             scenario, self.max_n_ally, self.max_n_enemy
         )
@@ -737,12 +740,13 @@ class TABS(BaseMAEnv):
                 is_attacking=jnp.array([False]),
             )
 
-        for i, zone in enumerate(self.zone_keys):
-            state[zone] = Zone(
-                zone_type=zone_scenario.zone_type[i],
-                ellipse=Ellipse(position=zone_scenario.position[i], axes=zone_scenario.axes[i]),
-                damage=zone_scenario.damage[i],
-            )
+        if zone_scenario is not None:
+            for i, zone in enumerate(self.zone_keys):
+                state[zone] = Zone(
+                    zone_type=zone_scenario.zone_type[i],
+                    ellipse=Ellipse(position=zone_scenario.position[i], axes=zone_scenario.axes[i]),
+                    damage=zone_scenario.damage[i],
+                )
 
         state["game_manager"] = GameManager(
             attack_target=jnp.array([0]),
