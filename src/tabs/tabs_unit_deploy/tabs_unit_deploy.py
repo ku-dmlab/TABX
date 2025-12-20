@@ -1,12 +1,12 @@
+import chex
 import jax
 import jax.numpy as jnp
-import chex
 from flax import struct
 
 from src.tabs.environments.base_maenv import BaseMAEnv
-from src.tabs.environments.spaces import Discrete, Box
+from src.tabs.environments.spaces import Box, Discrete
 from src.tabs.scenarios import Scenario, TABSConfig
-from src.tabs.tabs_unit_deploy.utils import convert_unit_layer, conv_lower_right_padding
+from src.tabs.tabs_unit_deploy.utils import conv_lower_right_padding, convert_unit_layer
 
 
 @struct.dataclass

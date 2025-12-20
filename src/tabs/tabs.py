@@ -5,19 +5,18 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from src.tabs.utils import notify
 from src.tabs.environments.base_maenv import BaseMAEnv
-from src.tabs.environments.spaces import Discrete, Box
 from src.tabs.environments.physics import (
-    Transform,
+    CircleCollider,
     Ellipse,
     RigidBody,
-    CircleCollider,
+    Transform,
     physics_step,
     physics_update,
 )
-from src.tabs.scenarios import TABSConfig, get_vectorized_scenario, VectorizedScenario
-
+from src.tabs.environments.spaces import Box, Discrete
+from src.tabs.scenarios import TABSConfig, VectorizedScenario, get_vectorized_scenario
+from src.tabs.utils import notify
 
 action_table = jnp.array(
     [

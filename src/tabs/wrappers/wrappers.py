@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 import chex
 import jax
@@ -6,9 +6,9 @@ import jax.numpy as jnp
 from flax import struct
 
 from src.tabs import TABS
-from src.tabs.scenarios import Scenario
-from src.tabs.heuristic_policy import heuristic_policy
 from src.tabs.config import TABSHeuristicConfig
+from src.tabs.heuristic_policy import heuristic_policy
+from src.tabs.scenarios import Scenario
 
 
 class BaseWrapper:

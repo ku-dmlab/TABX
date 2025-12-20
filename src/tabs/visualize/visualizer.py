@@ -1,8 +1,8 @@
 from typing import Optional
 
 import chex
-import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import matplotlib.pyplot as plt
 
 from src.tabs.environments.base_maenv import BaseMAEnv
 

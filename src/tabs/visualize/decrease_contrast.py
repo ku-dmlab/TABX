@@ -1,9 +1,8 @@
+import glob
 import os
 
-import tqdm
-import glob
-
 import numpy as np
+import tqdm
 from PIL import Image
 
 

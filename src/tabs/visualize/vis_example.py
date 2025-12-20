@@ -1,10 +1,10 @@
 import jax
 
 from src.tabs import TABS
-from src.tabs.visualize import Visualizer
+from src.tabs.config import PhysicsParams, TABSConfig, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario
+from src.tabs.visualize import Visualizer
 from src.tabs.wrappers import TABSEnemyHeuristicWrapper
-from src.tabs.config import TABSConfig, PhysicsParams, TABSHeuristicConfig
 
 if __name__ == "__main__":
     num_steps = 120

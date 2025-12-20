@@ -1,15 +1,15 @@
-import os
-import json
 import datetime
+import hashlib
+import json
+import os
 from dataclasses import dataclass, replace
 
-from tqdm import tqdm
-import tyro
-import wandb
-import hashlib
 import numpy as np
-
+import tyro
 from src.baseline.configs.config import PPOConfig
+from tqdm import tqdm
+
+import wandb
 from src.tabs.scenarios import TABSConfig
 
 
@@ -33,17 +33,17 @@ if __name__ == "__main__":
 
     import jax
     import jax.numpy as jnp
-
     from src.baseline.algorithm import MAPPO
-    from src.tabs.wrappers import (
-        TABSBattleSimulatorLogWrapper,
-        TABSBattleSimulatorHeuristicWrapper,
-        TABSBattleSimulatorAutoResetWrapper,
-    )
+    from src.baseline.train_utils import get_battle_metric
+
+    from src.baseline.utils import dataclass_to_dict, get_abs_path
     from src.tabs import TABSBattleSimulator
     from src.tabs.scenarios import generate_scenario
-    from src.baseline.utils import dataclass_to_dict, get_abs_path
-    from src.baseline.train_utils import get_battle_metric
+    from src.tabs.wrappers import (
+        TABSBattleSimulatorAutoResetWrapper,
+        TABSBattleSimulatorHeuristicWrapper,
+        TABSBattleSimulatorLogWrapper,
+    )
 
     # Create a hash of the config for unique folder naming
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
