@@ -705,7 +705,6 @@ class TABS(BaseMAEnv):
 
     def reset(self, key, env_params):
         scenario = env_params["scenario"]
-        zone_scenario = env_params["zone_scenario"]
         vectorized_scenario: VectorizedScenario = get_vectorized_scenario(
             scenario, self.max_n_ally, self.max_n_enemy
         )
