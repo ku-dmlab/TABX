@@ -7,23 +7,23 @@ from dataclasses import dataclass
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-import tyro
 import jax
 import jax.numpy as jnp
-import optax
 import numpy as np
+import optax
+import tyro
 from flax.training.train_state import TrainState
-import wandb
 
+import wandb
+from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
+from src.baseline.ued.level_generator import FREE_PARAM_TYPES, level_generator
+from src.baseline.ued.wrappers import LevelAutoResetWrapper
+from src.baseline.utils import batchify, get_battle_metric, unbatchify
 from src.tabs import TABS
+from src.tabs.config import PhysicsParams, TABSConfig, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario
-from src.tabs.config import TABSConfig, PhysicsParams, TABSHeuristicConfig
-from src.tabs.wrappers import TABSEnemyHeuristicWrapper, TABSLogWrapper
-from src.baseline_linen.ued.level_generator import level_generator, FREE_PARAM_TYPES
-from src.baseline_linen.ued.wrappers import LevelAutoResetWrapper
-from src.baseline_linen.layers import ActorRNN, CriticRNN, ScannedRNN
-from src.baseline_linen.utils import batchify, unbatchify, get_battle_metric
 from src.tabs.utils import Transition
+from src.tabs.wrappers import TABSEnemyHeuristicWrapper, TABSLogWrapper
 
 
 def make_train(config):

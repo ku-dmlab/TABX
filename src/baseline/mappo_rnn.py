@@ -2,34 +2,34 @@
 Based on JaxMARL Implementation of MAPPO
 """
 
-import os
 import functools
+import os
 from dataclasses import dataclass
-from typing import Sequence, Dict
+from typing import Dict, Sequence
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-import tyro
+import distrax
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 import numpy as np
-import distrax
 import optax
+import tyro
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
-import wandb
 
+import wandb
+from src.baseline.utils import get_battle_metric
 from src.tabs import TABS
+from src.tabs.config import PhysicsParams, TABSConfig, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario
-from src.tabs.config import TABSConfig, PhysicsParams, TABSHeuristicConfig
+from src.tabs.utils import Transition
 from src.tabs.wrappers.wrappers import (
-    TABSEnemyHeuristicWrapper,
     TABSAutoResetWrapper,
+    TABSEnemyHeuristicWrapper,
     TABSLogWrapper,
 )
-from src.tabs.utils import Transition
-from src.baseline_linen.utils import get_battle_metric
 
 
 class ScannedRNN(nn.Module):

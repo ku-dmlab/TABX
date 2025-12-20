@@ -1,10 +1,10 @@
 import functools
-from typing import Sequence, Dict
+from typing import Dict, Sequence
 
+import distrax
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
-import distrax
 import numpy as np
 from flax.linen.initializers import constant, orthogonal
 

@@ -1,30 +1,31 @@
+from dataclasses import dataclass
+from functools import partial
+from typing import Any
+
+import chex
+import flashbax as fbx
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
-from functools import partial
-from typing import Any
-import chex
 import optax
-import flax.linen as nn
+import tyro
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
-import flashbax as fbx
+
 import wandb
-from src.baseline_linen.utils import get_battle_metric
+from src.baseline.utils import get_battle_metric
+from src.tabs.config import PhysicsParams, TABSHeuristicConfig
+from src.tabs.scenarios import generate_scenario
 from src.tabs.tabs import (
     TABS,
     TABSConfig,
 )
-from src.tabs.config import PhysicsParams
-from src.tabs.scenarios import generate_scenario
-from src.tabs.config import TABSHeuristicConfig
 from src.tabs.wrappers.wrappers import (
-    TABSEnemyHeuristicWrapper,
     TABSAutoResetWrapper,
+    TABSEnemyHeuristicWrapper,
     TABSLogWrapper,
 )
-import tyro
-from dataclasses import dataclass
 
 
 class ScannedRNN(nn.Module):
