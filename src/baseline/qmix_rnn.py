@@ -1,159 +1,30 @@
+"""
+Based on JaxMARL Implementation of QMIX
+"""
+
 from dataclasses import dataclass
-from functools import partial
 from typing import Any
 
 import chex
 import flashbax as fbx
-import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import tyro
-from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 
 import wandb
+from src.baseline.layers import MixingNetwork, RNNQNetwork, ScannedRNN
 from src.baseline.utils import get_battle_metric
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario
-from src.tabs.tabs import (
-    TABS,
-    TABSConfig,
-)
+from src.tabs.tabs import TABS, TABSConfig
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
     TABSEnemyHeuristicWrapper,
     TABSLogWrapper,
 )
-
-
-class ScannedRNN(nn.Module):
-    @partial(
-        nn.scan,
-        variable_broadcast="params",
-        in_axes=0,
-        out_axes=0,
-        split_rngs={"params": False},
-    )
-    @nn.compact
-    def __call__(self, carry, x):
-        """Applies the module."""
-        rnn_state = carry
-        ins, resets = x
-        hidden_size = ins.shape[-1]
-        initial_carry = self.initialize_carry(hidden_size, *ins.shape[:-1])
-        rnn_state = jnp.where(
-            resets[:, np.newaxis],
-            initial_carry,
-            rnn_state.reshape(initial_carry.shape),
-        )
-        new_rnn_state, y = nn.GRUCell(hidden_size)(rnn_state, ins)
-        return new_rnn_state, y
-
-    @staticmethod
-    def initialize_carry(hidden_size, *batch_size):
-        # Use a dummy key since the default state init fn is just zeros.
-        return nn.GRUCell(hidden_size, parent=None).initialize_carry(
-            jax.random.PRNGKey(0), (*batch_size, hidden_size)
-        )
-
-
-class RNNQNetwork(nn.Module):
-    # homogenous agent for parameters sharing, assumes all agents have same obs and action dim
-    action_dim: int
-    hidden_dim: int
-    init_scale: float = 1.0
-
-    @nn.compact
-    def __call__(self, hidden, obs, dones):
-        embedding = nn.Dense(
-            self.hidden_dim,
-            kernel_init=orthogonal(self.init_scale),
-            bias_init=constant(0.0),
-        )(obs)
-        embedding = nn.relu(embedding)
-
-        rnn_in = (embedding, dones)
-        hidden, embedding = ScannedRNN()(hidden, rnn_in)
-
-        q_vals = nn.Dense(
-            self.action_dim,
-            kernel_init=orthogonal(self.init_scale),
-            bias_init=constant(0.0),
-        )(embedding)
-
-        return hidden, q_vals
-
-
-class HyperNetwork(nn.Module):
-    """HyperNetwork for generating weights of QMix' mixing network."""
-
-    hidden_dim: int
-    output_dim: int
-    init_scale: float
-
-    @nn.compact
-    def __call__(self, x):
-        x = nn.Dense(
-            self.hidden_dim,
-            kernel_init=orthogonal(self.init_scale),
-            bias_init=constant(0.0),
-        )(x)
-        x = nn.relu(x)
-        x = nn.Dense(
-            self.output_dim,
-            kernel_init=orthogonal(self.init_scale),
-            bias_init=constant(0.0),
-        )(x)
-        return x
-
-
-class MixingNetwork(nn.Module):
-    """
-    Mixing network for projecting individual agent Q-values into Q_tot. Follows the original QMix implementation.
-    """
-
-    embedding_dim: int
-    hypernet_hidden_dim: int
-    init_scale: float
-
-    @nn.compact
-    def __call__(self, q_vals, states):
-        n_agents, time_steps, batch_size = q_vals.shape
-        q_vals = jnp.transpose(q_vals, (1, 2, 0))  # (time_steps, batch_size, n_agents)
-
-        # hypernetwork
-        w_1 = HyperNetwork(
-            hidden_dim=self.hypernet_hidden_dim,
-            output_dim=self.embedding_dim * n_agents,
-            init_scale=self.init_scale,
-        )(states)
-        b_1 = nn.Dense(
-            self.embedding_dim,
-            kernel_init=orthogonal(self.init_scale),
-            bias_init=constant(0.0),
-        )(states)
-        w_2 = HyperNetwork(
-            hidden_dim=self.hypernet_hidden_dim,
-            output_dim=self.embedding_dim,
-            init_scale=self.init_scale,
-        )(states)
-        b_2 = HyperNetwork(hidden_dim=self.embedding_dim, output_dim=1, init_scale=self.init_scale)(
-            states
-        )
-
-        # monotonicity and reshaping
-        w_1 = jnp.abs(w_1.reshape(time_steps, batch_size, n_agents, self.embedding_dim))
-        b_1 = b_1.reshape(time_steps, batch_size, 1, self.embedding_dim)
-        w_2 = jnp.abs(w_2.reshape(time_steps, batch_size, self.embedding_dim, 1))
-        b_2 = b_2.reshape(time_steps, batch_size, 1, 1)
-
-        # mix
-        hidden = nn.elu(jnp.matmul(q_vals[:, :, None, :], w_1) + b_1)
-        q_tot = jnp.matmul(hidden, w_2) + b_2
-
-        return q_tot.squeeze()  # (time_steps, batch_size)
 
 
 @chex.dataclass(frozen=True)

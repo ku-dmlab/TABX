@@ -2,25 +2,18 @@
 Based on JaxMARL Implementation of MAPPO
 """
 
-import functools
-import os
 from dataclasses import dataclass
-from typing import Dict, Sequence
 
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
-import distrax
-import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import tyro
-from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 
 import wandb
-from src.baseline.utils import get_battle_metric
+from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
+from src.baseline.utils import batchify, get_battle_metric, unbatchify
 from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSConfig, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario
@@ -30,99 +23,6 @@ from src.tabs.wrappers.wrappers import (
     TABSEnemyHeuristicWrapper,
     TABSLogWrapper,
 )
-
-
-class ScannedRNN(nn.Module):
-    @functools.partial(
-        nn.scan,
-        variable_broadcast="params",
-        in_axes=0,
-        out_axes=0,
-        split_rngs={"params": False},
-    )
-    @nn.compact
-    def __call__(self, carry, x):
-        """Applies the module."""
-        rnn_state = carry
-        ins, resets = x
-        # print('ins', ins)
-        rnn_state = jnp.where(
-            resets[:, np.newaxis],
-            self.initialize_carry(ins.shape[0], ins.shape[1]),
-            rnn_state,
-        )
-        new_rnn_state, y = nn.GRUCell(features=ins.shape[1])(rnn_state, ins)
-        return new_rnn_state, y
-
-    @staticmethod
-    def initialize_carry(batch_size, hidden_size):
-        # Use a dummy key since the default state init fn is just zeros.
-        cell = nn.GRUCell(features=hidden_size)
-        return cell.initialize_carry(jax.random.PRNGKey(0), (batch_size, hidden_size))
-
-
-class ActorRNN(nn.Module):
-    action_dim: Sequence[int]
-    config: Dict
-
-    @nn.compact
-    def __call__(self, hidden, x):
-        obs, dones, avail_actions = x
-        embedding = nn.Dense(
-            self.config["FC_DIM_SIZE"], kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(obs)
-        embedding = nn.relu(embedding)
-
-        rnn_in = (embedding, dones)
-        hidden, embedding = ScannedRNN()(hidden, rnn_in)
-
-        actor_mean = nn.Dense(
-            self.config["GRU_HIDDEN_DIM"], kernel_init=orthogonal(2), bias_init=constant(0.0)
-        )(embedding)
-        actor_mean = nn.relu(actor_mean)
-        actor_mean = nn.Dense(
-            self.action_dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
-        )(actor_mean)
-        unavail_actions = 1 - avail_actions
-        action_logits = actor_mean - (unavail_actions * 1e10)
-
-        pi = distrax.Categorical(logits=action_logits)
-
-        return hidden, pi
-
-
-class CriticRNN(nn.Module):
-    config: Dict
-
-    @nn.compact
-    def __call__(self, hidden, x):
-        world_state, dones = x
-        embedding = nn.Dense(
-            self.config["FC_DIM_SIZE"], kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(world_state)
-        embedding = nn.relu(embedding)
-
-        rnn_in = (embedding, dones)
-        hidden, embedding = ScannedRNN()(hidden, rnn_in)
-
-        critic = nn.Dense(
-            self.config["GRU_HIDDEN_DIM"], kernel_init=orthogonal(2), bias_init=constant(0.0)
-        )(embedding)
-        critic = nn.relu(critic)
-        critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(critic)
-
-        return hidden, jnp.squeeze(critic, axis=-1)
-
-
-def batchify(x: dict, agent_list, num_actors):
-    x = jnp.stack([x[a] for a in agent_list])
-    # print('batchify', x.shape)
-    return x.reshape((num_actors, -1))
-
-
-def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
-    x = x.reshape((num_actors, num_envs, -1))
-    return {a: x[i] for i, a in enumerate(agent_list)}
 
 
 def make_train(config):

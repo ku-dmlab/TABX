@@ -1,88 +1,30 @@
+"""
+Based on JaxMARL Implementation of VDN
+"""
+
 from dataclasses import dataclass
-from functools import partial
 from typing import Any
 
 import chex
 import flashbax as fbx
-import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import tyro
-from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 
 import wandb
+from src.baseline.layers import RNNQNetwork, ScannedRNN
 from src.baseline.utils import get_battle_metric
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario
-from src.tabs.tabs import (
-    TABS,
-    TABSConfig,
-)
+from src.tabs.tabs import TABS, TABSConfig
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
     TABSEnemyHeuristicWrapper,
     TABSLogWrapper,
 )
-
-
-class ScannedRNN(nn.Module):
-    @partial(
-        nn.scan,
-        variable_broadcast="params",
-        in_axes=0,
-        out_axes=0,
-        split_rngs={"params": False},
-    )
-    @nn.compact
-    def __call__(self, carry, x):
-        """Applies the module."""
-        rnn_state = carry
-        ins, resets = x
-        hidden_size = ins.shape[-1]
-        rnn_state = jnp.where(
-            resets[:, np.newaxis],
-            self.initialize_carry(hidden_size, *ins.shape[:-1]),
-            rnn_state,
-        )
-        new_rnn_state, y = nn.GRUCell(hidden_size)(rnn_state, ins)
-        return new_rnn_state, y
-
-    @staticmethod
-    def initialize_carry(hidden_size, *batch_size):
-        # Use a dummy key since the default state init fn is just zeros.
-        return nn.GRUCell(hidden_size, parent=None).initialize_carry(
-            jax.random.PRNGKey(0), (*batch_size, hidden_size)
-        )
-
-
-class RNNQNetwork(nn.Module):
-    # homogenous agent for parameters sharing, assumes all agents have same obs and action dim
-    action_dim: int
-    hidden_dim: int
-    init_scale: float = 1.0
-
-    @nn.compact
-    def __call__(self, hidden, obs, dones):
-        embedding = nn.Dense(
-            self.hidden_dim,
-            kernel_init=orthogonal(self.init_scale),
-            bias_init=constant(0.0),
-        )(obs)
-        embedding = nn.relu(embedding)
-
-        rnn_in = (embedding, dones)
-        hidden, embedding = ScannedRNN()(hidden, rnn_in)
-
-        q_vals = nn.Dense(
-            self.action_dim,
-            kernel_init=orthogonal(self.init_scale),
-            bias_init=constant(0.0),
-        )(embedding)
-
-        return hidden, q_vals
 
 
 @chex.dataclass(frozen=True)
