@@ -170,7 +170,10 @@ class Zone:
 
     def act(self, objects, physics_params):
         return jax.lax.switch(
-            self.zone_type, [self.act_lava, self.act_bush], objects, physics_params
+            self.zone_type,
+            [self.act_lava, self.act_bush, self.act_nothing],
+            objects,
+            physics_params,
         )
 
     def is_in(self, objects):
@@ -207,6 +210,9 @@ class Zone:
         visible_matrix = jnp.logical_or(visible_matrix, attacker_in_bush.T)
         objects["game_manager"] = objects["game_manager"].replace(visible_matrix=visible_matrix)
 
+        return objects
+
+    def act_nothing(self, objects, physics_params):
         return objects
 
 
@@ -697,10 +703,6 @@ class TABS(BaseMAEnv):
 
     def reset(self, key, env_params):
         scenario = env_params["scenario"]
-        if "zone_scenario" in env_params:
-            zone_scenario = env_params["zone_scenario"]
-        else:
-            zone_scenario = None
         vectorized_scenario: VectorizedScenario = get_vectorized_scenario(
             scenario, self.max_n_ally, self.max_n_enemy
         )
@@ -740,13 +742,15 @@ class TABS(BaseMAEnv):
                 is_attacking=jnp.array([False]),
             )
 
-        if zone_scenario is not None:
-            for i, zone in enumerate(self.zone_keys):
-                state[zone] = Zone(
-                    zone_type=zone_scenario.zone_type[i],
-                    ellipse=Ellipse(position=zone_scenario.position[i], axes=zone_scenario.axes[i]),
-                    damage=zone_scenario.damage[i],
-                )
+        for i, zone in enumerate(self.zone_keys):
+            state[zone] = Zone(
+                zone_type=env_params["zone_scenario"].zone_type[i],
+                ellipse=Ellipse(
+                    position=env_params["zone_scenario"].position[i],
+                    axes=env_params["zone_scenario"].axes[i],
+                ),
+                damage=env_params["zone_scenario"].damage[i],
+            )
 
         state["game_manager"] = GameManager(
             attack_target=jnp.array([0]),
