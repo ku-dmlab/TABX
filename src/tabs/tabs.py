@@ -163,7 +163,7 @@ class DefaultUnit:
 
 @struct.dataclass
 class Zone:
-    zone_type: chex.Array  # The zone type, 0 for lava, 1 for bush
+    zone_type: chex.Array  # The zone type, 1 for lava, 2 for bush
     ellipse: Ellipse  # The parameter of ellipse
     damage: chex.Array  # The damage dealt by the lava zone
 
@@ -171,8 +171,8 @@ class Zone:
         return jax.lax.switch(
             self.zone_type,
             [self.act_nothing, self.act_lava, self.act_bush],
-            objects,
             physics_params,
+            kwargs,
         )
 
     def is_in(self, objects):
@@ -200,12 +200,22 @@ class Zone:
     def act_bush(self, objects, physics_params):
         # Hide if the unit is in the bush zone, but the unit become visible to the hit person.
         is_in = self.is_in(objects)
+        is_team = jnp.array(
+            [value.team for (key, value) in objects.items() if "unit" in key]
+        ).flatten()
 
-        # The unit in bush isn't observed.
-        visible_matrix = jnp.logical_and(
-            objects["game_manager"].visible_matrix,
-            jnp.logical_not(is_in[None, :]),
+        # A unit in a bush is not observable, but units on the same team can observe it.
+        # Note that we assume there is two team (0 and 1).
+        visible_mask_ally = jnp.logical_or(jnp.logical_not(is_in), jnp.logical_not(is_team))
+        visible_mask_enemy = jnp.logical_or(jnp.logical_not(is_in), is_team)
+        visible_matrix = jnp.where(
+            jnp.repeat(is_team.astype(jnp.bool), repeats=len(is_team)).reshape(
+                len(is_team), len(is_team)
+            ),
+            jnp.logical_and(objects["game_manager"].visible_matrix, visible_mask_enemy[None, :]),
+            jnp.logical_and(objects["game_manager"].visible_matrix, visible_mask_ally[None, :]),
         )
+
         # The attacker in bush can be observed.
         attack_in_bush = jnp.logical_and(is_in[:, None], objects["game_manager"].attack_matrix)
 
