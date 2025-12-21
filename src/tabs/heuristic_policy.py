@@ -1,9 +1,9 @@
+import chex
 import jax
 import jax.numpy as jnp
-import chex
 
-from src.tabs.tabs import UnitAction
 from src.tabs.config import TABSHeuristicConfig
+from src.tabs.tabs import UnitAction
 
 
 def angle_wrap_to_pi(x):

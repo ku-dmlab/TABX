@@ -1,12 +1,12 @@
 from typing import Callable
 from typing import Dict as Level
 
+import chex
 import jax
 import jax.numpy as jnp
-import chex
 
-from src.tabs.scenarios import Scenario
 from src.tabs.config import TABSHeuristicConfig
+from src.tabs.scenarios import Scenario
 
 FREE_PARAM_TYPES = {"unit_spec": 0, "heuristic_config": 1}
 

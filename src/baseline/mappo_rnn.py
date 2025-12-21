@@ -2,28 +2,50 @@
 Based on JaxMARL Implementation of MAPPO
 """
 
-import os
 from dataclasses import dataclass
 
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
-import tyro
 import jax
 import jax.numpy as jnp
-import optax
 import numpy as np
+import optax
+import tyro
 from flax.training.train_state import TrainState
-import wandb
 
+import wandb
+from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
+from src.baseline.utils import batchify, get_battle_metric, unbatchify
 from src.tabs import TABS
+from src.tabs.config import PhysicsParams, TABSConfig, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario
-from src.tabs.config import TABSConfig, PhysicsParams, TABSHeuristicConfig
-from src.tabs.wrappers import TABSEnemyHeuristicWrapper, TABSLogWrapper
-from src.baseline_linen.ued.level_generator import level_generator, FREE_PARAM_TYPES
-from src.baseline_linen.ued.wrappers import LevelAutoResetWrapper
-from src.baseline_linen.layers import ActorRNN, CriticRNN, ScannedRNN
-from src.baseline_linen.utils import batchify, unbatchify, get_battle_metric
 from src.tabs.utils import Transition
+from src.tabs.wrappers.wrappers import (
+    TABSAutoResetWrapper,
+    TABSEnemyHeuristicWrapper,
+    TABSLogWrapper,
+)
+
+
+@dataclass
+class Config:
+    LR: float = 0.004
+    NUM_ENVS: int = 128
+    NUM_STEPS: int = 128
+    GRU_HIDDEN_DIM: int = 128
+    FC_DIM_SIZE: int = 128
+    TOTAL_TIMESTEPS: int = 1e7
+    UPDATE_EPOCHS: int = 4
+    NUM_MINIBATCHES: int = 4
+    GAMMA: float = 0.99
+    GAE_LAMBDA: float = 0.95
+    CLIP_EPS: float = 0.05
+    SCALE_CLIP_EPS: bool = False
+    ENT_COEF: float = 0.01
+    VF_COEF: float = 0.5
+    MAX_GRAD_NORM: float = 0.25
+    ACTIVATION: str = "relu"
+    SEED: int = 0
+    ANNEAL_LR: bool = True
+    SENARIO: str = "2F1K2A1H_tight"
 
 
 def make_train(config):
@@ -37,8 +59,7 @@ def make_train(config):
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
-    sample_random_level = level_generator(FREE_PARAM_TYPES[config["FREE_PARAM_TYPE"]])
-    env = LevelAutoResetWrapper(env, sample_random_level)
+    env = TABSAutoResetWrapper(env)
 
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
@@ -120,8 +141,6 @@ def make_train(config):
             "physics_params": PhysicsParams(),
             "heuristic_params": TABSHeuristicConfig(),
         }
-        env_params = sample_random_level(env_params, _rng)
-
         env_params = jax.tree.map(
             lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0), env_params
         )
@@ -389,10 +408,8 @@ def make_train(config):
             loss_info = jax.tree.map(lambda x: x.mean(), loss_info)
 
             train_states = update_state[0]
-            metric = loss_info
+            metric = loss_info | get_battle_metric(env, env_state)
             rng = update_state[-1]
-
-            metric |= get_battle_metric(env, env_state)
 
             def callback(metric):
                 wandb.log(metric)
@@ -419,32 +436,8 @@ def make_train(config):
     return train
 
 
-@dataclass
-class Config:
-    LR: float = 0.004
-    NUM_ENVS: int = 128
-    NUM_STEPS: int = 128
-    GRU_HIDDEN_DIM: int = 128
-    FC_DIM_SIZE: int = 128
-    TOTAL_TIMESTEPS: int = 1e7
-    UPDATE_EPOCHS: int = 4
-    NUM_MINIBATCHES: int = 4
-    GAMMA: float = 0.99
-    GAE_LAMBDA: float = 0.95
-    CLIP_EPS: float = 0.05
-    SCALE_CLIP_EPS: bool = False
-    ENT_COEF: float = 0.01
-    VF_COEF: float = 0.5
-    MAX_GRAD_NORM: float = 0.25
-    ACTIVATION: str = "relu"
-    SEED: int = 0
-    ANNEAL_LR: bool = True
-    SENARIO: str = "2F1K2A1H_tight"
-    FREE_PARAM_TYPE: str = "unit_spec"
-
-
 if __name__ == "__main__":
     config = tyro.cli(Config)
-    wandb.init(project="dr_mappo_rnn", mode="online")
+    wandb.init(project="mappo_rnn", mode="online", config=config)
     train = make_train(config.__dict__)
     result = train(jax.random.key(0))

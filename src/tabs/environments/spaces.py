@@ -1,7 +1,7 @@
 """Built off JAXMARL spaces.py, this module contains jittable classes for action and observation spaces."""
 
-from typing import Tuple, Union, Sequence
 from collections import OrderedDict
+from typing import Sequence, Tuple, Union
 
 import chex
 import jax

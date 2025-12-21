@@ -1,12 +1,13 @@
-from dataclasses import dataclass, replace
-from tqdm import tqdm
-import json
-import tyro
-import wandb
 import hashlib
-import numpy as np
+import json
+from dataclasses import dataclass, replace
 
+import numpy as np
+import tyro
 from src.baseline.configs.config import PQNConfig
+from tqdm import tqdm
+
+import wandb
 from src.tabs.config import TABSConfig
 from src.tabs.constants import ALL_UNIT_NAMES
 
@@ -34,19 +35,19 @@ if __name__ == "__main__":
 
     os.environ["CUDA_VISIBLE_DEVICES"] = str(config.gpu_id)
 
+    import datetime
+
     import jax
     import jax.numpy as jnp
-
     from src.baseline.algorithm import PQN
+
+    from src.baseline.utils import dataclass_to_dict, get_abs_path
+    from src.tabs import TABSBattleSimulator, TABSUnitComb, TABSUnitDeploy
+    from src.tabs.scenarios import TABSConfig, generate_scenario, pprint_grid_with_units
     from src.tabs.wrappers import (
         TABSBattleSimulatorHeuristicWrapper,
         TABSBattleSimulatorLogWrapper,
     )
-    from src.tabs import TABSUnitComb, TABSUnitDeploy, TABSBattleSimulator
-    from src.tabs.scenarios import generate_scenario, TABSConfig
-    from src.tabs.scenarios import pprint_grid_with_units
-    from src.baseline.utils import get_abs_path, dataclass_to_dict
-    import datetime
 
     # Create a hash of the config for unique folder naming
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

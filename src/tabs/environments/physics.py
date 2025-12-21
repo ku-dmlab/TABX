@@ -1,6 +1,7 @@
-import jax.numpy as jnp
 from collections import namedtuple
+
 import jax
+import jax.numpy as jnp
 
 
 class Transform(namedtuple("Transform", ["position", "rotation"])):

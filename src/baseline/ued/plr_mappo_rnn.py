@@ -8,34 +8,34 @@ from enum import IntEnum
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-import tyro
+import chex
 import jax
 import jax.numpy as jnp
-import chex
-import optax
 import numpy as np
+import optax
+import tyro
 from flax import core, struct
 from flax.training.train_state import TrainState
-import wandb
 
-from src.tabs import TABS
-from src.tabs.scenarios import generate_scenario
-from src.tabs.config import TABSConfig, PhysicsParams, TABSHeuristicConfig
-from src.tabs.wrappers.wrappers import (
-    TABSEnemyHeuristicWrapper,
-    TABSAutoResetWrapper,
-    TABSLogWrapper,
-)
-from src.baseline_linen.layers import ActorRNN, CriticRNN, ScannedRNN
-from src.baseline_linen.ued.level_sampler import LevelSampler
-from src.baseline_linen.ued.level_generator import (
+import wandb
+from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
+from src.baseline.ued.level_generator import (
+    FREE_PARAM_TYPES,
     level_generator,
     mutate_level_generator,
-    FREE_PARAM_TYPES,
 )
-from src.baseline_linen.ued.scores import compute_max_returns, max_mc, positive_value_loss
+from src.baseline.ued.level_sampler import LevelSampler
+from src.baseline.ued.scores import compute_max_returns, max_mc, positive_value_loss
+from src.baseline.utils import batchify, get_battle_metric, unbatchify
+from src.tabs import TABS
+from src.tabs.config import PhysicsParams, TABSConfig, TABSHeuristicConfig
+from src.tabs.scenarios import generate_scenario
 from src.tabs.utils import Transition
-from src.baseline_linen.utils import batchify, unbatchify, get_battle_metric
+from src.tabs.wrappers.wrappers import (
+    TABSAutoResetWrapper,
+    TABSEnemyHeuristicWrapper,
+    TABSLogWrapper,
+)
 
 
 class UpdateState(IntEnum):

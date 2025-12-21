@@ -4,7 +4,7 @@ import chex
 import jax.numpy as jnp
 from flax import struct
 
-from src.tabs.constants import ALL_UNIT_NAMES, UnitID, SIGHT_ANGLE
+from src.tabs.constants import ALL_UNIT_NAMES, SIGHT_ANGLE, UnitID
 
 
 @struct.dataclass

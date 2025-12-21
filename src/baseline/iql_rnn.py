@@ -1,103 +1,27 @@
+"""
+Based on JaxMARL Implementation of IQL
+"""
+
+from dataclasses import dataclass
+
+import flashbax as fbx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from functools import partial
-from typing import Any
-import chex
 import optax
-import flax.linen as nn
-from flax.linen.initializers import constant, orthogonal
-from flax.training.train_state import TrainState
-import flashbax as fbx
+import tyro
+
 import wandb
-from src.baseline_linen.utils import get_battle_metric
-from src.tabs.tabs import (
-    TABS,
-    TABSConfig,
-)
-from src.tabs.config import PhysicsParams
+from src.baseline.layers import RNNQNetwork, ScannedRNN
+from src.baseline.utils import CustomTrainState, Timestep, get_battle_metric
+from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario
-from src.tabs.config import TABSHeuristicConfig
+from src.tabs.tabs import TABS, TABSConfig
 from src.tabs.wrappers.wrappers import (
-    TABSEnemyHeuristicWrapper,
     TABSAutoResetWrapper,
+    TABSEnemyHeuristicWrapper,
     TABSLogWrapper,
 )
-import tyro
-from dataclasses import dataclass
-
-
-class ScannedRNN(nn.Module):
-    @partial(
-        nn.scan,
-        variable_broadcast="params",
-        in_axes=0,
-        out_axes=0,
-        split_rngs={"params": False},
-    )
-    @nn.compact
-    def __call__(self, carry, x):
-        """Applies the module."""
-        rnn_state = carry
-        ins, resets = x
-        hidden_size = ins.shape[-1]
-        rnn_state = jnp.where(
-            resets[:, np.newaxis],
-            self.initialize_carry(hidden_size, *ins.shape[:-1]),
-            rnn_state,
-        )
-        new_rnn_state, y = nn.GRUCell(hidden_size)(rnn_state, ins)
-        return new_rnn_state, y
-
-    @staticmethod
-    def initialize_carry(hidden_size, *batch_size):
-        # Use a dummy key since the default state init fn is just zeros.
-        return nn.GRUCell(hidden_size, parent=None).initialize_carry(
-            jax.random.PRNGKey(0), (*batch_size, hidden_size)
-        )
-
-
-class RNNQNetwork(nn.Module):
-    # homogenous agent for parameters sharing, assumes all agents have same obs and action dim
-    action_dim: int
-    hidden_dim: int
-    init_scale: float = 1.0
-
-    @nn.compact
-    def __call__(self, hidden, obs, dones):
-        embedding = nn.Dense(
-            self.hidden_dim,
-            kernel_init=orthogonal(self.init_scale),
-            bias_init=constant(0.0),
-        )(obs)
-        embedding = nn.relu(embedding)
-
-        rnn_in = (embedding, dones)
-        hidden, embedding = ScannedRNN()(hidden, rnn_in)
-
-        q_vals = nn.Dense(
-            self.action_dim,
-            kernel_init=orthogonal(self.init_scale),
-            bias_init=constant(0.0),
-        )(embedding)
-
-        return hidden, q_vals
-
-
-@chex.dataclass(frozen=True)
-class Timestep:
-    obs: dict
-    actions: dict
-    rewards: dict
-    dones: dict
-    avail_actions: dict
-
-
-class CustomTrainState(TrainState):
-    target_network_params: Any
-    timesteps: int = 0
-    n_updates: int = 0
-    grad_steps: int = 0
 
 
 @dataclass
@@ -108,9 +32,6 @@ class Config:
     BUFFER_SIZE: int = 5000
     BUFFER_BATCH_SIZE: int = 32
     HIDDEN_SIZE: int = 512
-    MIXER_EMBEDDING_DIM: int = 64
-    MIXER_HYPERNET_HIDDEN_DIM: int = 256
-    MIXER_INIT_SCALE: float = 0.001
     EPS_START: float = 1.0
     EPS_FINISH: float = 0.05
     EPS_DECAY: float = 0.1  # percentage of updates
@@ -367,7 +288,7 @@ def make_train(config, env, env_params, test_env_params):
                 _obs = batchify(minibatch.obs)
                 _dones = batchify(minibatch.dones)
                 _actions = batchify(minibatch.actions)
-                # _rewards = batchify(minibatch.rewards)
+                _rewards = batchify(minibatch.rewards)
                 _avail_actions = batchify(minibatch.avail_actions)
 
                 _, q_next_target = jax.vmap(network.apply, in_axes=(None, 0, 0, 0))(
@@ -402,17 +323,12 @@ def make_train(config, env, env_params, test_env_params):
                         axis=-1,
                     ).squeeze(-1)  # (num_agents, timesteps, batch_size,)
 
-                    vdn_target = (
-                        minibatch.rewards["__all__"][:-1]
-                        + (
-                            1 - minibatch.dones["__all__"][:-1]
-                        )  # use next done because last done was saved for rnn re-init
-                        * config["GAMMA"]
-                        * jnp.sum(q_next, axis=0)[1:]  # sum over agents
+                    target = (
+                        _rewards[:, :-1] + (1 - _dones[:, :-1]) * config["GAMMA"] * q_next[:, 1:]
                     )
 
-                    chosen_action_q_vals = jnp.sum(chosen_action_q_vals, axis=0)[:-1]
-                    loss = jnp.mean((chosen_action_q_vals - jax.lax.stop_gradient(vdn_target)) ** 2)
+                    chosen_action_q_vals = chosen_action_q_vals[:, :-1]
+                    loss = jnp.mean((chosen_action_q_vals - jax.lax.stop_gradient(target)) ** 2)
 
                     return loss, chosen_action_q_vals.mean()
 
@@ -460,7 +376,6 @@ def make_train(config, env, env_params, test_env_params):
             )
 
             # UPDATE METRICS
-            print(type(env))
             train_state = train_state.replace(n_updates=train_state.n_updates + 1)
             metrics = {
                 "env_step": train_state.timesteps,
@@ -471,6 +386,7 @@ def make_train(config, env, env_params, test_env_params):
             }
             metrics.update(get_battle_metric(env, last_state))
 
+            # update the test metrics
             if config.get("TEST_DURING_TRAINING", True):
                 rng, _rng = jax.random.split(rng)
                 test_state = jax.lax.cond(
@@ -482,7 +398,6 @@ def make_train(config, env, env_params, test_env_params):
                 )
                 metrics.update({"test_" + k: v for k, v in test_state.items()})
 
-            # report on wandb if required
             def callback(metrics):
                 wandb.log(metrics)
 
@@ -567,7 +482,7 @@ def make_train(config, env, env_params, test_env_params):
 
 def main(config):
     config = Config().__dict__
-    wandb.init(project="vdn_rnn", mode="online", config=config)
+    wandb.init(project="iql_rnn", mode="online", config=config)
     tabs_config = TABSConfig(scenario_name=config["SCENARIO"])
     scenario = generate_scenario(tabs_config)
     tabs_config = TABSConfig(

@@ -2,11 +2,11 @@ import jax
 import jax.numpy as jnp
 
 from src.tabs import TABS
+from src.tabs.config import PhysicsParams, TABSConfig, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario
-from src.tabs.config import TABSConfig, PhysicsParams, TABSHeuristicConfig
 from src.tabs.wrappers.wrappers import (
-    TABSEnemyHeuristicWrapper,
     TABSAutoResetWrapper,
+    TABSEnemyHeuristicWrapper,
     TABSLogWrapper,
 )
 
