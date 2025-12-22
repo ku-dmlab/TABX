@@ -14,8 +14,6 @@ from src.tabs.units import get_all_unit_spec
 
 @struct.dataclass
 class VectorizedScenario:
-    n_ally: chex.Array
-    n_enemy: chex.Array
     positions: chex.Array
     rotations: chex.Array
     body_weights: chex.Array
@@ -96,18 +94,19 @@ def get_scenario_list():
     return name_list
 
 
-def generate_scenario(cfg: TABSConfig) -> Tuple[VectorizedScenario, ZoneScenario]:
-    max_shape = (cfg.max_field_height, cfg.max_field_width)
+def generate_scenario_config(
+    scenario_name: str,
+) -> Tuple[VectorizedScenario, ZoneScenario, TABSConfig]:
+    tabs_config = TABSConfig(scenario_name=scenario_name)
+    h, w = tabs_config.max_field_height, tabs_config.max_field_width
+    n_zone = tabs_config.max_n_zone
 
-    n_zone = cfg.max_n_zone
-    h, w = 4, 5
-
-    battle_field = jnp.zeros(max_shape, dtype=jnp.float32)
+    battle_field = jnp.zeros((h, w), dtype=jnp.float32)
     enemy_battle_field = jnp.zeros_like(battle_field)
 
     all_spec = get_all_unit_spec()
-    assert len(all_spec["healths"]) <= cfg.max_num_units
-    m = cfg.max_num_units - len(all_spec["healths"])
+    assert len(all_spec["healths"]) <= tabs_config.max_num_units
+    m = tabs_config.max_num_units - len(all_spec["healths"])
     if m > 0:
         unit_comp_mask = unit_comp_mask.at[-m:].set(0)
 
@@ -126,9 +125,9 @@ def generate_scenario(cfg: TABSConfig) -> Tuple[VectorizedScenario, ZoneScenario
     axes = jnp.zeros((n_zone, 2))
     damage = jnp.zeros((n_zone, 1))
 
-    scenario_name = cfg.scenario_name.split("_")[0]
-    if "_" in cfg.scenario_name:
-        zone_scenario_name = cfg.scenario_name.split("_")[1]
+    scenario_name = tabs_config.scenario_name.split("_")[0]
+    if "_" in tabs_config.scenario_name:
+        zone_scenario_name = tabs_config.scenario_name.split("_")[1]
     else:
         zone_scenario_name = "void"
 
@@ -216,10 +215,10 @@ def generate_scenario(cfg: TABSConfig) -> Tuple[VectorizedScenario, ZoneScenario
     enemy_battle_field = enemy_battle_field.at[:h, :w].set(_enemy_battle_field)
 
     ally_unit_comp = jax.vmap(lambda x: (battle_field == (x + 1)).sum())(
-        jnp.arange(cfg.max_num_units)
+        jnp.arange(tabs_config.max_num_units)
     )
     enemy_unit_comp = jax.vmap(lambda x: (enemy_battle_field == (x + 1)).sum())(
-        jnp.arange(cfg.max_num_units)
+        jnp.arange(tabs_config.max_num_units)
     )
 
     scenario: Scenario = Scenario(
@@ -257,7 +256,15 @@ def generate_scenario(cfg: TABSConfig) -> Tuple[VectorizedScenario, ZoneScenario
         damage=damage,
     )
 
-    return vscenario, zone_scenario
+    # TABS Configuration
+    tabs_config = TABSConfig(
+        scenario_name=scenario_name,
+        max_n_ally=int(ally_unit_comp.sum().item()),
+        max_n_enemy=int(enemy_unit_comp.sum().item()),
+        max_n_zone=int(zone_scenario.n_zone.item()),
+    )
+
+    return vscenario, zone_scenario, tabs_config
 
 
 def get_vectorized_scenario(
@@ -281,8 +288,6 @@ def get_vectorized_scenario(
     )
 
     vectorized_scenario = VectorizedScenario(
-        n_ally=n_ally,
-        n_enemy=n_enemy,
         positions=jnp.zeros((n_ally + n_enemy, 2)),
         rotations=jnp.zeros((n_ally + n_enemy, 1)),
         body_weights=jnp.full((n_ally + n_enemy, 1), 1.0),
