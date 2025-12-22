@@ -171,6 +171,7 @@ class Zone:
         return jax.lax.switch(
             self.zone_type,
             [self.act_nothing, self.act_lava, self.act_bush],
+            objects,
             physics_params,
         )
 
