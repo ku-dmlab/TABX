@@ -169,7 +169,7 @@ class Zone:
 
     def act(self, objects, physics_params):
         return jax.lax.switch(
-            self.zone_type,
+            self.zone_type.reshape(),
             [self.act_nothing, self.act_lava, self.act_bush],
             objects,
             physics_params,
@@ -447,7 +447,7 @@ class TABS(BaseMAEnv):
 
         self.empty_state["zone"] = {
             name: Zone(
-                zone_type=jnp.array([0.0]),
+                zone_type=jnp.array([0]),
                 ellipse=Ellipse(position=jnp.array([0.0, 0.0]), axes=jnp.array([1.0, 1.0])),
                 damage=jnp.array([0.0]),
             )
@@ -704,41 +704,38 @@ class TABS(BaseMAEnv):
         return observations
 
     def reset(self, key, env_params):
-        scenario = env_params["scenario"]
-        vectorized_scenario: VectorizedScenario = get_vectorized_scenario(
-            scenario, self.max_n_ally, self.max_n_enemy
-        )
+        vscenario: VectorizedScenario = env_params["scenario"]
 
         state = {}
         for i, unit in enumerate(self.unit_keys):
             state[unit] = DefaultUnit(
                 transform=Transform(
-                    position=vectorized_scenario.positions[i],
-                    rotation=vectorized_scenario.rotations[i],
+                    position=vscenario.positions[i],
+                    rotation=vscenario.rotations[i],
                 ),
                 rigidbody=RigidBody(
-                    mass=vectorized_scenario.body_weights[i],
+                    mass=vscenario.body_weights[i],
                     velocity=jnp.array([0.0, 0.0]),
                     acceleration=jnp.array([0.0, 0.0]),
                     is_kinematic=jnp.array([False]),
                 ),
-                collider=CircleCollider(radius=vectorized_scenario.body_radiuss[i]),
-                team=vectorized_scenario.teams[i],
-                pos_min=vectorized_scenario.pos_min[i],
-                pos_max=vectorized_scenario.pos_max[i],
+                collider=CircleCollider(radius=vscenario.body_radiuss[i]),
+                team=vscenario.teams[i],
+                pos_min=vscenario.pos_min[i],
+                pos_max=vscenario.pos_max[i],
                 status=self.empty_state[unit].status.replace(
-                    unit_id=vectorized_scenario.unit_ids[i],
-                    health=vectorized_scenario.healths[i],
-                    attack_damage=vectorized_scenario.attack_damages[i],
-                    attack_range=vectorized_scenario.attack_ranges[i],
-                    attack_cooldown=vectorized_scenario.attack_cooldowns[i],
-                    cooldown=vectorized_scenario.attack_cooldowns[i] * 0.0,
-                    sight_angle=vectorized_scenario.sight_angles[i],
-                    is_alive=vectorized_scenario.is_alive[i],
-                    is_disabled=vectorized_scenario.is_disabled[i],
-                    attack_type=vectorized_scenario.attack_types[i],
-                    max_health=vectorized_scenario.healths[i],
-                    speed=vectorized_scenario.speeds[i],
+                    unit_id=vscenario.unit_ids[i],
+                    health=vscenario.healths[i],
+                    attack_damage=vscenario.attack_damages[i],
+                    attack_range=vscenario.attack_ranges[i],
+                    attack_cooldown=vscenario.attack_cooldowns[i],
+                    cooldown=vscenario.attack_cooldowns[i] * 0.0,
+                    sight_angle=vscenario.sight_angles[i],
+                    is_alive=vscenario.is_alive[i],
+                    is_disabled=vscenario.is_disabled[i],
+                    attack_type=vscenario.attack_types[i],
+                    max_health=vscenario.healths[i],
+                    speed=vscenario.speeds[i],
                 ),
                 damage_dealt=jnp.array([0.0]),
                 is_attacking=jnp.array([False]),

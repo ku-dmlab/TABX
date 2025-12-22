@@ -13,14 +13,14 @@ from src.tabs.wrappers.wrappers import (
 if __name__ == "__main__":
     n_envs = 5
     num_steps = 10
-    scenario_name = "2F1K2A1H_tight"
+    scenario_name = "2F1K2A1H"
 
     tabs_config = TABSConfig(scenario_name=scenario_name)
-    scenario = generate_scenario(tabs_config)
+    vscenario, zone_scenario = generate_scenario(tabs_config)
     tabs_config = TABSConfig(
-        scenario_name=scenario_name,
-        max_n_ally=int(scenario.ally_unit_comp.sum().item()),
-        max_n_enemy=int(scenario.enemy_unit_comp.sum().item()),
+        max_n_ally=int(vscenario.n_ally.item()),
+        max_n_enemy=int(vscenario.n_enemy.item()),
+        max_n_zone=int(zone_scenario.n_zone.item()),
     )
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
@@ -34,7 +34,8 @@ if __name__ == "__main__":
     rng, _rng = jax.random.split(rng)
 
     env_params = {
-        "scenario": scenario,
+        "scenario": vscenario,
+        "zone_scenario": zone_scenario,
         "physics_params": PhysicsParams(),
         "heuristic_params": TABSHeuristicConfig(),
     }
