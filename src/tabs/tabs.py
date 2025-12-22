@@ -172,7 +172,6 @@ class Zone:
             self.zone_type,
             [self.act_nothing, self.act_lava, self.act_bush],
             physics_params,
-            kwargs,
         )
 
     def is_in(self, objects):
