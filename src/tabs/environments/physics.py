@@ -1,11 +1,17 @@
-import jax.numpy as jnp
 from collections import namedtuple
+
 import jax
+import jax.numpy as jnp
 
 
 class Transform(namedtuple("Transform", ["position", "rotation"])):
     position: jnp.array
     rotation: jnp.array
+
+
+class Ellipse(namedtuple("Ellipse", ["position", "axes"])):
+    position: jnp.array
+    axes: jnp.array
 
 
 class RigidBody(namedtuple("RigidBody", ["mass", "velocity", "acceleration", "is_kinematic"])):

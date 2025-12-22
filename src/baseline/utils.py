@@ -1,98 +1,117 @@
-import os
+from typing import Any
 
 import chex
 import jax
 import jax.numpy as jnp
-from flax import struct, nnx
-from dataclasses import asdict, is_dataclass
+from flax.training.train_state import TrainState
 
-
-def dataclass_to_dict(obj):
-    """Convert dataclass object to a complete dictionary, filtering private attributes."""
-
-    def _convert(item):
-        if is_dataclass(item):
-            return _convert(asdict(item))
-        elif isinstance(item, dict):
-            return {k: _convert(v) for k, v in item.items()}
-        elif isinstance(item, (list, tuple)):
-            return [_convert(element) for element in item]
-        else:
-            return item
-
-    result = _convert(obj)
-    # Filter out private attributes (starting with _)
-    if isinstance(result, dict):
-        return {k: v for k, v in result.items() if not k.startswith("_")}
-    return result
-
-
-def get_abs_path(path):
-    if not os.path.isdir(path):
-        path = os.path.join(os.getcwd(), path)
-    return path
-
-
-@struct.dataclass
-class NetworkState:
-    graphdef: nnx.GraphDef
-    state: nnx.State
-
-
-@struct.dataclass
-class TrainState:
-    policy_state: NetworkState
-    critic_state: NetworkState
-    key: jax.random.PRNGKey
+from src.tabs.constants import ALL_UNIT_NAMES
+from src.tabs.tabs import TABS
 
 
 @chex.dataclass(frozen=True)
-class TimeStep:
-    obs: chex.Array
-    action: chex.Array
-    reward: chex.Array
-    done: chex.Array
-    next_obs: chex.Array
-    unavail_action: chex.Array
+class Timestep:
+    obs: dict
+    actions: dict
+    rewards: dict
+    dones: dict
+    avail_actions: dict
 
 
-def rnn_result(model, init_shape, feature, done):
-    def rnn_scan_body(carry, xs):
-        (hidden_state,) = carry
-        feature, done = xs
-        model_output = model(hidden_state, feature)
-        next_hidden_state = model_output[0]
-        output = model_output[1:]
-        return (next_hidden_state * ~done,), output
-
-    _, output = jax.lax.scan(rnn_scan_body, (jnp.zeros(init_shape),), (feature, done))
-
-    return output
+class CustomTrainState(TrainState):
+    target_network_params: Any
+    timesteps: int = 0
+    n_updates: int = 0
+    grad_steps: int = 0
 
 
-def get_gae(common_reward, done, values, last_value, gamma, lamda):
-    def calculate_gae(carry, xs):
-        last_gae, v_t1, returns = carry
-        reward, done, v = xs
-        delta = reward + gamma * v_t1 * (1 - done) - v
-        last_gae = delta + gamma * lamda * last_gae * (1 - done)
-        returns = reward + gamma * returns * (1 - done)
-        return (last_gae, v, returns), (
-            last_gae,
-            returns,
-        )
+def batchify(x: dict, agent_list, num_actors):
+    x = jnp.stack([x[a] for a in agent_list])
+    return x.reshape((num_actors, -1))
 
-    _, outputs = jax.lax.scan(
-        calculate_gae,
-        (jnp.array([0.0]), last_value, jnp.array([0.0])),
-        (common_reward, done, values),
-        reverse=True,
-        unroll=16,
+
+def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
+    x = x.reshape((num_actors, num_envs, -1))
+    return {a: x[i] for i, a in enumerate(agent_list)}
+
+
+def get_battle_metric(env: TABS, last_state):
+    log_state = last_state["log_state"]
+    n_env = last_state["log_state"].returned_episode_returns.shape[0]
+
+    battle_metric = {
+        "returned_cumulative_is_attackings": log_state.returned_cumulative_is_attackings,
+        "returned_cumulative_damage_dealts": log_state.returned_cumulative_damage_dealts,
+        "returned_cumulative_attack_success": log_state.returned_cumulative_attack_success,
+    }
+
+    ally_is_disabled = []
+
+    def get_is_disabled(state):
+        return jnp.stack([state["state"][unit].status.is_disabled for unit in env.ally_keys])
+
+    def get_unit_ids(state):
+        return jnp.stack([state["state"][unit].status.unit_id for unit in env.ally_keys])
+
+    ally_battle_metric = jax.tree.map(lambda x: x[:, : env.max_n_ally], battle_metric)
+    ally_is_disabled = jax.vmap(get_is_disabled)(last_state)
+    ally_unit_ids = jax.vmap(get_unit_ids)(last_state)
+
+    def unit_condition_sum(target_unit_id, unit_ids, is_disabled, values):
+        return (
+            (unit_ids == target_unit_id) * (1 - is_disabled) * values.reshape(is_disabled.shape)
+        ).sum()
+
+    unit_battle_metric = jax.tree.map(
+        lambda x: jax.vmap(unit_condition_sum, in_axes=(0, None, None, None))(
+            jnp.arange(env.max_n_ally + env.max_n_enemy), ally_unit_ids, ally_is_disabled, x
+        ),
+        ally_battle_metric,
     )
-    gae, _ = outputs
-    return gae, gae + values
 
+    unit_counts = jax.vmap(unit_condition_sum, in_axes=(0, None, None, None))(
+        jnp.arange(env.max_n_ally + env.max_n_enemy),
+        ally_unit_ids,
+        ally_is_disabled,
+        jnp.ones_like(ally_is_disabled),
+    )
 
-def get_model(state: NetworkState):
-    network, optimizer = nnx.merge(state.graphdef, state.state)
-    return network, optimizer
+    unit_battle_metric["attack_success_rate"] = (
+        unit_battle_metric["returned_cumulative_attack_success"]
+        / unit_battle_metric["returned_cumulative_is_attackings"]
+    )
+
+    unit_specific_metric = {}
+    for key, value in unit_battle_metric.items():
+        for i, name in enumerate(ALL_UNIT_NAMES):
+            unit_specific_metric[f"{key}/{name}"] = value[i] / (
+                unit_counts[i] if key != "attack_success_rate" else 1
+            )
+
+    team_fight_metric = {
+        "cumulative_is_attackings": unit_battle_metric["returned_cumulative_is_attackings"].sum()
+        / n_env,
+        "cumulative_damage_dealts": jnp.nansum(
+            unit_battle_metric["returned_cumulative_damage_dealts"]
+            * (unit_battle_metric["returned_cumulative_damage_dealts"] > 0)
+        )
+        / n_env,
+        "cumulative_heal_amount": jnp.nansum(
+            unit_battle_metric["returned_cumulative_damage_dealts"]
+            * (unit_battle_metric["returned_cumulative_damage_dealts"] < 0)
+        )
+        / n_env,
+        "attack_success_rate": jnp.nansum(unit_battle_metric["returned_cumulative_attack_success"])
+        / jnp.nansum(unit_battle_metric["returned_cumulative_is_attackings"]),
+        "first_kill_rate": log_state.returned_first_kills[:, 0].mean(),
+    }
+
+    return (
+        unit_specific_metric
+        | team_fight_metric
+        | {
+            "episode_returns": log_state.returned_episode_returns[:, 0].mean(),
+            "episode_lengths": log_state.returned_episode_lengths[:, 0].mean(),
+            "episode_wins": log_state.returned_episode_wins[:, 0].mean(),
+        }
+    )

@@ -1,9 +1,9 @@
+import chex
 import jax
 import jax.numpy as jnp
-import chex
 
-from src.tabs.tabs_battle_simulator.tabs_battle_simulator import UnitAction
 from src.tabs.config import TABSHeuristicConfig
+from src.tabs.tabs import UnitAction
 
 
 def angle_wrap_to_pi(x):
@@ -190,19 +190,7 @@ def heuristic_policy(
     positive_direction = jnp.where(
         kiting, ~positive_direction, positive_direction
     )  # If kiting, the unit is not moving in the positive direction to distance from the aggressive target
-    move_action = jnp.where(
-        exist_visible_target,
-        UnitAction.RIGHT * (x_axis & positive_direction)
-        + UnitAction.LEFT * (x_axis & ~positive_direction)
-        + UnitAction.UP * (~x_axis & positive_direction)
-        + UnitAction.DOWN * (~x_axis & ~positive_direction),
-        UnitAction.IDLE,
-    )
-    discrete_action = jnp.where(
-        exist_attackable_target & jnp.logical_not(own_is_on_cooldown),
-        UnitAction.ATTACK,
-        move_action,
-    )  # If there exists attackable target and not on cooldown, attack, otherwise move
+
     discrete_key, rotate_key, noise_key = jax.random.split(key, 3)
     rotate_action = angle_wrap_to_pi(
         jnp.where(
@@ -216,12 +204,43 @@ def heuristic_policy(
             ),
             jnp.pi * 0.1,
         )
-    )  # If there exists visible target, rotate to the target, otherwise rotate 0.1pi to find target
-    random_discrete_action = jax.random.choice(
-        discrete_key, jnp.array([UnitAction.UP, UnitAction.DOWN, UnitAction.LEFT, UnitAction.RIGHT])
     )
-    random_rotate_action = jax.random.normal(rotate_key) / jnp.pi
-    random_actions = jnp.stack([random_rotate_action, random_discrete_action])
-    actions = jnp.stack([rotate_action, discrete_action])
+    rotate_action = jnp.where(rotate_action > 0, UnitAction.TURN_RIGHT, UnitAction.TURN_LEFT)
+    # If there exists visible target, rotate to the target, otherwise rotate 0.1pi to find target
+    move_action = jnp.where(
+        exist_visible_target,
+        UnitAction.RIGHT * (x_axis & positive_direction)
+        + UnitAction.LEFT * (x_axis & ~positive_direction)
+        + UnitAction.UP * (~x_axis & positive_direction)
+        + UnitAction.DOWN * (~x_axis & ~positive_direction),
+        rotate_action,
+    )
+
+    discrete_action = jnp.where(
+        exist_attackable_target & jnp.logical_not(own_is_on_cooldown),
+        UnitAction.ATTACK,
+        move_action,
+    )  # If there exists attackable target and not on cooldown, attack, otherwise move
+
+    random_discrete_action = jax.random.choice(
+        discrete_key,
+        jnp.array(
+            [
+                UnitAction.UP,
+                UnitAction.DOWN,
+                UnitAction.LEFT,
+                UnitAction.RIGHT,
+                UnitAction.TURN_LEFT,
+                UnitAction.TURN_RIGHT,
+            ]
+        ),
+    )
+
+    # Priority
+    # 1. If attackable target exists, attack
+    # 2. If there exists aggressive target, move away from the target
+    # 3. If there exists visible target, rotate to the target
+    # 4. If there exists no target, turn left to find target
+
     is_random = jax.random.bernoulli(key, heuristic_config.epsilon)
-    return actions * ~is_random + random_actions * is_random
+    return (discrete_action * ~is_random + random_discrete_action * is_random).astype(jnp.int32)

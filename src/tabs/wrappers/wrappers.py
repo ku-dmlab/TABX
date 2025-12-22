@@ -1,40 +1,104 @@
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 import chex
 import jax
 import jax.numpy as jnp
 from flax import struct
 
-from src.tabs.scenarios import Scenario
-from src.tabs import TABSBattleSimulator
-from src.tabs.tabs_battle_simulator.heuristic_policy import heuristic_policy
+from src.tabs import TABS
 from src.tabs.config import TABSHeuristicConfig
+from src.tabs.heuristic_policy import heuristic_policy
+from src.tabs.scenarios import Scenario
 
 
-class TABSBattleSimulatorWrapper:
+class BaseWrapper:
     def __getattr__(self, name: str):
         return getattr(self.env, name)
 
-    def __init__(self, env: TABSBattleSimulator):
+    def __init__(self, env: TABS):
         self.env = env
 
 
-class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
+class TABSEnemyHeuristicWrapper(BaseWrapper):
+    def __init__(
+        self,
+        env: TABS,
+    ):
+        super().__init__(env)
+
+        self.action_spaces = {
+            agent: action_space_
+            for (agent, action_space_) in self.env.action_spaces.items()
+            if agent in self.env.ally_keys
+        }
+
+        self.observation_spaces = {
+            agent: observation_space
+            for (agent, observation_space) in self.env.observation_spaces.items()
+            if agent in self.env.ally_keys
+        }
+
+        self.agents = self.env.ally_keys
+        self.num_agents = len(self.agents)
+
+    def filter_obs(self, obs):
+        target_obs = {}
+        for obs_key in obs.keys():
+            if obs_key in self.env.enemy_keys:
+                continue
+            target_obs[obs_key] = obs[obs_key]
+        return target_obs
+
+    def reset(self, key, env_params: Dict[str, Any]):
+        if "heuristic_params" not in env_params:
+            raise ValueError("The heuristic_params is not in env_params.")
+        obs, state = self.env.reset(key, env_params)
+        target_obs = self.filter_obs(obs)
+        return target_obs, state | {"heuristic_params": env_params["heuristic_params"]}
+
+    def step(self, key, state, action):
+        obs = self.env.get_obs(state["state"])
+        # Add enemy actions based on heuristic policy
+        for unit in self.env.enemy_keys:
+            heuristic_key, key = jax.random.split(key)
+            action[unit] = heuristic_policy(
+                heuristic_key,
+                obs[unit],
+                self.env.num_agents,
+                state["heuristic_params"],
+            )
+        obs, next_state, reward, done, info = self.env.step(key, state, action)
+        target_obs = self.filter_obs(obs)
+        done = self.filter_obs(done) | {"__all__": done["__all__"]}
+        rewards = {agent: reward[0] for agent in self.agents}
+        rewards["__all__"] = reward[0]
+
+        return (
+            target_obs,
+            next_state | {"heuristic_params": state["heuristic_params"]},
+            rewards,
+            done,
+            info,
+        )
+
+    def get_avail_actions(self, state):
+        return {agent: jnp.ones((self.env.action_spaces[agent].n,)) for agent in self.env.ally_keys}
+
+
+class TABSHeuristicWrapper(BaseWrapper):
     """
-    Wrapper for BattleSimulator that adds heuristic policy to specified units.
+    Wrapper for TABS that adds heuristic policy to specified units.
 
     This wrapper allows certain units to be controlled by a heuristic policy instead of
     requiring manual actions. It can filter observations to only return non-heuristic
     units and optionally filter rewards to only ally teams.
 
     Args:
-        env: TABSBattleSimulator environment to wrap
+        env: TABS environment to wrap
         heuristic_units: Units to control with heuristic policy
             - "all": All units in the environment
             - "enemy": Only enemy units
             - List[str]: Specific list of unit keys
-        epsilon: Probability of taking random action in heuristic policy (0.0-1.0)
-        aggressive_threshold: Threshold for aggressive behavior in heuristic policy (0.0-1.0)
         heuristic_obs: Whether to include heuristic units in observation output
             - True: Return observations for all units
             - False: Return observations only for non-heuristic units
@@ -48,7 +112,7 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
 
     def __init__(
         self,
-        env: TABSBattleSimulator,
+        env: TABS,
         heuristic_units: List[str] | str = "enemy",
         heuristic_config: TABSHeuristicConfig = TABSHeuristicConfig(),
         heuristic_obs: bool = False,
@@ -104,46 +168,38 @@ class TABSBattleSimulatorHeuristicWrapper(TABSBattleSimulatorWrapper):
         return target_obs, next_state, reward, done, info
 
 
-@struct.dataclass
-class AutoResetEnvState:
-    env_state: Dict[str, Any]
-    scenario: Scenario
-
-
-class TABSBattleSimulatorAutoResetWrapper(TABSBattleSimulatorWrapper):
+class TABSAutoResetWrapper(BaseWrapper):
     """
-    Wrapper for BattleSimulator that adds automatic reset functionality.
+    Wrapper for TABS that adds automatic reset functionality.
     """
 
-    def __init__(self, env: TABSBattleSimulator):
+    def __init__(self, env: TABS):
         super().__init__(env)
 
-    def reset(self, key, senario: Scenario):
-        obs, state = self.env.reset(key, senario)
-        state = AutoResetEnvState(env_state=state, scenario=senario)
-        return obs, state
-
-    def step(self, key, state, action):
-        reset_obs, reset_state = self.reset(key, state.scenario)
-        next_obs, next_state, reward, done, info = self.env.step(key, state.env_state, action)
+    def step(self, key, state, action, env_params: Dict[str, Any] = None):
+        reset_obs, reset_state = self.reset(key, env_params)
+        next_obs, next_state, reward, done, info = self.env.step(key, state, action)
         ep_done = done["__all__"]
         next_env_state = jax.tree.map(
             lambda x, y: jnp.where(ep_done, x, y),
-            reset_state.env_state,
+            reset_state,
             next_state,
         )
+
+        # log state is not reset
+        if "log_state" in next_state:
+            next_env_state["log_state"] = next_state["log_state"]
+
         next_obs = jax.tree.map(
             lambda x, y: jnp.where(ep_done, x, y),
             reset_obs,
             next_obs,
         )
-        next_state = state.replace(env_state=next_env_state)
-        return next_obs, next_state, reward, done, info
+        return next_obs, next_env_state, reward, done, info
 
 
 @struct.dataclass
 class LogEnvState:
-    env_state: Dict[str, Any]
     episode_returns: chex.Array
     episode_lengths: chex.Array
     returned_episode_returns: chex.Array
@@ -161,77 +217,71 @@ class LogEnvState:
 
 
 # ref : https://github.com/FLAIROx/JaxMARL/blob/main/jaxmarl/wrappers/baselines.py
-class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
+class TABSLogWrapper(BaseWrapper):
     """
-    Wrapper for BattleSimulator that logs the episode returns, lengths, and wins.
+    Wrapper for TABS that logs the episode returns, lengths, and wins.
 
     Note: When done but no reset occurs, returned_episode_returns and lengths may not be accurate. Set reset_when_done to False if you don't want to reset when done.
     """
 
-    def __init__(self, env: TABSBattleSimulator, reset_when_done: bool = True):
+    def __init__(self, env: TABS, reset_when_done: bool = True):
         super().__init__(env)
 
         self.reset_when_done = reset_when_done
 
-    def reset(self, key, senario: Scenario):
-        obs, state = self.env.reset(key, senario)
+    def reset(self, key, env_params: Dict[str, Any]):
+        obs, state = self.env.reset(key, env_params)
 
         log_state = LogEnvState(
-            env_state=state,
-            episode_returns=jnp.zeros((self.env.max_team, 1)),
-            episode_lengths=jnp.zeros((self.env.max_team, 1)),
-            returned_episode_returns=jnp.zeros((self.env.max_team, 1)),
-            returned_episode_lengths=jnp.zeros((self.env.max_team, 1)),
-            returned_episode_wins=jnp.zeros((self.env.max_team, 1)),
-            first_kills=jnp.zeros((self.env.max_team, 1)),
-            cumulative_is_attackings=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy, 1)),
-            cumulative_damage_dealts=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy, 1)),
-            cumulative_attack_success=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy, 1)),
-            returned_first_kills=jnp.zeros((self.env.max_team, 1)),
-            returned_attack_success_rates=jnp.zeros(
-                (self.env.max_n_ally + self.env.max_n_enemy, 1)
-            ),
+            episode_returns=jnp.zeros((self.env.max_team,)),
+            episode_lengths=jnp.zeros((self.env.max_team,)),
+            returned_episode_returns=jnp.zeros((self.env.max_team,)),
+            returned_episode_lengths=jnp.zeros((self.env.max_team,)),
+            returned_episode_wins=jnp.zeros((self.env.max_team,)),
+            first_kills=jnp.zeros((self.env.max_team,)),
+            cumulative_is_attackings=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy,)),
+            cumulative_damage_dealts=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy,)),
+            cumulative_attack_success=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy,)),
+            returned_first_kills=jnp.zeros((self.env.max_team,)),
+            returned_attack_success_rates=jnp.zeros((self.env.max_n_ally + self.env.max_n_enemy,)),
             returned_cumulative_is_attackings=jnp.zeros(
-                (self.env.max_n_ally + self.env.max_n_enemy, 1)
+                (self.env.max_n_ally + self.env.max_n_enemy,)
             ),
             returned_cumulative_damage_dealts=jnp.zeros(
-                (self.env.max_n_ally + self.env.max_n_enemy, 1)
+                (self.env.max_n_ally + self.env.max_n_enemy,)
             ),
             returned_cumulative_attack_success=jnp.zeros(
-                (self.env.max_n_ally + self.env.max_n_enemy, 1)
+                (self.env.max_n_ally + self.env.max_n_enemy,)
             ),
         )
 
-        return obs, log_state
+        return obs, state | {"log_state": log_state}
 
-    def step(self, key, state: LogEnvState, action):
-        obs, next_state, reward, done, info = self.env.step(key, state.env_state, action)
+    def step(self, key, _state: Dict[str, Any], action):
+        obs, next_state, reward, done, info = self.env.step(key, _state, action)
 
         ep_done = done["__all__"]
+
+        state = _state["log_state"]
 
         if self.reset_when_done:
             new_episode_return = state.episode_returns + reward
             net_epsiode_length = state.episode_lengths + 1
 
-            team_dead_units = info["team_dead_units"].reshape(self.env.max_team, 1)
+            team_dead_units = info["team_dead_units"]
 
             new_first_kill = jnp.where(
                 jnp.any(state.first_kills), state.first_kills, team_dead_units > 0
-            ).reshape(self.env.max_team, 1)
-            new_cumulative_is_attackings = state.cumulative_is_attackings + info[
-                "is_attacking"
-            ].reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
-            new_cumulative_damage_dealts = state.cumulative_damage_dealts + info[
-                "damage_dealt"
-            ].reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
+            )
+            new_cumulative_is_attackings = state.cumulative_is_attackings + info["is_attacking"]
+            new_cumulative_damage_dealts = state.cumulative_damage_dealts + info["damage_dealt"]
             new_cumulative_attack_success = state.cumulative_attack_success + (
                 jnp.abs(info["damage_dealt"]) > 1e-6
-            ).reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
+            )
 
             attack_success_rates = new_cumulative_attack_success / new_cumulative_is_attackings
 
             log_state = LogEnvState(
-                env_state=next_state,
                 episode_returns=new_episode_return * (1 - ep_done),
                 episode_lengths=net_epsiode_length * (1 - ep_done),
                 returned_episode_returns=state.returned_episode_returns * (1 - ep_done)
@@ -263,24 +313,19 @@ class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
         else:
             new_episode_return = state.episode_returns + reward * (1 - ep_done)
             net_epsiode_length = state.episode_lengths + 1 * (1 - ep_done)
-            new_cumulative_is_attackings = state.cumulative_is_attackings + info[
-                "is_attacking"
-            ].reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
-            new_cumulative_damage_dealts = state.cumulative_damage_dealts + info[
-                "damage_dealt"
-            ].reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
-            team_dead_units = info["team_dead_units"].reshape(self.env.max_team, 1)
+            new_cumulative_is_attackings = state.cumulative_is_attackings + info["is_attacking"]
+            new_cumulative_damage_dealts = state.cumulative_damage_dealts + info["damage_dealt"]
+            team_dead_units = info["team_dead_units"]
             new_cumulative_attack_success = state.cumulative_attack_success + (
                 jnp.abs(info["damage_dealt"]) > 1e-6
-            ).reshape(self.env.max_n_ally + self.env.max_n_enemy, 1)
+            )
             attack_success_rates = new_cumulative_attack_success / new_cumulative_is_attackings
 
             new_first_kill = jnp.where(
                 jnp.any(state.first_kills), state.first_kills, team_dead_units > 0
-            ).reshape(self.env.max_team, 1)
+            )
 
             log_state = LogEnvState(
-                env_state=next_state,
                 episode_returns=new_episode_return,
                 episode_lengths=net_epsiode_length,
                 returned_episode_returns=new_episode_return,
@@ -307,4 +352,4 @@ class TABSBattleSimulatorLogWrapper(TABSBattleSimulatorWrapper):
         info["returned_cumulative_is_attackings"] = log_state.returned_cumulative_is_attackings
         info["returned_cumulative_damage_dealts"] = log_state.returned_cumulative_damage_dealts
 
-        return obs, log_state, reward, done, info
+        return obs, next_state | {"log_state": log_state}, reward, done, info

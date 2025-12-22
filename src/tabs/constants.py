@@ -1,8 +1,9 @@
 import math
 
-
 # unit names: F, S, K, M, A, C, D, H, P
 SCENARIOS = ["2F1K2A1H", "1K2S", "1M2C1P", "7F2D1H"]
+ZONESCENARIO = ["void"]
+
 UNITID2CHAR = {
     0: ".",  # Empty space
     1: "F",  # Farmer

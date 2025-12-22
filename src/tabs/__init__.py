@@ -1,8 +1,5 @@
-from src.tabs.tabs_unit_comb.tabs_unit_comb import TABSUnitComb
-from src.tabs.tabs_unit_deploy.tabs_unit_deploy import TABSUnitDeploy
-from src.tabs.tabs_battle_simulator.tabs_battle_simulator import TABSBattleSimulator
-from src.tabs.constants import ALL_UNIT_NAMES, UnitID, UNITID2CHAR
-
+from src.tabs.constants import ALL_UNIT_NAMES, UNITID2CHAR, UnitID
+from src.tabs.tabs import TABS
 
 # Check if the length of UnitID and get_all_unit_names are the same for
 unit_id_length = len([v for k, v in UnitID.__dict__.items() if not k.startswith("__")])

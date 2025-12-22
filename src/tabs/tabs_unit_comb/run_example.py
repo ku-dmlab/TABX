@@ -1,4 +1,5 @@
 import jax
+
 from src.tabs import TABSUnitComb
 from src.tabs.scenarios import TABSConfig, generate_scenario
 from src.tabs.utils import Transition

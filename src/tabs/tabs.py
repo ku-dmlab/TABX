@@ -1,34 +1,35 @@
 from typing import Dict
-from easydict import EasyDict
 
 import chex
 import jax
 import jax.numpy as jnp
 from flax import struct
 
-from src.tabs.utils import notify
-from src.environments.base_maenv import BaseMAEnv
-from src.environments.spaces import DiscreteContinuous, Box
-from src.environments.physics import (
-    Transform,
-    RigidBody,
+from src.tabs.environments.base_maenv import BaseMAEnv
+from src.tabs.environments.physics import (
     CircleCollider,
+    Ellipse,
+    RigidBody,
+    Transform,
     physics_step,
     physics_update,
 )
-from src.tabs.scenarios import TABSConfig, Scenario, get_vectorized_scenario, VectorizedScenario
+from src.tabs.environments.spaces import Box, Discrete
+from src.tabs.scenarios import TABSConfig, VectorizedScenario, get_vectorized_scenario
+from src.tabs.utils import notify
 
-
-move_table = jnp.array(
+action_table = jnp.array(
     [
-        [0, 1.0],
-        [0, -1.0],
-        [-1.0, 0],
-        [1.0, 0],
-        [0.0, 0.0],
-        [0.0, 0.0],
+        [0, 1.0, 0.0],
+        [0, -1.0, 0.0],
+        [-1.0, 0, 0.0],
+        [1.0, 0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, -jnp.pi / 6],
+        [0.0, 0.0, jnp.pi / 6],
+        [0.0, 0.0, 0.0],
     ]
-)
+)  # [x_move, y_move, rotate_angle]
 
 
 class AttackType:
@@ -42,7 +43,9 @@ class UnitAction:
     LEFT = 2
     RIGHT = 3
     ATTACK = 4
-    IDLE = 5
+    TURN_LEFT = 5
+    TURN_RIGHT = 6
+    IDLE = 7
 
 
 @struct.dataclass
@@ -78,7 +81,7 @@ class DefaultUnit:
 
     def update(self, **kwargs):
         config = kwargs["config"]
-        next_cooldown = self.status.cooldown + config["dt"]
+        next_cooldown = self.status.cooldown + config.dt
         updated_object = physics_update(config, self)
 
         updated_transform = self.transform._replace(
@@ -93,10 +96,8 @@ class DefaultUnit:
         )
 
     def act(self, objects, action, **kwargs):
-        # action : [rotate_angle, discrete action]
-
-        discrete_action = action[1].astype(int).reshape()
-        is_attack = UnitAction.ATTACK == discrete_action
+        action = action.reshape()
+        is_attack = UnitAction.ATTACK == action
         game_manager: GameManager = objects["game_manager"]
         target_id = game_manager.attack_target[self.status.id.reshape()]
         target_attackable = game_manager.attackable_matrix[self.status.id.reshape()]
@@ -108,20 +109,22 @@ class DefaultUnit:
         notify(objects, "hit", (self, is_attack, target_id, target_attackable, can_attack))
         attack_success = can_attack & is_attack & target_attackable[target_id.reshape()]
 
-        move_action = (
-            move_table[discrete_action] * action_able * self.status.speed
-        )  # if unit is dead, do not move
+        objects["game_manager"] = objects["game_manager"].replace(
+            attack_matrix=game_manager.attack_matrix.at[
+                self.status.id.reshape(), target_id.reshape()
+            ].set(attack_success.reshape())
+        )
 
+        move_action = (
+            action_table[action, :2] * action_able * self.status.speed
+        )  # if unit is dead, do not move
+        rotate_action = action_table[action, 2] * action_able * kwargs["physics_params"].dt
         cooldown = is_attack & can_attack
 
         return self.replace(
             rigidbody=self.rigidbody._replace(velocity=move_action),
             transform=self.transform._replace(
-                rotation=(
-                    self.transform.rotation
-                    + jnp.clip(action[0].reshape(), -jnp.pi / 12, jnp.pi / 12) * action_able
-                )
-                % (2 * jnp.pi)
+                rotation=(self.transform.rotation + rotate_action) % (2 * jnp.pi)
             ),
             status=self.status.replace(
                 cooldown=jnp.clip(
@@ -159,12 +162,70 @@ class DefaultUnit:
 
 
 @struct.dataclass
+class Zone:
+    zone_type: chex.Array  # The zone type, 0 for lava, 1 for bush
+    ellipse: Ellipse  # The parameter of ellipse
+    damage: chex.Array  # The damage dealt by the lava zone
+
+    def act(self, objects, physics_params):
+        return jax.lax.switch(
+            self.zone_type.reshape(),
+            [self.act_nothing, self.act_lava, self.act_bush],
+            objects,
+            physics_params,
+        )
+
+    def is_in(self, objects):
+        # Return whether an unit is in the zone or not.
+        unit_positions = jnp.array(
+            [value.transform.position for (key, value) in objects.items() if "unit" in key]
+        )
+        return (
+            jnp.sum((unit_positions - self.ellipse.position) ** 2 / self.ellipse.axes**2, axis=1)
+            <= 1
+        )
+
+    def act_lava(self, objects, physics_params):
+        # Get damaged if the unit is in the lava zone.
+        unit_objects = {key: value for (key, value) in objects.items() if "unit" in key}
+        is_in = self.is_in(objects)
+
+        for key, unit in unit_objects.items():
+            objects[key] = unit.replace(
+                status=unit.on_damage(is_in[unit.status.id] * self.damage * physics_params.dt)
+            )
+
+        return objects
+
+    def act_bush(self, objects, physics_params):
+        # Hide if the unit is in the bush zone, but the unit become visible to the hit person.
+        is_in = self.is_in(objects)
+
+        # The unit in bush isn't observed.
+        visible_matrix = jnp.logical_and(
+            objects["game_manager"].visible_matrix,
+            jnp.logical_not(is_in[None, :]),
+        )
+        # The attacker in bush can be observed.
+        attack_in_bush = jnp.logical_and(is_in[:, None], objects["game_manager"].attack_matrix)
+
+        visible_matrix = jnp.logical_or(visible_matrix, attack_in_bush.T)
+        objects["game_manager"] = objects["game_manager"].replace(visible_matrix=visible_matrix)
+
+        return objects
+
+    def act_nothing(self, objects, physics_params):
+        return objects
+
+
+@struct.dataclass
 class GameManager:
     reward: chex.Array
     done: chex.Array
     timestep: chex.Array
     attack_target: chex.Array
     attackable_matrix: chex.Array
+    attack_matrix: chex.Array
     visible_matrix: chex.Array
     distance_matrix: chex.Array
     team_hp_ratio: chex.Array
@@ -191,7 +252,7 @@ class GameManager:
             unit_rotation_vector (jnp.ndarray): [N, 1] Rotation angle of each unit in radians
             unit_body_radius_vector (jnp.ndarray): [N, 1] Body radius of each unit
             unit_attack_range_vector (jnp.ndarray): [N, 1] Attack range distance of each unit
-            attack_range_angle (float): Half-width of the attack cone in radians (default: pi/4)
+            unit_sight_angle_vector (float): Half-width of the attack cone in radians (default: pi/4)
 
         Returns:
             jnp.ndarray: [N, N] Boolean matrix where result[i][j] is True if unit i can attack/detect unit j
@@ -199,7 +260,7 @@ class GameManager:
 
         Note:
             The attack zone is shaped like a rectangle extending forward from each unit's position,
-            with width determined by the attack_range_angle and length by the unit's attack_range.
+            with width determined by the unit_sight_angle_vector and length by the unit's attack_range.
         """
 
         cos_attack_range_half_angle = jnp.cos(unit_sight_angle_vector / 2) * unit_body_radius_vector
@@ -296,6 +357,7 @@ class GameManager:
         return self.replace(
             attack_target=maksed_relative_distnace.argmin(axis=1),
             attackable_matrix=attackable_matrix,
+            attack_matrix=jnp.zeros_like(attackable_matrix, dtype=jnp.bool),
             visible_matrix=(sight_inside).squeeze().T,
             distance_matrix=position_diff,
         )
@@ -325,30 +387,29 @@ class GameManager:
         )
 
 
-class TABSBattleSimulator(BaseMAEnv):
+class TABS(BaseMAEnv):
     def __init__(
         self,
         cfg: TABSConfig,
-        physics_config: Dict[str, float] = EasyDict(
-            {"dt": 0.5, "percent": 0.5, "slop": 0.01, "restitution": 0.8}
-        ),
         obs_type: str = "unit_spec",
-        max_team: int = 2,
         max_episode_steps: int = 512,
     ):
         max_n_ally = cfg.max_n_ally
         max_n_enemy = cfg.max_n_enemy
-        super().__init__(max_n_ally + max_n_enemy, physics_config)
-        self.physics_config = physics_config
+        max_n_zone = cfg.max_n_zone
+
+        super().__init__(max_n_ally + max_n_enemy)
         self.obs_type = obs_type
         self.ally_keys = [f"unit_{i}" for i in range(max_n_ally)]
         self.enemy_keys = [f"unit_{i}" for i in range(max_n_ally, max_n_ally + max_n_enemy)]
         self.unit_keys = self.ally_keys + self.enemy_keys
-        self.max_team = max_team
-
+        self.agents = self.unit_keys
+        self.zone_keys = [f"zone_{i}" for i in range(max_n_zone)]
         self.max_n_ally = max_n_ally
         self.max_n_enemy = max_n_enemy
+        self.max_n_zone = max_n_zone
         self.max_episode_steps = max_episode_steps
+        self.max_team = 2
 
         self.empty_state = {
             name: DefaultUnit(
@@ -384,9 +445,19 @@ class TABSBattleSimulator(BaseMAEnv):
             for i, name in enumerate(self.unit_keys)
         }
 
+        self.empty_state["zone"] = {
+            name: Zone(
+                zone_type=jnp.array([0]),
+                ellipse=Ellipse(position=jnp.array([0.0, 0.0]), axes=jnp.array([1.0, 1.0])),
+                damage=jnp.array([0.0]),
+            )
+            for name in self.zone_keys
+        }
+
         self.empty_state["game_manager"] = GameManager(
             attack_target=jnp.array([0]),
             attackable_matrix=jnp.array([[False]]),
+            attack_matrix=jnp.array([[False]]),
             visible_matrix=jnp.array([[False]]),
             distance_matrix=jnp.array([[0]]),
             reward=jnp.array([0.0]),
@@ -396,22 +467,22 @@ class TABSBattleSimulator(BaseMAEnv):
             last_team_hp_ratio=jnp.ones(self.max_team),
         )
 
-        self.action_space = DiscreteContinuous(
-            num_categories=6, low=-jnp.pi / 12, high=jnp.pi / 12, shape=(1,)
-        )
+        self.action_spaces = {
+            agent: Discrete(num_categories=action_table.shape[0]) for agent in self.unit_keys
+        }
         if self.obs_type == "unit_spec":
             self.observation_spaces = {
                 agent: Box(
                     low=0, high=1, shape=(14 + 16 * (len(self.unit_keys) - 1),), dtype=jnp.float32
                 )
-                for agent in self.ally_keys
+                for agent in self.unit_keys
             }
         elif self.obs_type == "unit_id":
             self.observation_spaces = {
                 agent: Box(
                     low=0, high=1, shape=(6 + 9 * (len(self.unit_keys) - 1),), dtype=jnp.float32
                 )
-                for agent in self.ally_keys
+                for agent in self.unit_keys
             }
         else:
             raise ValueError(f"Invalid observation type: {self.obs_type}")
@@ -612,50 +683,78 @@ class TABSBattleSimulator(BaseMAEnv):
 
         concated_obs = jnp.concatenate((own_feature, other_feature), axis=1)
         observations = {key: concated_obs[i] for i, key in enumerate(keys)}
+        observations["world_state"] = jnp.concatenate(
+            (
+                healths,
+                max_healths,
+                positions,
+                rotations,
+                attack_ranges,
+                attack_damages,
+                cooldowns,
+                attack_cooldowns,
+                body_radiuss,
+                body_weights,
+                sight_angles,
+                is_alives,
+                speeds,
+            ),
+            axis=-1,
+        ).flatten()
         return observations
 
-    def reset(self, key, senario: Scenario):
-        vectorized_scenario: VectorizedScenario = get_vectorized_scenario(
-            senario, self.max_n_ally, self.max_n_enemy
-        )
+    def reset(self, key, env_params):
+        vscenario: VectorizedScenario = env_params["scenario"]
 
         state = {}
         for i, unit in enumerate(self.unit_keys):
             state[unit] = DefaultUnit(
                 transform=Transform(
-                    position=vectorized_scenario.positions[i],
-                    rotation=vectorized_scenario.rotations[i],
+                    position=vscenario.positions[i],
+                    rotation=vscenario.rotations[i],
                 ),
                 rigidbody=RigidBody(
-                    mass=vectorized_scenario.body_weights[i],
+                    mass=vscenario.body_weights[i],
                     velocity=jnp.array([0.0, 0.0]),
                     acceleration=jnp.array([0.0, 0.0]),
                     is_kinematic=jnp.array([False]),
                 ),
-                collider=CircleCollider(radius=vectorized_scenario.body_radiuss[i]),
-                team=vectorized_scenario.teams[i],
-                pos_min=vectorized_scenario.pos_min[i],
-                pos_max=vectorized_scenario.pos_max[i],
+                collider=CircleCollider(radius=vscenario.body_radiuss[i]),
+                team=vscenario.teams[i],
+                pos_min=vscenario.pos_min[i],
+                pos_max=vscenario.pos_max[i],
                 status=self.empty_state[unit].status.replace(
-                    unit_id=vectorized_scenario.unit_ids[i],
-                    health=vectorized_scenario.healths[i],
-                    attack_damage=vectorized_scenario.attack_damages[i],
-                    attack_range=vectorized_scenario.attack_ranges[i],
-                    attack_cooldown=vectorized_scenario.attack_cooldowns[i],
-                    cooldown=vectorized_scenario.attack_cooldowns[i] * 0.0,
-                    sight_angle=vectorized_scenario.sight_angles[i],
-                    is_alive=vectorized_scenario.is_alive[i],
-                    is_disabled=vectorized_scenario.is_disabled[i],
-                    attack_type=vectorized_scenario.attack_types[i],
-                    max_health=vectorized_scenario.healths[i],
-                    speed=vectorized_scenario.speeds[i],
+                    unit_id=vscenario.unit_ids[i],
+                    health=vscenario.healths[i],
+                    attack_damage=vscenario.attack_damages[i],
+                    attack_range=vscenario.attack_ranges[i],
+                    attack_cooldown=vscenario.attack_cooldowns[i],
+                    cooldown=vscenario.attack_cooldowns[i] * 0.0,
+                    sight_angle=vscenario.sight_angles[i],
+                    is_alive=vscenario.is_alive[i],
+                    is_disabled=vscenario.is_disabled[i],
+                    attack_type=vscenario.attack_types[i],
+                    max_health=vscenario.healths[i],
+                    speed=vscenario.speeds[i],
                 ),
                 damage_dealt=jnp.array([0.0]),
                 is_attacking=jnp.array([False]),
             )
+
+        for i, zone in enumerate(self.zone_keys):
+            state[zone] = Zone(
+                zone_type=env_params["zone_scenario"].zone_type[i],
+                ellipse=Ellipse(
+                    position=env_params["zone_scenario"].position[i],
+                    axes=env_params["zone_scenario"].axes[i],
+                ),
+                damage=env_params["zone_scenario"].damage[i],
+            )
+
         state["game_manager"] = GameManager(
             attack_target=jnp.array([0]),
             attackable_matrix=jnp.array([[False]]),
+            attack_matrix=jnp.array([[False]]),
             visible_matrix=jnp.array([[False]]),
             distance_matrix=jnp.array([[0]]),
             reward=jnp.array([0.0]),
@@ -667,24 +766,37 @@ class TABSBattleSimulator(BaseMAEnv):
 
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
 
-        return self.get_obs(state), state
+        # handling zone effect
+        for sprite in state.keys():
+            if hasattr(state[sprite], "zone_type"):
+                state = state[sprite].act(state, env_params["physics_params"])
 
-    def step(self, key, state, action):
+        return self.get_obs(state), {"state": state, "physics_params": env_params["physics_params"]}
+
+    def step(self, key, env_state, actions):
+        state = env_state["state"]
+        physics_params = env_state["physics_params"]
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
 
         for sprite in state.keys():
             if hasattr(state[sprite], "update"):
-                state[sprite] = state[sprite].update(config=self.physics_config)
+                state[sprite] = state[sprite].update(config=physics_params)
 
         collider_filter = {
-            unit: [key for key in state if "unit" in key and key != unit] for unit in self.unit_keys
+            unit: [key for key in state if hasattr(state[key], "collider") and key != unit]
+            for unit in self.unit_keys
         }
 
-        state = physics_step(self.physics_config, state, list(state.keys()), collider_filter)
+        state = physics_step(physics_params, state, list(state.keys()), collider_filter)
 
         # action processing
         for sprite in self.unit_keys:
-            state[sprite] = state[sprite].act(state, action[sprite])
+            state[sprite] = state[sprite].act(state, actions[sprite], physics_params=physics_params)
+
+        # handling zone effect
+        for sprite in state.keys():
+            if hasattr(state[sprite], "zone_type"):
+                state = state[sprite].act(state, physics_params)
 
         # alive processing after action step, for independent unit sequence
         dones = {}
@@ -712,7 +824,7 @@ class TABSBattleSimulator(BaseMAEnv):
         truncation = state["game_manager"].timestep >= self.max_episode_steps
         # If all teams except one are eliminated or truncated, the episode is done
         # Note that truncation does not mean the episode is done, but set done to True (please refer to https://github.com/FLAIROx/JaxMARL/blob/main/jaxmarl/environments/smax/smax_env.py)
-        dones["__all__"] = jnp.array([team_dones.sum() >= self.max_team - 1]) | truncation
+        dones["__all__"] = (team_dones.sum() >= self.max_team - 1) | truncation
         state["game_manager"] = state["game_manager"].update_team_hp_ratio(
             state, teams, is_disabled, self.unit_keys, self.max_team
         )
@@ -745,7 +857,23 @@ class TABSBattleSimulator(BaseMAEnv):
             "team_dead_units": team_dead_units,
         }
 
-        return self.get_obs(state), state, rewards, dones, info
+        rewards = rewards.reshape(-1)
+        dones = jax.tree.map(lambda x: x.reshape(), dones)
+        info = jax.tree.map(lambda x: x.reshape(-1), info)
+
+        return (
+            self.get_obs(state),
+            {"state": state, "physics_params": physics_params},
+            rewards,
+            dones,
+            info,
+        )
+
+    def world_state_size(self):
+        return 14 * self.num_agents  # n_features * n_agents
+
+    def get_avail_actions(self, state):
+        return {agent: jnp.ones((self.action_spaces[agent].n,)) for agent in self.unit_keys}
 
     def init_render(self, ax, state: Dict, scenario_name: str):
         from src.tabs.visualize.rendering import get_battle_simulator_render
@@ -753,7 +881,7 @@ class TABSBattleSimulator(BaseMAEnv):
         self.scenario_name = scenario_name
 
         frame = get_battle_simulator_render(
-            scenario_name=self.scenario_name, state=state, unit_keys=self.unit_keys
+            scenario_name=self.scenario_name, state=state["state"], unit_keys=self.unit_keys
         )
 
         # Render

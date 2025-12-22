@@ -1,12 +1,13 @@
-from typing import List, Tuple, Dict
 import math
-import pygame
+from typing import Dict, List, Tuple
+
 import numpy as np
+import pygame
 
 from src.tabs.constants import ALL_UNIT_NAMES
+from src.tabs.tabs import DefaultUnit
 from src.tabs.tabs_unit_comb.tabs_unit_comb import State as CombState
 from src.tabs.tabs_unit_deploy.tabs_unit_deploy import State as DeployState
-from src.tabs.tabs_battle_simulator.tabs_battle_simulator import DefaultUnit
 from src.tabs.units import get_all_unit_spec
 
 BLACK = (0, 0, 0)

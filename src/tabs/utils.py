@@ -4,12 +4,16 @@ import chex
 
 
 class Transition(NamedTuple):
+    global_done: chex.Array
     done: chex.Array
     action: chex.Array
+    value: chex.Array
     reward: chex.Array
+    log_prob: chex.Array
     obs: chex.Array
+    world_state: chex.Array
     info: chex.Array
-    unavail_action: chex.Array
+    avail_actions: chex.Array
 
 
 def notify(sprites, event, info):

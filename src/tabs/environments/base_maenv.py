@@ -1,12 +1,11 @@
-from typing import Tuple, Dict, Any
+from typing import Any, Dict, Tuple
 
 import chex
 
 
 class BaseMAEnv:
-    def __init__(self, num_agents: int, physics_config: Dict[str, float]) -> None:
+    def __init__(self, num_agents: int) -> None:
         self.num_agents = num_agents
-        self.physics_config = physics_config
 
     def get_obs(self, state: Dict[str, Any]) -> chex.Array:
         raise NotImplementedError
@@ -23,3 +22,9 @@ class BaseMAEnv:
 
     def rollout(self, key: chex.PRNGKey, cfg: Dict[str, Any]) -> float:
         raise NotImplementedError
+
+    def action_space(self, agent: str):
+        return self.action_spaces[agent]
+
+    def observation_space(self, agent: str):
+        return self.observation_spaces[agent]
