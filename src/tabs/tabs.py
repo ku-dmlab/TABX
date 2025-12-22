@@ -169,7 +169,7 @@ class Zone:
 
     def act(self, objects, physics_params):
         return jax.lax.switch(
-            self.zone_type[0],
+            self.zone_type.reshape(),
             [self.act_nothing, self.act_lava, self.act_bush],
             objects,
             physics_params,
