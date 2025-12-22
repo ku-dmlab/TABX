@@ -400,11 +400,11 @@ class TABS(BaseMAEnv):
 
         super().__init__(max_n_ally + max_n_enemy)
         self.obs_type = obs_type
-        self.ally_keys = [f"unit_{i}" for i in range(max_n_ally)]
-        self.enemy_keys = [f"unit_{i}" for i in range(max_n_ally, max_n_ally + max_n_enemy)]
+        self.ally_keys = [f"unit_{i:02d}" for i in range(max_n_ally)]
+        self.enemy_keys = [f"unit_{i:02d}" for i in range(max_n_ally, max_n_ally + max_n_enemy)]
         self.unit_keys = self.ally_keys + self.enemy_keys
         self.agents = self.unit_keys
-        self.zone_keys = [f"zone_{i}" for i in range(max_n_zone)]
+        self.zone_keys = [f"zone_{i:02d}" for i in range(max_n_zone)]
         self.max_n_ally = max_n_ally
         self.max_n_enemy = max_n_enemy
         self.max_n_zone = max_n_zone
