@@ -2,8 +2,8 @@ import jax
 import jax.numpy as jnp
 
 from src.tabs import TABS
-from src.tabs.config import PhysicsParams, TABSConfig, TABSHeuristicConfig
-from src.tabs.scenarios import generate_scenario
+from src.tabs.config import PhysicsParams, TABSHeuristicConfig
+from src.tabs.scenarios import generate_scenario_config
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
     TABSEnemyHeuristicWrapper,
@@ -15,13 +15,7 @@ if __name__ == "__main__":
     num_steps = 10
     scenario_name = "2F1K2A1H"
 
-    tabs_config = TABSConfig(scenario_name=scenario_name)
-    vscenario, zone_scenario = generate_scenario(tabs_config)
-    tabs_config = TABSConfig(
-        max_n_ally=int(vscenario.n_ally.item()),
-        max_n_enemy=int(vscenario.n_enemy.item()),
-        max_n_zone=int(zone_scenario.n_zone.item()),
-    )
+    vscenario, zone_scenario, tabs_config = generate_scenario_config(scenario_name=scenario_name)
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
