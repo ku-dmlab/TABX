@@ -12,11 +12,11 @@ import optax
 import tyro
 
 import wandb
-from src.baseline.layers import MixingNetwork, RNNQNetwork, ScannedRNN
+from src.baseline.layers import MixingNetwork, QScannedRNN, RNNQNetwork
 from src.baseline.utils import CustomTrainState, Timestep, get_battle_metric
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
-from src.tabs.scenarios import generate_scenario
-from src.tabs.tabs import TABS, TABSConfig
+from src.tabs.scenarios import generate_scenario_config
+from src.tabs.tabs import TABS
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
     TABSEnemyHeuristicWrapper,
@@ -51,7 +51,11 @@ class Config:
     TEST_INTERVAL: float = 0.05  # as a fraction of updates, i.e. log every 5% of training process
     TEST_NUM_STEPS: int = 512
     TEST_NUM_ENVS: int = 512  # number of episodes to average over, can affect performance
-    SCENARIO: str = "2F1K2A1H_tight"
+    # Env
+    SCENARIO: str = "2F1K2A1H"
+    # Misc.
+    SEED: int = 0
+    PROJECT_NAME: str = "qmix_rnn"  # wandb project name
 
 
 def make_train(config, env, env_params, test_env_params):
@@ -155,7 +159,7 @@ def make_train(config, env, env_params, test_env_params):
                 ),  # (time_step, batch_size, obs_size)
                 jnp.zeros((1, 1)),  # (time_step, batch size)
             )
-            init_hs = ScannedRNN.initialize_carry(
+            init_hs = QScannedRNN.initialize_carry(
                 config["HIDDEN_SIZE"], 1
             )  # (batch_size, hidden_dim)
             agent_params = network.init(rng, init_hs, *init_x)
@@ -262,7 +266,7 @@ def make_train(config, env, env_params, test_env_params):
                 agent: jnp.zeros((config["NUM_ENVS"]), dtype=bool)
                 for agent in env.agents + ["__all__"]
             }
-            init_hs = ScannedRNN.initialize_carry(
+            init_hs = QScannedRNN.initialize_carry(
                 config["HIDDEN_SIZE"], len(env.agents), config["NUM_ENVS"]
             )
             expl_state = (init_hs, init_obs, init_dones, env_state)
@@ -300,7 +304,7 @@ def make_train(config, env, env_params, test_env_params):
                 )  # (max_time_steps, batch_size, ...)
 
                 # preprocess network input
-                init_hs = ScannedRNN.initialize_carry(
+                init_hs = QScannedRNN.initialize_carry(
                     config["HIDDEN_SIZE"],
                     len(env.agents),
                     config["BUFFER_BATCH_SIZE"],
@@ -482,7 +486,7 @@ def make_train(config, env, env_params, test_env_params):
                 for agent in env.agents + ["__all__"]
             }
             rng, _rng = jax.random.split(rng)
-            hstate = ScannedRNN.initialize_carry(
+            hstate = QScannedRNN.initialize_carry(
                 config["HIDDEN_SIZE"], len(env.agents), config["TEST_NUM_ENVS"]
             )  # (n_agents*n_envs, hs_size)
             step_state = (
@@ -516,33 +520,29 @@ def make_train(config, env, env_params, test_env_params):
 
 
 def main(config):
-    config = Config().__dict__
-    wandb.init(project="qmix_rnn", mode="online", config=config)
-    tabs_config = TABSConfig(scenario_name=config["SCENARIO"])
-    scenario = generate_scenario(tabs_config)
-    tabs_config = TABSConfig(
-        scenario_name=config["SCENARIO"],
-        max_n_ally=int(scenario.ally_unit_comp.sum().item()),
-        max_n_enemy=int(scenario.enemy_unit_comp.sum().item()),
-    )
+    wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
+
+    vscenario, zone_scenario, tabs_config = generate_scenario_config(scenario_name=config.SCENARIO)
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
     env = TABSAutoResetWrapper(env)
 
     env_params = {
-        "scenario": generate_scenario(tabs_config),
+        "scenario": vscenario,
+        "zone_scenario": zone_scenario,
         "physics_params": PhysicsParams(),
         "heuristic_params": TABSHeuristicConfig(),
     }
     test_env_params = jax.tree.map(
-        lambda x: jnp.repeat(x[None], config["TEST_NUM_ENVS"], axis=0), env_params
+        lambda x: jnp.repeat(x[None], config.TEST_NUM_ENVS, axis=0), env_params
     )
 
-    env_params = jax.tree.map(lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0), env_params)
+    env_params = jax.tree.map(lambda x: jnp.repeat(x[None], config.NUM_ENVS, axis=0), env_params)
 
-    train_fn = jax.jit(make_train(config, env, env_params, test_env_params))
-    result = train_fn(jax.random.key(0))
+    train_fn = jax.jit(make_train(config.__dict__, env, env_params, test_env_params))
+    with jax.disable_jit(False):
+        result = train_fn(jax.random.key(config.SEED))
     return result
 
 
