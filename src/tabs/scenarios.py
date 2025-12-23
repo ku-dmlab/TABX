@@ -91,6 +91,8 @@ def get_scenario_list():
         else:
             name_list.append(name + "_" + zname)
 
+    name_list = name_list.extend(PREDEFINED_SCENARIOS)
+
     return name_list
 
 
@@ -122,11 +124,6 @@ def generate_scenario_config(
     attack_cooldown = jnp.concatenate((all_spec["attack_cooldown"], jnp.zeros(m)))
     sight_angle = jnp.concatenate((all_spec["sight_angles"], jnp.zeros(m)))
     space_occupied = jnp.concatenate((all_spec["space_occupied"], jnp.zeros(m)))
-
-    zone_type = jnp.zeros((n_zone, 1))
-    position = jnp.zeros((n_zone, 2))
-    axes = jnp.zeros((n_zone, 2))
-    damage = jnp.zeros((n_zone, 1))
 
     scenario_name = tabs_config.scenario_name.split("_")[0]
     if "_" in tabs_config.scenario_name:
@@ -177,7 +174,7 @@ def generate_scenario_config(
             dtype=jnp.float32,
         )
     elif scenario_name == SCENARIOS[2]:
-        _battle_field = jnp.array(  # 3360
+        _battle_field = jnp.array(
             [
                 [UnitID.Farmer, UnitID.Farmer, UnitID.TheKing, UnitID.Farmer, UnitID.Farmer],
                 [0, UnitID.Archer, UnitID.Paladin, UnitID.Archer, UnitID.Assassin],
@@ -196,7 +193,7 @@ def generate_scenario_config(
             dtype=jnp.float32,
         )
     elif scenario_name == SCENARIOS[3]:
-        _battle_field = jnp.array(  # 1950
+        _battle_field = jnp.array(
             [
                 [UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer],
                 [UnitID.Assassin, 0, UnitID.Archer, 0, UnitID.Deadeye],
@@ -309,25 +306,8 @@ def generate_scenario_config(
     if zone_scenario_name == ZONESCENARIO[0]:  # void
         zone_type = jnp.zeros((n_zone, 1), dtype=jnp.int32)
         position = jnp.zeros((n_zone, 2))
-        axes = jnp.zeros((n_zone, 2))
+        axes = jnp.ones((n_zone, 2))
         damage = jnp.zeros((n_zone, 1))
-    elif zone_scenario_name == "elbow":
-        zone_type = jnp.array([1, 1]).reshape(-1, 1)
-        position = jnp.array([[-24.0, -3.0], [-16.0, -12.5]]).reshape(-1, 2)
-        axes = jnp.array([[7.5, 3.0], [3.0, 10.0]]).reshape(-1, 2)
-        damage = jnp.array([10.0, 10.0]).reshape(-1, 1)
-    elif zone_scenario_name == "crossfire":
-        zone_type = jnp.array([1, 1, 1, 1]).reshape(-1, 1)
-        position = jnp.array([[-3.25, -6.0], [-3.25, 6.0], [4.0, 15.0], [4.0, -15.0]]).reshape(
-            -1, 2
-        )
-        axes = jnp.array([[7.5, 3.0], [7.5, 3.0], [3.0, 9.0], [3.0, 9.0]]).reshape(-1, 2)
-        damage = jnp.array([10.0, 10.0, 10.0, 10.0]).reshape(-1, 1)
-    elif zone_scenario_name == "ambush":
-        zone_type = jnp.array([2, 2]).reshape(-1, 1)
-        position = jnp.array([[-24.25, -10.0], [-24, 10.0]]).reshape(-1, 2)
-        axes = jnp.array([[3.0, 3.0], [3.0, 3.0]]).reshape(-1, 2)
-        damage = jnp.array([0.0, 0.0]).reshape(-1, 1)
     elif zone_scenario_name == ZONESCENARIO[1]:
         zone_type = jnp.array([1, 1]).reshape(-1, 1)
         position = jnp.array([[-20.0, -5.0], [20.0, 5.0]]).reshape(-1, 2)
@@ -345,38 +325,35 @@ def generate_scenario_config(
         )
         axes = jnp.array([[10.0, 5.0], [10.0, 5.0], [5.0, 5.0], [5.0, 5.0]]).reshape(-1, 2)
         damage = jnp.array([10.0, 10.0, 0.0, 0.0]).reshape(-1, 1)
+    elif zone_scenario_name == PREDEFINED_SCENARIOS[0]:
+        zone_type = jnp.array([1, 1]).reshape(-1, 1)
+        position = jnp.array([[-24.0, -3.0], [-16.0, -12.5]]).reshape(-1, 2)
+        axes = jnp.array([[7.5, 3.0], [3.0, 10.0]]).reshape(-1, 2)
+        damage = jnp.array([10.0, 10.0]).reshape(-1, 1)
+    elif zone_scenario_name == PREDEFINED_SCENARIOS[1]:
+        zone_type = jnp.array([1, 1, 1, 1]).reshape(-1, 1)
+        position = jnp.array([[-3.25, -6.0], [-3.25, 6.0], [4.0, 15.0], [4.0, -15.0]]).reshape(
+            -1, 2
+        )
+        axes = jnp.array([[7.5, 3.0], [7.5, 3.0], [3.0, 9.0], [3.0, 9.0]]).reshape(-1, 2)
+        damage = jnp.array([10.0, 10.0, 10.0, 10.0]).reshape(-1, 1)
+    elif zone_scenario_name == PREDEFINED_SCENARIOS[2]:
+        zone_type = jnp.array([2, 2]).reshape(-1, 1)
+        position = jnp.array([[-24.25, -10.0], [-24, 10.0]]).reshape(-1, 2)
+        axes = jnp.array([[3.0, 3.0], [3.0, 3.0]]).reshape(-1, 2)
+        damage = jnp.array([0.0, 0.0]).reshape(-1, 1)
     else:
         raise NotImplementedError
 
     actual_n_zone = len(zone_type)
-    n_zone = max_n_zone
+    _n_zone = min(zone_type.shape[0], n_zone)
 
     zone_scenario = ZoneScenario(
         n_zone=jnp.array(n_zone),
-        zone_type=jnp.zeros((n_zone, 1))
-        .at[: min(zone_type.shape[0], n_zone)]
-        .set(zone_type[: min(zone_type.shape[0], n_zone)])
-        .astype(jnp.int32)
-        if max_n_zone is not None
-        else zone_type,
-        position=jnp.zeros((n_zone, 2))
-        .at[: min(position.shape[0], n_zone)]
-        .set(position[: min(position.shape[0], n_zone)])
-        .astype(jnp.float32)
-        if max_n_zone is not None
-        else position,
-        axes=jnp.zeros((n_zone, 2))
-        .at[: min(axes.shape[0], n_zone)]
-        .set(axes[: min(axes.shape[0], n_zone)])
-        .astype(jnp.float32)
-        if max_n_zone is not None
-        else axes,
-        damage=jnp.zeros((n_zone, 1))
-        .at[: min(damage.shape[0], n_zone)]
-        .set(damage[: min(damage.shape[0], n_zone)])
-        .astype(jnp.float32)
-        if max_n_zone is not None
-        else damage,
+        zone_type=jnp.zeros((n_zone, 1)).at[:_n_zone].set(zone_type[:_n_zone]).astype(jnp.int32),
+        position=jnp.zeros((n_zone, 2)).at[:_n_zone].set(position[:_n_zone]).astype(jnp.float32),
+        axes=jnp.zeros((n_zone, 2)).at[:_n_zone].set(axes[:_n_zone]).astype(jnp.float32),
+        damage=jnp.zeros((n_zone, 1)).at[:_n_zone].set(damage[:_n_zone]).astype(jnp.float32),
     )
 
     # TABS Configuration
