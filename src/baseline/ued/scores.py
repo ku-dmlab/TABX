@@ -31,7 +31,13 @@ def accumulate_rollout_stats(dones, metrics, *, time_average):
         accum_val = jax.tree_util.tree_map(lambda x: (1 - done) * x, accum_val)
         step_count = (1 - done) * step_count
 
-        return (sum_val, max_val, accum_val, step_count, episode_count), None
+        return (
+            sum_val,
+            max_val,
+            accum_val,
+            step_count.astype(jnp.uint32),
+            episode_count.astype(jnp.uint32),
+        ), None
 
     batch_size = dones.shape[1]
     zeros = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x[0]), metrics)
