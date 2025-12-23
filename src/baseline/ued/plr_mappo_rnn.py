@@ -557,7 +557,10 @@ def make_train(config):
                         traj_batch.global_done, traj_batch.value, max_returns, advantages
                     )
                     sampler, _ = level_sampler.insert_batch(
-                        sampler, new_levels, scores, {"max_return": max_returns}
+                        sampler,
+                        new_levels,
+                        scores.reshape(config["NUM_ENVS"], -1).mean(axis=1),
+                        {"max_return": max_returns.reshape(config["NUM_ENVS"], -1).mean(axis=1)},
                     )
 
                     sample_state = sample_state.replace(
@@ -645,14 +648,19 @@ def make_train(config):
 
                     # Calculate scores
                     max_returns = jnp.maximum(
-                        level_sampler.get_levels_extra(sampler, level_inds)["max_return"],
-                        compute_max_returns(traj_batch.global_done, traj_batch.reward),
-                    )
+                        level_sampler.get_levels_extra(sampler, level_inds)["max_return"][:, None],
+                        compute_max_returns(traj_batch.global_done, traj_batch.reward).reshape(
+                            config["NUM_ENVS"], -1
+                        ),
+                    ).reshape(-1)
                     scores = compute_score(
                         traj_batch.global_done, traj_batch.value, max_returns, advantages
                     )
                     sampler = level_sampler.update_batch(
-                        sampler, level_inds, scores, {"max_return": max_returns}
+                        sampler,
+                        level_inds,
+                        scores.reshape(config["NUM_ENVS"], -1).mean(axis=1),
+                        {"max_return": max_returns.reshape(config["NUM_ENVS"], -1).mean(axis=1)},
                     )
 
                     sample_state = sample_state.replace(
@@ -748,7 +756,10 @@ def make_train(config):
                         traj_batch.global_done, traj_batch.value, max_returns, advantages
                     )
                     sampler, _ = level_sampler.insert_batch(
-                        sampler, child_levels, scores, {"max_return": max_returns}
+                        sampler,
+                        child_levels,
+                        scores.reshape(config["NUM_ENVS"], -1).mean(axis=1),
+                        {"max_return": max_returns.reshape(config["NUM_ENVS"], -1).mean(axis=1)},
                     )
 
                     sample_state = sample_state.replace(
