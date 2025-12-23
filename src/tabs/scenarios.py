@@ -96,10 +96,13 @@ def get_scenario_list():
 
 def generate_scenario_config(
     scenario_name: str,
+    max_n_ally: int = None,
+    max_n_enemy: int = None,
+    max_n_zone: int = None,
 ) -> Tuple[VectorizedScenario, ZoneScenario, TABSConfig]:
     tabs_config = TABSConfig(scenario_name=scenario_name)
     h, w = tabs_config.max_field_height, tabs_config.max_field_width
-    n_zone = tabs_config.max_n_zone
+    n_zone = tabs_config.max_n_zone if max_n_zone is None else max_n_zone
 
     battle_field = jnp.zeros((h, w), dtype=jnp.float32)
     enemy_battle_field = jnp.zeros_like(battle_field)
@@ -129,7 +132,7 @@ def generate_scenario_config(
     if "_" in tabs_config.scenario_name:
         zone_scenario_name = tabs_config.scenario_name.split("_")[1]
     else:
-        zone_scenario_name = "void"
+        zone_scenario_name = scenario_name
 
     # Unit Scenario
     if scenario_name == SCENARIOS[0]:
@@ -208,6 +211,63 @@ def generate_scenario_config(
             ],
             dtype=jnp.float32,
         )
+    elif scenario_name == "elbow":
+        _battle_field = jnp.array(
+            [
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, UnitID.Deadeye, 0, UnitID.Deadeye, 0],
+                [0, 0, UnitID.Deadeye, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        _enemy_battle_field = jnp.array(
+            [
+                [0, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, 0],
+                [0, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, 0],
+                [0, UnitID.Farmer, UnitID.Farmer, UnitID.Farmer, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+    elif scenario_name == "crossfire":
+        _battle_field = jnp.array(
+            [
+                [0, 0, 0, 0, 0],
+                [0, 0, UnitID.Mammoth, 0, 0],
+                [0, UnitID.Archer, 0, UnitID.Archer, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        _enemy_battle_field = jnp.array(
+            [
+                [0, UnitID.TheKing, UnitID.TheKing, UnitID.TheKing, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+    elif scenario_name == "ambush":
+        _battle_field = jnp.array(
+            [
+                [0, UnitID.Cannon, 0, UnitID.Cannon, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
+        _enemy_battle_field = jnp.array(
+            [
+                [0, 0, UnitID.TheKing, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ],
+            dtype=jnp.float32,
+        )
     else:
         raise NotImplementedError
 
@@ -237,30 +297,73 @@ def generate_scenario_config(
         space_occupied=space_occupied,
     )
     vscenario: VectorizedScenario = get_vectorized_scenario(
-        scenario=scenario, n_ally=ally_unit_comp.sum(), n_enemy=enemy_unit_comp.sum()
+        scenario=scenario,
+        n_ally=ally_unit_comp.sum() if max_n_ally is None else max_n_ally,
+        n_enemy=enemy_unit_comp.sum() if max_n_enemy is None else max_n_enemy,
     )
 
     # Zone Scenario
     if zone_scenario_name == ZONESCENARIO[0]:  # void
-        zone_type = jnp.zeros((1, 1), dtype=jnp.int32)
-        position = jnp.zeros((1, 2))
-        axes = jnp.zeros((1, 2))
-        damage = jnp.zeros((1, 1))
+        zone_type = jnp.zeros((n_zone, 1), dtype=jnp.int32)
+        position = jnp.zeros((n_zone, 2))
+        axes = jnp.zeros((n_zone, 2))
+        damage = jnp.zeros((n_zone, 1))
+    elif zone_scenario_name == "elbow":
+        zone_type = jnp.array([1, 1]).reshape(-1, 1)
+        position = jnp.array([[-24.0, -3.0], [-16.0, -12.5]]).reshape(-1, 2)
+        axes = jnp.array([[7.5, 3.0], [3.0, 10.0]]).reshape(-1, 2)
+        damage = jnp.array([10.0, 10.0]).reshape(-1, 1)
+    elif zone_scenario_name == "crossfire":
+        zone_type = jnp.array([1, 1, 1, 1]).reshape(-1, 1)
+        position = jnp.array([[-3.25, -6.0], [-3.25, 6.0], [4.0, 15.0], [4.0, -15.0]]).reshape(
+            -1, 2
+        )
+        axes = jnp.array([[7.5, 3.0], [7.5, 3.0], [3.0, 9.0], [3.0, 9.0]]).reshape(-1, 2)
+        damage = jnp.array([10.0, 10.0, 10.0, 10.0]).reshape(-1, 1)
+    elif zone_scenario_name == "ambush":
+        zone_type = jnp.array([2, 2]).reshape(-1, 1)
+        position = jnp.array([[-24.25, -10.0], [-24, 10.0]]).reshape(-1, 2)
+        axes = jnp.array([[3.0, 3.0], [3.0, 3.0]]).reshape(-1, 2)
+        damage = jnp.array([0.0, 0.0]).reshape(-1, 1)
     else:
         raise NotImplementedError
+
+    actual_n_zone = len(zone_type)
+    n_zone = max_n_zone
+
     zone_scenario = ZoneScenario(
-        n_zone=jnp.array(len(zone_type)),
-        zone_type=zone_type,
-        position=position,
-        axes=axes,
-        damage=damage,
+        n_zone=jnp.array(n_zone),
+        zone_type=jnp.zeros((n_zone, 1))
+        .at[: min(zone_type.shape[0], n_zone)]
+        .set(zone_type[: min(zone_type.shape[0], n_zone)])
+        .astype(jnp.int32)
+        if max_n_zone is not None
+        else zone_type,
+        position=jnp.zeros((n_zone, 2))
+        .at[: min(position.shape[0], n_zone)]
+        .set(position[: min(position.shape[0], n_zone)])
+        .astype(jnp.float32)
+        if max_n_zone is not None
+        else position,
+        axes=jnp.zeros((n_zone, 2))
+        .at[: min(axes.shape[0], n_zone)]
+        .set(axes[: min(axes.shape[0], n_zone)])
+        .astype(jnp.float32)
+        if max_n_zone is not None
+        else axes,
+        damage=jnp.zeros((n_zone, 1))
+        .at[: min(damage.shape[0], n_zone)]
+        .set(damage[: min(damage.shape[0], n_zone)])
+        .astype(jnp.float32)
+        if max_n_zone is not None
+        else damage,
     )
 
     # TABS Configuration
     tabs_config = TABSConfig(
         scenario_name=scenario_name,
-        max_n_ally=int(ally_unit_comp.sum().item()),
-        max_n_enemy=int(enemy_unit_comp.sum().item()),
+        max_n_ally=int(ally_unit_comp.sum().item()) if max_n_ally is None else max_n_ally,
+        max_n_enemy=int(enemy_unit_comp.sum().item()) if max_n_enemy is None else max_n_enemy,
         max_n_zone=int(zone_scenario.n_zone.item()),
     )
 
