@@ -2,7 +2,8 @@ import math
 
 # unit names: F, S, K, M, A, C, D, H, P
 SCENARIOS = ["2F1K2A1H", "1K2S", "1M2C1P", "7F2D1H"]
-ZONESCENARIO = ["void"]
+ZONESCENARIO = ["void", "2L", "3B", "2L2B"]
+PREDEFINED_SCENARIOS = ["elbow", "crossfire", "ambush"]
 
 UNITID2CHAR = {
     0: ".",  # Empty space
