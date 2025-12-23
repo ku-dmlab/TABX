@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from flax import struct
 
 from src.tabs.config import TABSConfig
-from src.tabs.constants import SCENARIOS, UNITID2CHAR, ZONESCENARIO, UnitID
+from src.tabs.constants import PREDEFINED_SCENARIOS, SCENARIOS, UNITID2CHAR, ZONESCENARIO, UnitID
 from src.tabs.units import get_all_unit_spec
 
 
@@ -132,7 +132,10 @@ def generate_scenario_config(
     if "_" in tabs_config.scenario_name:
         zone_scenario_name = tabs_config.scenario_name.split("_")[1]
     else:
-        zone_scenario_name = scenario_name
+        if scenario_name in PREDEFINED_SCENARIOS:
+            zone_scenario_name = scenario_name
+        else:
+            zone_scenario_name = "void"
 
     # Unit Scenario
     if scenario_name == SCENARIOS[0]:
@@ -211,7 +214,7 @@ def generate_scenario_config(
             ],
             dtype=jnp.float32,
         )
-    elif scenario_name == "elbow":
+    elif scenario_name == PREDEFINED_SCENARIOS[0]:
         _battle_field = jnp.array(
             [
                 [0, 0, 0, 0, 0],
@@ -230,7 +233,7 @@ def generate_scenario_config(
             ],
             dtype=jnp.float32,
         )
-    elif scenario_name == "crossfire":
+    elif scenario_name == PREDEFINED_SCENARIOS[1]:
         _battle_field = jnp.array(
             [
                 [0, 0, 0, 0, 0],
@@ -249,7 +252,7 @@ def generate_scenario_config(
             ],
             dtype=jnp.float32,
         )
-    elif scenario_name == "ambush":
+    elif scenario_name == PREDEFINED_SCENARIOS[2]:
         _battle_field = jnp.array(
             [
                 [0, UnitID.Cannon, 0, UnitID.Cannon, 0],
@@ -325,6 +328,23 @@ def generate_scenario_config(
         position = jnp.array([[-24.25, -10.0], [-24, 10.0]]).reshape(-1, 2)
         axes = jnp.array([[3.0, 3.0], [3.0, 3.0]]).reshape(-1, 2)
         damage = jnp.array([0.0, 0.0]).reshape(-1, 1)
+    elif zone_scenario_name == ZONESCENARIO[1]:
+        zone_type = jnp.array([1, 1]).reshape(-1, 1)
+        position = jnp.array([[-20.0, -5.0], [20.0, 5.0]]).reshape(-1, 2)
+        axes = jnp.array([[10.0, 5.0], [10.0, 5.0]]).reshape(-1, 2)
+        damage = jnp.array([10.0, 10.0]).reshape(-1, 1)
+    elif zone_scenario_name == ZONESCENARIO[2]:
+        zone_type = jnp.array([2, 2, 2]).reshape(-1, 1)
+        position = jnp.array([[-22.5, -7.0], [22.5, 7.0], [0, 0.0]]).reshape(-1, 2)
+        axes = jnp.array([[5.0, 7.0], [5.0, 7.0], [3.0, 3.0]]).reshape(-1, 2)
+        damage = jnp.array([0.0, 0.0, 0.0]).reshape(-1, 1)
+    elif zone_scenario_name == ZONESCENARIO[3]:
+        zone_type = jnp.array([1, 1, 2, 2]).reshape(-1, 1)
+        position = jnp.array([[-20.0, -5.0], [20.0, 5.0], [-24.0, 7.0], [24.0, -7.0]]).reshape(
+            -1, 2
+        )
+        axes = jnp.array([[10.0, 5.0], [10.0, 5.0], [5.0, 5.0], [5.0, 5.0]]).reshape(-1, 2)
+        damage = jnp.array([10.0, 10.0, 0.0, 0.0]).reshape(-1, 1)
     else:
         raise NotImplementedError
 
