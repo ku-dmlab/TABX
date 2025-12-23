@@ -4,6 +4,7 @@ Based on JaxMARL Implementation of MAPPO
 
 import os
 from dataclasses import dataclass
+from typing import Literal
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
@@ -20,19 +21,42 @@ from src.baseline.ued.level_generator import FREE_PARAM_TYPES, level_generator
 from src.baseline.ued.wrappers import LevelAutoResetWrapper
 from src.baseline.utils import batchify, get_battle_metric, unbatchify
 from src.tabs import TABS
-from src.tabs.config import PhysicsParams, TABSConfig, TABSHeuristicConfig
-from src.tabs.scenarios import generate_scenario
+from src.tabs.config import PhysicsParams, TABSHeuristicConfig
+from src.tabs.scenarios import generate_scenario_config
 from src.tabs.utils import Transition
 from src.tabs.wrappers import TABSEnemyHeuristicWrapper, TABSLogWrapper
 
 
+@dataclass
+class Config:
+    LR: float = 0.004
+    NUM_ENVS: int = 128
+    NUM_STEPS: int = 128
+    GRU_HIDDEN_DIM: int = 128
+    FC_DIM_SIZE: int = 128
+    TOTAL_TIMESTEPS: int = 1e7
+    UPDATE_EPOCHS: int = 4
+    NUM_MINIBATCHES: int = 4
+    GAMMA: float = 0.99
+    GAE_LAMBDA: float = 0.95
+    CLIP_EPS: float = 0.05
+    SCALE_CLIP_EPS: bool = False
+    ENT_COEF: float = 0.01
+    VF_COEF: float = 0.5
+    MAX_GRAD_NORM: float = 0.25
+    ACTIVATION: str = "relu"
+    ANNEAL_LR: bool = True
+    # Env
+    SCENARIO: str = "2F1K2A1H"
+    FREE_PARAM_TYPE: Literal["zone", "unit_spec", "heuristic_config"] = "zone"
+    # Misc.
+    SEED: int = 0
+    PROJECT_NAME: str = "dr_mappo_rnn"  # wandb project name
+
+
 def make_train(config):
-    tabs_config = TABSConfig(scenario_name=config["SENARIO"])
-    scenario = generate_scenario(tabs_config)
-    tabs_config = TABSConfig(
-        scenario_name=config["SENARIO"],
-        max_n_ally=int(scenario.ally_unit_comp.sum().item()),
-        max_n_enemy=int(scenario.enemy_unit_comp.sum().item()),
+    vscenario, zone_scenario, tabs_config = generate_scenario_config(
+        scenario_name=config["SCENARIO"]
     )
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
@@ -70,13 +94,7 @@ def make_train(config):
         ac_init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])
         actor_network_params = actor_network.init(_rng_actor, ac_init_hstate, ac_init_x)
         cr_init_x = (
-            jnp.zeros(
-                (
-                    1,
-                    config["NUM_ENVS"],
-                    env.world_state_size(),
-                )
-            ),
+            jnp.zeros((1, config["NUM_ENVS"], env.world_state_size())),
             jnp.zeros((1, config["NUM_ENVS"])),
         )
         cr_init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])
@@ -116,7 +134,8 @@ def make_train(config):
         reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
 
         env_params = {
-            "scenario": scenario,
+            "scenario": vscenario,
+            "zone_scenario": zone_scenario,
             "physics_params": PhysicsParams(),
             "heuristic_params": TABSHeuristicConfig(),
         }
@@ -419,32 +438,9 @@ def make_train(config):
     return train
 
 
-@dataclass
-class Config:
-    LR: float = 0.004
-    NUM_ENVS: int = 128
-    NUM_STEPS: int = 128
-    GRU_HIDDEN_DIM: int = 128
-    FC_DIM_SIZE: int = 128
-    TOTAL_TIMESTEPS: int = 1e7
-    UPDATE_EPOCHS: int = 4
-    NUM_MINIBATCHES: int = 4
-    GAMMA: float = 0.99
-    GAE_LAMBDA: float = 0.95
-    CLIP_EPS: float = 0.05
-    SCALE_CLIP_EPS: bool = False
-    ENT_COEF: float = 0.01
-    VF_COEF: float = 0.5
-    MAX_GRAD_NORM: float = 0.25
-    ACTIVATION: str = "relu"
-    SEED: int = 0
-    ANNEAL_LR: bool = True
-    SENARIO: str = "2F1K2A1H_tight"
-    FREE_PARAM_TYPE: str = "unit_spec"
-
-
 if __name__ == "__main__":
     config = tyro.cli(Config)
-    wandb.init(project="dr_mappo_rnn", mode="online")
-    train = make_train(config.__dict__)
-    result = train(jax.random.key(0))
+    wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
+    train_fn = make_train(config.__dict__)
+    with jax.disable_jit(False):
+        result = train_fn(jax.random.key(config.SEED))

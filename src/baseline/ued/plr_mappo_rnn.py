@@ -5,6 +5,7 @@ Based on JaxMARL Implementation of MAPPO and JaxUED Implementation of PLR
 import os
 from dataclasses import dataclass
 from enum import IntEnum
+from typing import Literal
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
@@ -28,14 +29,55 @@ from src.baseline.ued.level_sampler import LevelSampler
 from src.baseline.ued.scores import compute_max_returns, max_mc, positive_value_loss
 from src.baseline.utils import batchify, get_battle_metric, unbatchify
 from src.tabs import TABS
-from src.tabs.config import PhysicsParams, TABSConfig, TABSHeuristicConfig
-from src.tabs.scenarios import generate_scenario
+from src.tabs.config import PhysicsParams, TABSHeuristicConfig
+from src.tabs.scenarios import generate_scenario_config
 from src.tabs.utils import Transition
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
     TABSEnemyHeuristicWrapper,
     TABSLogWrapper,
 )
+
+
+@dataclass
+class Config:
+    LR: float = 0.004
+    NUM_ENVS: int = 128
+    NUM_STEPS: int = 128
+    GRU_HIDDEN_DIM: int = 128
+    FC_DIM_SIZE: int = 128
+    TOTAL_TIMESTEPS: int = 1e8  # NOTE
+    UPDATE_EPOCHS: int = 4
+    NUM_MINIBATCHES: int = 4
+    GAMMA: float = 0.99
+    GAE_LAMBDA: float = 0.95
+    CLIP_EPS: float = 0.05
+    SCALE_CLIP_EPS: bool = False
+    ENT_COEF: float = 0.01
+    VF_COEF: float = 0.5
+    MAX_GRAD_NORM: float = 0.25
+    ACTIVATION: str = "relu"
+    ANNEAL_LR: bool = True
+    # Env
+    SCENARIO: str = "2F1K2A1H"
+    FREE_PARAM_TYPE: Literal["zone", "unit_spec", "heuristic_config"] = "zone"
+    # PLR
+    SCORE_FUNC: str = "MaxMC"  # MaxMC, pvl
+    EXPLORATORY_GRAD_UPDATES: bool = False  # False if Robust PLR or ACCEL
+    LEVEL_BUFFER_CAPACITY: int = 4000
+    REPLAY_PROB: float = 0.8
+    STALENESS_COEF: float = 0.3
+    MINIMUM_FILL_RATIO: float = 0.5
+    PRIORITIZATION: str = "rank"  # rank, topk
+    TEMPERATURE: float = 0.3
+    TOPK_K: int = 4
+    BUFFER_DUPLICATE_CHECK: bool = True
+    # Accel
+    USE_ACCEL: bool = False
+    NUM_EDITS: int = 5
+    # Misc.
+    SEED: int = 0
+    PROJECT_NAME: str = "plr_mappo_rnn"  # wandb project name
 
 
 class UpdateState(IntEnum):
@@ -57,12 +99,8 @@ class SampleState:
 
 
 def make_train(config):
-    tabs_config = TABSConfig(scenario_name=config["SENARIO"])
-    scenario = generate_scenario(tabs_config)
-    tabs_config = TABSConfig(
-        scenario_name=config["SENARIO"],
-        max_n_ally=int(scenario.ally_unit_comp.sum().item()),
-        max_n_enemy=int(scenario.enemy_unit_comp.sum().item()),
+    vscenario, zone_scenario, tabs_config = generate_scenario_config(
+        scenario_name=config["SCENARIO"]
     )
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
@@ -107,13 +145,7 @@ def make_train(config):
         ac_init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])
         actor_network_params = actor_network.init(_rng_actor, ac_init_hstate, ac_init_x)
         cr_init_x = (
-            jnp.zeros(
-                (
-                    1,
-                    config["NUM_ENVS"],
-                    env.world_state_size(),
-                )
-            ),
+            jnp.zeros((1, config["NUM_ENVS"], env.world_state_size())),
             jnp.zeros((1, config["NUM_ENVS"])),
         )
         cr_init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])
@@ -161,7 +193,8 @@ def make_train(config):
 
         rng, _rng = jax.random.split(rng)
         env_params = {
-            "scenario": scenario,
+            "scenario": vscenario,
+            "zone_scenario": zone_scenario,
             "physics_params": PhysicsParams(),
             "heuristic_params": TABSHeuristicConfig(),
         }
@@ -473,7 +506,8 @@ def make_train(config):
 
                     # Reset
                     env_params = {
-                        "scenario": scenario,
+                        "scenario": vscenario,
+                        "zone_scenario": zone_scenario,
                         "physics_params": PhysicsParams(),
                         "heuristic_params": TABSHeuristicConfig(),
                     }
@@ -667,10 +701,8 @@ def make_train(config):
                     # Mutate
                     rng, rng_mutate, rng_reset = jax.random.split(rng, 3)
                     parent_levels = sample_state.replay_last_level_batch
-                    child_levels = jax.vmap(mutate_level, (0, 0, None))(
-                        parent_levels,
-                        jax.random.split(rng_mutate, config["NUM_ENVS"]),
-                        config["NUM_EDITS"],
+                    child_levels = jax.vmap(mutate_level, (0, 0))(
+                        parent_levels, jax.random.split(rng_mutate, config["NUM_ENVS"])
                     )
                     reset_rng = jax.random.split(rng_reset, config["NUM_ENVS"])
                     last_obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(
@@ -846,49 +878,9 @@ def make_train(config):
     return train
 
 
-@dataclass
-class Config:
-    LR: float = 0.004
-    NUM_ENVS: int = 128
-    NUM_STEPS: int = 128
-    GRU_HIDDEN_DIM: int = 128
-    FC_DIM_SIZE: int = 128
-    TOTAL_TIMESTEPS: int = 1e8  # NOTE
-    UPDATE_EPOCHS: int = 4
-    NUM_MINIBATCHES: int = 4
-    GAMMA: float = 0.99
-    GAE_LAMBDA: float = 0.95
-    CLIP_EPS: float = 0.05
-    SCALE_CLIP_EPS: bool = False
-    ENT_COEF: float = 0.01
-    VF_COEF: float = 0.5
-    MAX_GRAD_NORM: float = 0.25
-    ACTIVATION: str = "relu"
-    ANNEAL_LR: bool = True
-    # Env
-    SENARIO: str = "2F1K2A1H_tight"
-    FREE_PARAM_TYPE: str = "unit_spec"
-    # PLR
-    SCORE_FUNC: str = "MaxMC"  # MaxMC, pvl
-    EXPLORATORY_GRAD_UPDATES: bool = False  # False if Robust PLR or ACCEL
-    LEVEL_BUFFER_CAPACITY: int = 4000
-    REPLAY_PROB: float = 0.8
-    STALENESS_COEF: float = 0.3
-    MINIMUM_FILL_RATIO: float = 0.5
-    PRIORITIZATION: str = "rank"  # rank, topk
-    TEMPERATURE: float = 0.3
-    TOPK_K: int = 4
-    BUFFER_DUPLICATE_CHECK: bool = True
-    # Accel
-    USE_ACCEL: bool = False
-    NUM_EDITS: int = 5
-    # Misc.
-    SEED: int = 0
-
-
 if __name__ == "__main__":
     config = tyro.cli(Config)
-    wandb.init(project="plr_mappo_rnn", mode="online", config=config)
-    train = make_train(config.__dict__)
+    wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
+    train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
-        result = train(jax.random.key(config.SEED))
+        result = train_fn(jax.random.key(config.SEED))
