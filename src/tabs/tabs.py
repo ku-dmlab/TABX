@@ -483,7 +483,10 @@ class TABS(BaseMAEnv):
         if self.obs_type == "unit_spec":
             self.observation_spaces = {
                 agent: Box(
-                    low=0, high=1, shape=(14 + 16 * (len(self.unit_keys) - 1),), dtype=jnp.float32
+                    low=0,
+                    high=1,
+                    shape=(14 + 16 * (len(self.unit_keys) - 1) + len(self.zone_keys) * 6,),
+                    dtype=jnp.float32,
                 )
                 for agent in self.unit_keys
             }
@@ -908,7 +911,9 @@ class TABS(BaseMAEnv):
         )
 
     def world_state_size(self):
-        return 14 * self.num_agents  # n_features * n_agents
+        return (
+            14 * self.num_agents + len(self.zone_keys) * 6
+        )  # n_features * n_agents + n_zones * n_features
 
     def get_avail_actions(self, state):
         return {agent: jnp.ones((self.action_spaces[agent].n,)) for agent in self.unit_keys}
