@@ -552,9 +552,22 @@ def make_train(config):
                     advantages, targets = _calculate_gae(traj_batch, last_val)
 
                     # Calculate scores
-                    max_returns = compute_max_returns(traj_batch.global_done, traj_batch.reward)
+                    _done = traj_batch.global_done.reshape(
+                        config["NUM_STEPS"], -1, config["NUM_ENVS"]
+                    ).mean(axis=1)
+                    _reward = traj_batch.reward.reshape(
+                        config["NUM_STEPS"], -1, config["NUM_ENVS"]
+                    ).mean(axis=1)
+                    max_returns = compute_max_returns(_done, _reward)
                     scores = compute_score(
-                        traj_batch.global_done, traj_batch.value, max_returns, advantages
+                        _done,
+                        traj_batch.value.reshape(config["NUM_STEPS"], -1, config["NUM_ENVS"]).mean(
+                            axis=1
+                        ),
+                        max_returns,
+                        advantages.reshape(config["NUM_STEPS"], -1, config["NUM_ENVS"]).mean(
+                            axis=1
+                        ),
                     )
                     sampler, _ = level_sampler.insert_batch(
                         sampler, new_levels, scores, {"max_return": max_returns}
@@ -644,12 +657,25 @@ def make_train(config):
                     advantages, targets = _calculate_gae(traj_batch, last_val)
 
                     # Calculate scores
+                    _done = traj_batch.global_done.reshape(
+                        config["NUM_STEPS"], -1, config["NUM_ENVS"]
+                    ).mean(axis=1)
+                    _reward = traj_batch.reward.reshape(
+                        config["NUM_STEPS"], -1, config["NUM_ENVS"]
+                    ).mean(axis=1)
                     max_returns = jnp.maximum(
                         level_sampler.get_levels_extra(sampler, level_inds)["max_return"],
-                        compute_max_returns(traj_batch.global_done, traj_batch.reward),
+                        compute_max_returns(_done, _reward),
                     )
                     scores = compute_score(
-                        traj_batch.global_done, traj_batch.value, max_returns, advantages
+                        _done,
+                        traj_batch.value.reshape(config["NUM_STEPS"], -1, config["NUM_ENVS"]).mean(
+                            axis=1
+                        ),
+                        max_returns,
+                        advantages.reshape(config["NUM_STEPS"], -1, config["NUM_ENVS"]).mean(
+                            axis=1
+                        ),
                     )
                     sampler = level_sampler.update_batch(
                         sampler, level_inds, scores, {"max_return": max_returns}
@@ -743,9 +769,22 @@ def make_train(config):
                     advantages, targets = _calculate_gae(traj_batch, last_val)
 
                     # Calculate scores
-                    max_returns = compute_max_returns(traj_batch.global_done, traj_batch.reward)
+                    _done = traj_batch.global_done.reshape(
+                        config["NUM_STEPS"], -1, config["NUM_ENVS"]
+                    ).mean(axis=1)
+                    _reward = traj_batch.reward.reshape(
+                        config["NUM_STEPS"], -1, config["NUM_ENVS"]
+                    ).mean(axis=1)
+                    max_returns = compute_max_returns(_done, _reward)
                     scores = compute_score(
-                        traj_batch.global_done, traj_batch.value, max_returns, advantages
+                        _done,
+                        traj_batch.value.reshape(config["NUM_STEPS"], -1, config["NUM_ENVS"]).mean(
+                            axis=1
+                        ),
+                        max_returns,
+                        advantages.reshape(config["NUM_STEPS"], -1, config["NUM_ENVS"]).mean(
+                            axis=1
+                        ),
                     )
                     sampler, _ = level_sampler.insert_batch(
                         sampler, child_levels, scores, {"max_return": max_returns}

@@ -31,10 +31,16 @@ def accumulate_rollout_stats(dones, metrics, *, time_average):
         accum_val = jax.tree_util.tree_map(lambda x: (1 - done) * x, accum_val)
         step_count = (1 - done) * step_count
 
-        return (sum_val, max_val, accum_val, step_count, episode_count), None
+        return (
+            sum_val,
+            max_val,
+            accum_val,
+            step_count.astype(jnp.uint32),
+            episode_count.astype(jnp.uint32),
+        ), None
 
-    batch_size = dones.shape[0]
-    zeros = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x[:, 0]), metrics)
+    batch_size = dones.shape[1]
+    zeros = jax.tree_util.tree_map(lambda x: jnp.zeros_like(x[0]), metrics)
     (sum_val, max_val, _, _, episode_count), _ = jax.lax.scan(
         iter,
         (
@@ -44,7 +50,7 @@ def accumulate_rollout_stats(dones, metrics, *, time_average):
             jnp.zeros(batch_size, dtype=jnp.uint32),
             jnp.zeros(batch_size, dtype=jnp.uint32),
         ),
-        (jnp.permute_dims(dones, (1, 0)), jnp.permute_dims(metrics, (1, 0))),
+        (dones, metrics),
     )
 
     mean_val = jax.tree_util.tree_map(lambda x: x / jnp.maximum(episode_count, 1), sum_val)
@@ -63,7 +69,7 @@ def compute_max_mean_returns_epcount(dones, rewards):
 
 def max_mc(dones, values, max_returns, incomplete_value=-jnp.inf):
     mean_scores, _, episode_count = accumulate_rollout_stats(
-        dones, max_returns[:, None] - values, time_average=True
+        dones, max_returns[None, :] - values, time_average=True
     )
     return jnp.where(episode_count > 0, mean_scores, incomplete_value)
 
