@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import chex
 import jax
 import jax.numpy as jnp
@@ -8,6 +10,244 @@ from src.tabs.tabs import UnitAction
 
 def angle_wrap_to_pi(x):
     return (x + jnp.pi) % (2 * jnp.pi) - jnp.pi
+
+
+@dataclass
+class OwnState:
+    health: chex.Array
+    max_health_ratio: chex.Array
+    position: chex.Array
+    rotation: chex.Array
+    attack_range: chex.Array
+    attack_damage: chex.Array
+    cooldown_ratio: chex.Array
+    radius: chex.Array
+    speed: chex.Array
+
+    @property
+    def is_healer(self):
+        return self.attack_damage < 0
+
+    @property
+    def is_on_cooldown(self):
+        return self.cooldown_ratio < 1.0
+
+    @classmethod
+    def from_obs(cls, obs: chex.Array) -> "OwnState":
+        own = obs[:14]
+
+        return cls(
+            health=own[0],
+            max_health_ratio=own[1],
+            position=own[2:4],
+            rotation=own[4] * 2 * jnp.pi,
+            attack_range=own[5],
+            attack_damage=own[6],
+            cooldown_ratio=own[8],
+            radius=own[9],
+            speed=own[13],
+        )
+
+
+@dataclass
+class OtherState:
+    health: chex.Array
+    health_ratio: chex.Array
+    rel_pos: chex.Array
+    rotation: chex.Array
+    attack_range: chex.Array
+    attack_damage: chex.Array
+    is_ally: chex.Array
+    is_attackable: chex.Array
+    max_hp: chex.Array
+    radius: chex.Array
+    speed: chex.Array
+
+    @property
+    def is_alive(self):
+        return self.health > 0
+
+    @classmethod
+    def from_obs(cls, obs: chex.Array, num_agents: int) -> "OtherState":
+        other = obs[14:].reshape(num_agents - 1, -1)
+
+        return cls(
+            health=other[:, 0],
+            health_ratio=other[:, 1],
+            rel_pos=other[:, 2:4],
+            rotation=other[:, 4] * 2 * jnp.pi,
+            attack_range=other[:, 5],
+            attack_damage=other[:, 6],
+            is_ally=other[:, 13].astype(jnp.bool_),
+            is_attackable=other[:, 14].astype(jnp.bool_),
+            radius=other[:, 9],
+            speed=other[:, 15],
+            max_hp=jnp.where(
+                other[:, 13].astype(jnp.bool_) | (other[:, 0] == 0),
+                jnp.inf,
+                other[:, 0]
+                / other[:, 1],  # hp / normalized_hp = max_hp since normalized_hp = hp / max_hp
+            ),
+        )
+
+
+@chex.dataclass
+class ParsedObservation:
+    own: OwnState
+    other: OtherState
+
+    @classmethod
+    def from_obs(cls, obs: chex.Array, num_agents: int) -> "ParsedObservation":
+        return cls(
+            own=OwnState.from_obs(obs),
+            other=OtherState.from_obs(obs, num_agents),
+        )
+
+
+def get_visible_target(parsed_obs: ParsedObservation) -> chex.Array:
+    """
+    Get the visible target for the own unit.
+
+    If the own unit is healer, the visible target is the injured ally.
+    If the own unit is not healer, the visible target is the normal target that is not ally.
+
+    Args:
+        parsed_obs: Parsed observation
+
+    Returns:
+        Visible target
+    """
+
+    def get_healer_target(parsed_obs: ParsedObservation) -> chex.Array:
+        other_injured_ally = (
+            parsed_obs.other.is_ally
+            & (parsed_obs.other.health_ratio < 1)
+            & (parsed_obs.other.health_ratio > 0)
+        )
+        exist_injured_ally = jnp.sum(other_injured_ally) > 0
+        return (
+            jnp.where(exist_injured_ally, other_injured_ally, parsed_obs.other.is_ally)
+            & parsed_obs.own.is_healer
+        )
+
+    healer_target = get_healer_target(parsed_obs)
+    normal_target = jnp.logical_not(parsed_obs.other.is_ally)
+
+    other_is_alive = parsed_obs.other.is_alive
+
+    return jnp.where(parsed_obs.own.is_healer, healer_target, normal_target) & other_is_alive
+
+
+def get_target_move_position(
+    heuristic_config: TABSHeuristicConfig, parsed_obs: ParsedObservation
+) -> chex.Array:
+    """
+    Get the target move position for the own unit.
+
+    Args:
+        parsed_obs: Parsed observation
+
+    Returns:
+        Target move position
+    """
+
+    backward_rotate_vector = jnp.stack(
+        [jnp.cos(parsed_obs.other.rotation), jnp.sin(parsed_obs.other.rotation)], axis=-1
+    ) * (parsed_obs.other.radius[:, None] + parsed_obs.own.radius)
+
+    def get_assassin_target_move_position(parsed_obs: ParsedObservation) -> chex.Array:
+        return parsed_obs.other.rel_pos - backward_rotate_vector
+
+    def get_healer_target_move_position(parsed_obs: ParsedObservation) -> chex.Array:
+        return parsed_obs.other.rel_pos
+
+    def get_normal_target_move_position(parsed_obs: ParsedObservation) -> chex.Array:
+        return parsed_obs.other.rel_pos + backward_rotate_vector
+
+    assassin_target_move_position = get_assassin_target_move_position(parsed_obs)
+    healer_target_move_position = get_healer_target_move_position(parsed_obs)
+    normal_target_move_position = get_normal_target_move_position(parsed_obs)
+
+    return jnp.where(
+        parsed_obs.own.speed >= heuristic_config.assasin_speed,
+        assassin_target_move_position,
+        jnp.where(
+            parsed_obs.own.is_healer, healer_target_move_position, normal_target_move_position
+        ),
+    )
+
+
+def get_move_action(
+    heuristic_config: TABSHeuristicConfig, parsed_obs: ParsedObservation
+) -> chex.Array:
+    """
+    Get the move action for the own unit.
+
+    Args:
+        parsed_obs: Parsed observation
+
+    Returns:
+        Move action
+    """
+
+    visible_target = get_visible_target(parsed_obs)
+    target_move_position = get_target_move_position(heuristic_config, parsed_obs)
+
+    L2_distnace = jnp.sum(jnp.square(target_move_position), axis=-1)
+    is_assassin = parsed_obs.own.speed >= heuristic_config.assasin_speed
+
+    masekd_distance = jnp.where(
+        visible_target
+        & (
+            ~is_assassin | (jnp.abs(parsed_obs.other.max_hp - parsed_obs.other.max_hp.min()) < 0.01)
+        ),  # if assassin, find the target with the smallest max hp within 0.01 for the sake of floating point error
+        L2_distnace,
+        jnp.inf,
+    )  # Exclude invisible target by setting the distance to a large value
+
+    min_distance_index = jnp.argmin(masekd_distance)
+    min_relative_position = parsed_obs.other.rel_pos[
+        min_distance_index
+    ]  # [x, y], used for rotation calculation
+    min_target_move_position = target_move_position[
+        min_distance_index
+    ]  # [x, y], used for move calculation
+    max_relative_axis = jnp.argmax(
+        jnp.abs(min_target_move_position)
+    )  # Find the axis with the largest absolute value
+    max_relative_axis_value = min_target_move_position[max_relative_axis]
+    max_relative_axis_direction = jnp.sign(max_relative_axis_value)
+    x_axis = max_relative_axis == 0  # If the axis is 0, the unit is moving in the x-axis
+    positive_direction = (
+        max_relative_axis_direction > 0
+    )  # If the direction is positive, the unit is moving in the positive direction (right or up)
+    # Kiting logic
+    own_is_ranger = parsed_obs.own.attack_range >= heuristic_config.ranger_attack_range
+    other_is_agressive = (
+        masekd_distance
+        < (
+            parsed_obs.own.attack_range
+            * jnp.where(
+                parsed_obs.own.is_healer,
+                heuristic_config.healer_aggressive_threshold,
+                heuristic_config.aggressive_threshold,
+            )
+        )
+        ** 2
+    )  # If the distance is less than the attack range * aggressive threshold, the unit is aggressive
+    exist_agressive = jnp.sum(other_is_agressive) > 0
+    kiting = (
+        own_is_ranger & exist_agressive
+    )  # If the unit is ranger and there is aggressive target, the unit is kiting to the target
+    positive_direction = jnp.where(kiting, ~positive_direction, positive_direction)
+
+    move_action = (
+        UnitAction.RIGHT * (x_axis & positive_direction)
+        + UnitAction.LEFT * (x_axis & ~positive_direction)
+        + UnitAction.UP * (~x_axis & positive_direction)
+        + UnitAction.DOWN * (~x_axis & ~positive_direction)
+    )
+    return move_action, min_relative_position
 
 
 def heuristic_policy(
@@ -88,119 +328,24 @@ def heuristic_policy(
     14 : is_attackable
     15 : speed
     """
-    own_features = obs[:14]
-    other_features = obs[14:].reshape(num_agents - 1, -1)
-    attack_damage = own_features[6]
-    own_is_healer = attack_damage < 0  # If the attack damage is negative, the unit is healer
-    own_is_on_cooldown = (
-        own_features[8] < 1.0
-    )  # If the cooldown is less than 1.0, the unit is on cooldown
-    own_speed = own_features[13]
-    own_is_assassin = own_speed >= heuristic_config.assasin_speed
-    own_rotation = own_features[4] * jnp.pi * 2
-    own_attack_range = own_features[5]
-    own_radius = own_features[9]
-    other_max_health = other_features[:, 1]  # Normalized between 0 and 1
-    other_is_attackable = other_features[:, -2].astype(jnp.bool_)
-    other_hp = other_features[
-        :, 0
-    ]  # Since the rotation is normalized to 0-1, we need to multiply by 2pi to get the actual rotation
-    other_relative_position = other_features[:, 2:4]
-    other_rotation = other_features[:, 4] * jnp.pi * 2
-    other_radius = other_features[:, 9]
-    other_is_ally = other_features[:, -3].astype(jnp.bool_)
-    other_injured_ally = other_is_ally & (other_max_health < 1) & (other_max_health > 0)
-    exist_injured_ally = jnp.sum(other_injured_ally) > 0
-    other_enemy_max_hp = jnp.where(
-        other_is_ally | (other_hp == 0),
-        jnp.inf,
-        other_hp
-        / other_features[:, 1],  # hp / normalized_hp = max_hp since normalized_hp = hp / max_hp
-    )
-    min_other_enemy_max_hp = (
-        other_enemy_max_hp.min()
-    )  # For assassin unit, find the target with the smallest max hp
+    parsed_obs = ParsedObservation.from_obs(obs, num_agents)
 
-    # other_relative_position for assassin unit
-    backward_rotate_vector = jnp.stack(
-        [jnp.cos(other_rotation), jnp.sin(other_rotation)], axis=-1
-    ) * (other_radius[:, None] + own_radius)  # [n_unit, 2]
-    target_move_position = jnp.where(
-        own_is_assassin,
-        other_relative_position - backward_rotate_vector,
-        jnp.where(
-            own_is_healer, other_relative_position, other_relative_position + backward_rotate_vector
-        ),
-    )  # If assassin, target move position is the target's back
-    # If there is injured ally, healer target is the injured ally, otherwise healer target is the closest ally
-    healer_target = (
-        jnp.where(exist_injured_ally, other_injured_ally, other_is_ally)
-    ) & own_is_healer
-    # If the unit is not healer
-    normal_target = jnp.logical_not(other_is_ally | own_is_healer)
-    exist_attackable_target = jnp.sum(other_is_attackable & (healer_target | ~own_is_healer)) > 0
-    # Visible target is the target that is alive and either healer target or normal target
-    other_is_alive = other_hp > 0
-    # If the target units in observation are alive, the unit hp is larger than 0
-    visible_target = other_is_alive & (healer_target | normal_target)  # Visible unit + target
+    move_action, min_relative_position = get_move_action(heuristic_config, parsed_obs)
+    visible_target = get_visible_target(parsed_obs)
     exist_visible_target = jnp.sum(visible_target) > 0
-    L2_distnace = jnp.sum(jnp.square(target_move_position), axis=-1)
-    masekd_distance = jnp.where(
-        visible_target
-        & (
-            ~own_is_assassin | (jnp.abs(other_enemy_max_hp - min_other_enemy_max_hp) < 0.01)
-        ),  # if assassin, find the target with the smallest max hp within 0.01 for the sake of floating point error
-        L2_distnace,
-        jnp.inf,
-    )  # Exclude invisible target by setting the distance to a large value
-    min_distance_index = jnp.argmin(masekd_distance)
-    min_relative_position = other_relative_position[
-        min_distance_index
-    ]  # [x, y], used for rotation calculation
-    min_target_move_position = target_move_position[
-        min_distance_index
-    ]  # [x, y], used for move calculation
-    max_relative_axis = jnp.argmax(
-        jnp.abs(min_target_move_position)
-    )  # Find the axis with the largest absolute value
-    max_relative_axis_value = min_target_move_position[max_relative_axis]
-    max_relative_axis_direction = jnp.sign(max_relative_axis_value)
-    x_axis = max_relative_axis == 0  # If the axis is 0, the unit is moving in the x-axis
-    positive_direction = (
-        max_relative_axis_direction > 0
-    )  # If the direction is positive, the unit is moving in the positive direction (right or up)
-    # Kiting logic
-    own_is_ranger = own_attack_range >= heuristic_config.ranger_attack_range
-    other_is_agressive = (
-        masekd_distance
-        < (
-            own_attack_range
-            * jnp.where(
-                own_is_healer,
-                heuristic_config.healer_aggressive_threshold,
-                heuristic_config.aggressive_threshold,
-            )
-        )
-        ** 2
-    )  # If the distance is less than the attack range * aggressive threshold, the unit is aggressive
-    exist_agressive = jnp.sum(other_is_agressive) > 0
-    kiting = (
-        own_is_ranger & exist_agressive
-    )  # If the unit is ranger and there is aggressive target, the unit is kiting to the target
-    positive_direction = jnp.where(
-        kiting, ~positive_direction, positive_direction
-    )  # If kiting, the unit is not moving in the positive direction to distance from the aggressive target
 
     discrete_key, rotate_key, noise_key = jax.random.split(key, 3)
+    own_is_ranger = parsed_obs.own.attack_range >= heuristic_config.ranger_attack_range
     rotate_action = angle_wrap_to_pi(
         jnp.where(
             exist_visible_target,
             jnp.arctan2(min_relative_position[1], min_relative_position[0])
-            - own_rotation
+            - parsed_obs.own.rotation
             + jax.random.normal(key=noise_key)
             * (
-                heuristic_config.rotate_noise_scale * (own_is_ranger & ~own_is_healer)
-                + heuristic_config.healer_rotate_noise_scale * (own_is_healer & own_is_ranger)
+                heuristic_config.rotate_noise_scale * (own_is_ranger & ~parsed_obs.own.is_healer)
+                + heuristic_config.healer_rotate_noise_scale
+                * (parsed_obs.own.is_healer & own_is_ranger)
             ),
             jnp.pi * 0.1,
         )
@@ -209,15 +354,15 @@ def heuristic_policy(
     # If there exists visible target, rotate to the target, otherwise rotate 0.1pi to find target
     move_action = jnp.where(
         exist_visible_target,
-        UnitAction.RIGHT * (x_axis & positive_direction)
-        + UnitAction.LEFT * (x_axis & ~positive_direction)
-        + UnitAction.UP * (~x_axis & positive_direction)
-        + UnitAction.DOWN * (~x_axis & ~positive_direction),
+        move_action,
         rotate_action,
     )
 
+    attackable_target = visible_target & parsed_obs.other.is_attackable
+    exist_attackable_target = jnp.sum(attackable_target) > 0
+
     discrete_action = jnp.where(
-        exist_attackable_target & jnp.logical_not(own_is_on_cooldown),
+        exist_attackable_target & jnp.logical_not(parsed_obs.own.is_on_cooldown),
         UnitAction.ATTACK,
         move_action,
     )  # If there exists attackable target and not on cooldown, attack, otherwise move
