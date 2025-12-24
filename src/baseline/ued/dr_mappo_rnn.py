@@ -131,7 +131,7 @@ def make_train(config):
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
-        reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
+        sample_rngs = jax.random.split(_rng, config["NUM_ENVS"])
 
         env_params = {
             "scenario": vscenario,
@@ -139,12 +139,11 @@ def make_train(config):
             "physics_params": PhysicsParams(),
             "heuristic_params": TABSHeuristicConfig(),
         }
-        env_params = sample_random_level(env_params, _rng)
 
-        env_params = jax.tree.map(
-            lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0), env_params
-        )
+        env_params = jax.vmap(sample_random_level, in_axes=(None, 0))(env_params, sample_rngs)
 
+        rng, _rng = jax.random.split(rng)
+        reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, 0))(reset_rng, env_params)
         ac_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], 128)
         cr_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], 128)
