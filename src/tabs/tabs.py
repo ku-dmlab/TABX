@@ -690,10 +690,35 @@ class TABS(BaseMAEnv):
             )
             * rolled_visible_matrix
         ).reshape(n_unit, -1)
+        zone_types = jnp.stack([state[zone].zone_type for zone in self.zone_keys])
+        zone_positions = jnp.stack([state[zone].ellipse.position for zone in self.zone_keys])
+        zone_axes = jnp.stack([state[zone].ellipse.axes for zone in self.zone_keys])
+        zone_damages = jnp.stack([state[zone].damage for zone in self.zone_keys])
 
-        concated_obs = jnp.concatenate((own_feature, other_feature), axis=1)
+        # For world state
+        zone_world_feature = jnp.concatenate(
+            (
+                zone_types,
+                zone_positions,
+                zone_axes,
+                zone_damages,
+            ),
+            axis=1,
+        ).flatten()
+
+        zone_types = jnp.repeat(zone_types[None], repeats=n_unit, axis=0)
+        zone_rel_positions = zone_positions[None] - positions[:, None]
+        zone_axes = jnp.repeat(zone_axes[None], repeats=n_unit, axis=0)
+        zone_damages = jnp.repeat(zone_damages[None], repeats=n_unit, axis=0)
+        zone_feature = jnp.concatenate(
+            (zone_types, zone_rel_positions, zone_axes, zone_damages), axis=-1
+        )
+        zone_feature = jnp.logical_not(zone_types == 0) * zone_feature
+        zone_feature = zone_feature.reshape(n_unit, -1)
+
+        concated_obs = jnp.concatenate((own_feature, other_feature, zone_feature), axis=1)
         observations = {key: concated_obs[i] for i, key in enumerate(keys)}
-        observations["world_state"] = jnp.concatenate(
+        unit_world_state = jnp.concatenate(
             (
                 healths,
                 max_healths,
@@ -711,6 +736,8 @@ class TABS(BaseMAEnv):
             ),
             axis=-1,
         ).flatten()
+
+        observations["world_state"] = jnp.concatenate([unit_world_state, zone_world_feature])
         return observations
 
     def reset(self, key, env_params):
@@ -786,7 +813,6 @@ class TABS(BaseMAEnv):
     def step(self, key, env_state, actions):
         state = env_state["state"]
         physics_params = env_state["physics_params"]
-        state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
 
         for sprite in state.keys():
             if hasattr(state[sprite], "update"):
@@ -802,6 +828,8 @@ class TABS(BaseMAEnv):
         # action processing
         for sprite in self.unit_keys:
             state[sprite] = state[sprite].act(state, actions[sprite], physics_params=physics_params)
+
+        state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
 
         # handling zone effect
         for sprite in state.keys():
