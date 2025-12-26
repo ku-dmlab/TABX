@@ -23,6 +23,7 @@ class OwnState:
     cooldown_ratio: chex.Array
     radius: chex.Array
     speed: chex.Array
+    sight_angle: chex.Array
 
     @property
     def is_healer(self):
@@ -46,6 +47,7 @@ class OwnState:
             cooldown_ratio=own[8],
             radius=own[9],
             speed=own[13],
+            sight_angle=own[11],
         )
 
 
@@ -177,7 +179,7 @@ def get_target_move_position(
     )
 
 
-def get_move_action(
+def get_discrete_action(
     heuristic_config: TABSHeuristicConfig, parsed_obs: ParsedObservation
 ) -> chex.Array:
     """
@@ -205,6 +207,7 @@ def get_move_action(
         jnp.inf,
     )  # Exclude invisible target by setting the distance to a large value
 
+    # --------------- Move action calculation ---------------
     min_distance_index = jnp.argmin(masekd_distance)
     min_relative_position = parsed_obs.other.rel_pos[
         min_distance_index
@@ -239,15 +242,54 @@ def get_move_action(
     kiting = (
         own_is_ranger & exist_agressive
     )  # If the unit is ranger and there is aggressive target, the unit is kiting to the target
-    positive_direction = jnp.where(kiting, ~positive_direction, positive_direction)
 
-    move_action = (
+    negative_direction = ~positive_direction
+    kite_direction_move_action = (
+        UnitAction.RIGHT * (x_axis & negative_direction)
+        + UnitAction.LEFT * (x_axis & ~negative_direction)
+        + UnitAction.UP * (~x_axis & negative_direction)
+        + UnitAction.DOWN * (~x_axis & ~negative_direction)
+    )
+    direction_move_action = (
         UnitAction.RIGHT * (x_axis & positive_direction)
         + UnitAction.LEFT * (x_axis & ~positive_direction)
         + UnitAction.UP * (~x_axis & positive_direction)
         + UnitAction.DOWN * (~x_axis & ~positive_direction)
     )
-    return move_action, min_relative_position
+
+    # --------------- Rotate action calculation ---------------
+    attack_range_square = (
+        parsed_obs.own.attack_range
+        + parsed_obs.own.radius * jnp.cos(parsed_obs.own.sight_angle / 2)
+        + parsed_obs.other.radius[min_distance_index]
+    ) ** 2
+
+    attackalbe_if_rotate = jnp.square(min_relative_position).sum() < attack_range_square
+
+    exist_visible_target = jnp.sum(visible_target) > 0
+
+    rotate_action = angle_wrap_to_pi(
+        jnp.where(
+            exist_visible_target,
+            jnp.arctan2(min_relative_position[1], min_relative_position[0])
+            - parsed_obs.own.rotation,
+            jnp.pi * 0.1,
+        )
+    )
+    rotate_action = jnp.where(rotate_action > 0, UnitAction.TURN_RIGHT, UnitAction.TURN_LEFT)
+
+    # --------------- Calculate final action ---------------
+    final_action = jnp.where(
+        kiting,
+        kite_direction_move_action,
+        jnp.where(
+            attackalbe_if_rotate,
+            rotate_action,
+            direction_move_action,
+        ),
+    )
+
+    return final_action
 
 
 def heuristic_policy(
@@ -330,33 +372,10 @@ def heuristic_policy(
     """
     parsed_obs = ParsedObservation.from_obs(obs, num_agents)
 
-    move_action, min_relative_position = get_move_action(heuristic_config, parsed_obs)
+    discrete_action = get_discrete_action(heuristic_config, parsed_obs)
     visible_target = get_visible_target(parsed_obs)
     exist_visible_target = jnp.sum(visible_target) > 0
-
-    discrete_key, rotate_key, noise_key = jax.random.split(key, 3)
-    own_is_ranger = parsed_obs.own.attack_range >= heuristic_config.ranger_attack_range
-    rotate_action = angle_wrap_to_pi(
-        jnp.where(
-            exist_visible_target,
-            jnp.arctan2(min_relative_position[1], min_relative_position[0])
-            - parsed_obs.own.rotation
-            + jax.random.normal(key=noise_key)
-            * (
-                heuristic_config.rotate_noise_scale * (own_is_ranger & ~parsed_obs.own.is_healer)
-                + heuristic_config.healer_rotate_noise_scale
-                * (parsed_obs.own.is_healer & own_is_ranger)
-            ),
-            jnp.pi * 0.1,
-        )
-    )
-    rotate_action = jnp.where(rotate_action > 0, UnitAction.TURN_RIGHT, UnitAction.TURN_LEFT)
     # If there exists visible target, rotate to the target, otherwise rotate 0.1pi to find target
-    move_action = jnp.where(
-        exist_visible_target,
-        move_action,
-        rotate_action,
-    )
 
     attackable_target = visible_target & parsed_obs.other.is_attackable
     exist_attackable_target = jnp.sum(attackable_target) > 0
@@ -364,11 +383,11 @@ def heuristic_policy(
     discrete_action = jnp.where(
         exist_attackable_target & jnp.logical_not(parsed_obs.own.is_on_cooldown),
         UnitAction.ATTACK,
-        move_action,
+        discrete_action,
     )  # If there exists attackable target and not on cooldown, attack, otherwise move
 
     random_discrete_action = jax.random.choice(
-        discrete_key,
+        key,
         jnp.array(
             [
                 UnitAction.UP,
