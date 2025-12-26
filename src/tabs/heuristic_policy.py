@@ -4,7 +4,8 @@ import chex
 import jax
 import jax.numpy as jnp
 
-from src.tabs.config import TABSHeuristicConfig
+from src.tabs.config import PhysicsParams, TABSHeuristicConfig
+from src.tabs.constants import TURN_ANGLE
 from src.tabs.tabs import UnitAction
 
 
@@ -180,7 +181,9 @@ def get_target_move_position(
 
 
 def get_discrete_action(
-    heuristic_config: TABSHeuristicConfig, parsed_obs: ParsedObservation
+    heuristic_config: TABSHeuristicConfig,
+    parsed_obs: ParsedObservation,
+    physics_params: PhysicsParams,
 ) -> chex.Array:
     """
     Get the move action for the own unit.
@@ -258,17 +261,9 @@ def get_discrete_action(
     )
 
     # --------------- Rotate action calculation ---------------
-    attack_range_square = (
-        parsed_obs.own.attack_range
-        + parsed_obs.own.radius * jnp.cos(parsed_obs.own.sight_angle / 2)
-        + parsed_obs.other.radius[min_distance_index]
-    ) ** 2
-
-    attackalbe_if_rotate = jnp.square(min_relative_position).sum() < attack_range_square
-
     exist_visible_target = jnp.sum(visible_target) > 0
 
-    rotate_action = angle_wrap_to_pi(
+    rotate_angle = angle_wrap_to_pi(
         jnp.where(
             exist_visible_target,
             jnp.arctan2(min_relative_position[1], min_relative_position[0])
@@ -276,14 +271,53 @@ def get_discrete_action(
             jnp.pi * 0.1,
         )
     )
-    rotate_action = jnp.where(rotate_action > 0, UnitAction.TURN_RIGHT, UnitAction.TURN_LEFT)
+    attack_range_square = (
+        parsed_obs.own.attack_range
+        + parsed_obs.own.radius * jnp.cos(parsed_obs.own.sight_angle / 2)
+        + parsed_obs.other.radius[min_distance_index]
+    ) ** 2
+
+    step_angle = TURN_ANGLE * physics_params.dt
+
+    minimum_angle_if_rotate = (
+        jnp.rint(rotate_angle / step_angle) * step_angle
+    )  # due to rotate action always have step_angle resolution
+    rotate_action = jnp.where(rotate_angle > 0, UnitAction.TURN_RIGHT, UnitAction.TURN_LEFT)
+    angle_when_rotate = minimum_angle_if_rotate + parsed_obs.own.rotation
+
+    cos_attack_range_half_angle = jnp.cos(parsed_obs.own.sight_angle / 2) * parsed_obs.own.radius
+    sin_attack_range_half_angle = jnp.sin(parsed_obs.own.sight_angle / 2) * parsed_obs.own.radius
+
+    width = parsed_obs.own.attack_range
+
+    unit_cosine_vector = jnp.cos(angle_when_rotate)
+    unit_sine_vector = jnp.sin(angle_when_rotate)
+
+    relative_unit_x = min_relative_position[0]
+    relative_unit_y = min_relative_position[1]
+    local_unit_x = (
+        relative_unit_x * unit_cosine_vector + relative_unit_y * unit_sine_vector
+    )  # rotate -theta to get local coordinate
+    local_unit_y = -relative_unit_x * unit_sine_vector + relative_unit_y * unit_cosine_vector
+
+    rx = cos_attack_range_half_angle
+    ry = sin_attack_range_half_angle
+
+    closest_x = jnp.clip(local_unit_x, rx, rx + width)
+    closest_y = jnp.clip(local_unit_y, -ry, ry)
+
+    dx = local_unit_x - closest_x
+    dy = local_unit_y - closest_y
+
+    attackable_if_rotate = dx**2 + dy**2 < parsed_obs.own.radius**2
 
     # --------------- Calculate final action ---------------
     final_action = jnp.where(
         kiting,
         kite_direction_move_action,
         jnp.where(
-            attackalbe_if_rotate,
+            attackable_if_rotate
+            & jnp.logical_not(parsed_obs.other.is_attackable[min_distance_index]),
             rotate_action,
             direction_move_action,
         ),
@@ -297,6 +331,7 @@ def heuristic_policy(
     obs: chex.Array,
     num_agents: int,
     heuristic_config: TABSHeuristicConfig,
+    physics_params: PhysicsParams,
 ) -> chex.Array:
     """
     Heuristic policy for different unit types in TABS battle simulator.
@@ -372,7 +407,7 @@ def heuristic_policy(
     """
     parsed_obs = ParsedObservation.from_obs(obs, num_agents)
 
-    discrete_action = get_discrete_action(heuristic_config, parsed_obs)
+    discrete_action = get_discrete_action(heuristic_config, parsed_obs, physics_params)
     visible_target = get_visible_target(parsed_obs)
     exist_visible_target = jnp.sum(visible_target) > 0
     # If there exists visible target, rotate to the target, otherwise rotate 0.1pi to find target
