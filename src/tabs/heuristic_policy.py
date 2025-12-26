@@ -91,7 +91,7 @@ class OtherState:
 
     @classmethod
     def from_obs(cls, obs: chex.Array, num_agents: int) -> "OtherState":
-        other = obs[14:].reshape(num_agents - 1, -1)
+        other = obs[14 : 14 + (num_agents - 1) * 16].reshape(num_agents - 1, -1)
 
         return cls(
             health=other[:, 0],
@@ -330,7 +330,9 @@ def get_discrete_action(
     dx = local_unit_x - closest_x
     dy = local_unit_y - closest_y
 
-    attackable_if_rotate = dx**2 + dy**2 < parsed_obs.own.radius**2
+    attackable_if_rotate = (
+        dx** 2 + dy** 2 < parsed_obs.own.radius** 2 * jnp.where(own_is_ranger, 1, 0.1)
+    )  # if own is ranger, the attackable range is 1, otherwise it is 0.1 because melee unit mostly attack by moving and this helps with chasing
 
     # --------------- action calculation for bush zone ---------------
     is_bush_zone = parsed_obs.zone.zone_type == 2
@@ -360,18 +362,18 @@ def get_discrete_action(
 
     # --------------- Calculate final action ---------------
     final_action = jnp.where(
-        kiting,
-        kite_direction_move_action,
+        attackable_if_rotate
+        & jnp.logical_not(parsed_obs.other.is_attackable[min_distance_index])
+        & exist_visible_target,
+        rotate_action,
         jnp.where(
-            attackable_if_rotate
-            & jnp.logical_not(parsed_obs.other.is_attackable[min_distance_index])
-            & exist_visible_target,
-            rotate_action,
+            kiting,
+            kite_direction_move_action,
             jnp.where(
                 exist_visible_target,
                 direction_move_action,
                 jnp.where(
-                    exist_bush_zone & jnp.logical_not(is_in_bush_zone),
+                    exist_bush_zone & jnp.logical_not(is_in_bush_zone) & own_is_ranger,
                     zone_direction_move_action,
                     UnitAction.TURN_RIGHT,
                 ),
