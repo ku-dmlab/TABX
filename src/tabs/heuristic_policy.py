@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+from typing import Tuple
 
 import chex
 import jax
 import jax.numpy as jnp
+from flax import struct
 
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.constants import TURN_ANGLE
@@ -11,6 +13,12 @@ from src.tabs.tabs import UnitAction
 
 def angle_wrap_to_pi(x):
     return (x + jnp.pi) % (2 * jnp.pi) - jnp.pi
+
+
+@struct.dataclass
+class LastVisibleTarget:
+    abs_position: chex.Array = jnp.array([0.0, 0.0])
+    ever_visible: chex.Array = jnp.array([False])
 
 
 @dataclass
@@ -201,11 +209,16 @@ def get_target_move_position(
     )
 
 
+VisibleTarget = chex.Array
+Action = chex.Array
+
+
 def get_discrete_action(
     heuristic_config: TABSHeuristicConfig,
     parsed_obs: ParsedObservation,
     physics_params: PhysicsParams,
-) -> chex.Array:
+    last_visible_target: LastVisibleTarget,
+) -> Tuple[Action, VisibleTarget, LastVisibleTarget]:
     """
     Get the move action for the own unit.
 
@@ -292,11 +305,6 @@ def get_discrete_action(
             jnp.pi * 0.1,
         )
     )
-    attack_range_square = (
-        parsed_obs.own.attack_range
-        + parsed_obs.own.radius * jnp.cos(parsed_obs.own.sight_angle / 2)
-        + parsed_obs.other.radius[min_distance_index]
-    ) ** 2
 
     step_angle = TURN_ANGLE * physics_params.dt
 
@@ -360,6 +368,37 @@ def get_discrete_action(
         min_zone_distance**2 < parsed_obs.zone.axes[min_zone_distance_index] ** 2
     )
 
+    # --------------- Calculate action when there is no target---------------
+    min_target_move_position_nt = last_visible_target.abs_position - parsed_obs.own.position
+    max_relative_axis_nt = jnp.argmax(
+        jnp.abs(min_target_move_position_nt)
+    )  # Find the axis with the largest absolute value
+    max_relative_axis_value_nt = min_target_move_position_nt[max_relative_axis_nt]
+    max_relative_axis_direction_nt = jnp.sign(max_relative_axis_value_nt)
+    x_axis_nt = max_relative_axis_nt == 0  # If the axis is 0, the unit is moving in the x-axis
+    positive_direction_nt = (
+        max_relative_axis_direction_nt > 0
+    )  # If the direction is positive, the unit is moving in the positive direction (right or up)
+    direction_move_action_nt = (
+        UnitAction.RIGHT * (x_axis_nt & positive_direction_nt)
+        + UnitAction.LEFT * (x_axis_nt & ~positive_direction_nt)
+        + UnitAction.UP * (~x_axis_nt & positive_direction_nt)
+        + UnitAction.DOWN * (~x_axis_nt & ~positive_direction_nt)
+    )
+    rotate_angle_nt = angle_wrap_to_pi(
+        jnp.arctan2(min_target_move_position_nt[1], min_target_move_position_nt[0])
+        - parsed_obs.own.rotation,
+    )
+    rotate_action_nt = jnp.where(rotate_angle_nt > 0, UnitAction.TURN_RIGHT, UnitAction.TURN_LEFT)
+
+    turned_enough = jnp.abs(rotate_angle_nt) <= TURN_ANGLE * physics_params.dt
+
+    action_when_no_target = jnp.where(
+        turned_enough,
+        direction_move_action_nt,
+        rotate_action_nt,
+    )
+
     # --------------- Calculate final action ---------------
     final_action = jnp.where(
         attackable_if_rotate
@@ -373,25 +412,47 @@ def get_discrete_action(
                 exist_visible_target,
                 direction_move_action,
                 jnp.where(
-                    exist_bush_zone & jnp.logical_not(is_in_bush_zone) & own_is_ranger,
-                    zone_direction_move_action,
-                    UnitAction.TURN_RIGHT,
+                    last_visible_target.ever_visible,
+                    action_when_no_target,
+                    jnp.where(
+                        exist_bush_zone & jnp.logical_not(is_in_bush_zone) & own_is_ranger,
+                        zone_direction_move_action,
+                        UnitAction.TURN_LEFT,
+                    ),
                 ),
             ),
         ),
     )
 
-    return final_action
+    return (
+        final_action,
+        visible_target,
+        LastVisibleTarget(
+            abs_position=jnp.where(
+                exist_visible_target,
+                min_relative_position + parsed_obs.own.position,
+                last_visible_target.abs_position,
+            ),
+            ever_visible=(exist_visible_target | last_visible_target.ever_visible)
+            & jnp.logical_not(
+                (
+                    jnp.square(last_visible_target.abs_position - parsed_obs.own.position).sum()
+                    < 2 * physics_params.dt**2
+                )
+            ),
+        ),
+    )
 
 
 def heuristic_policy(
     key: jax.random.PRNGKey,
     obs: chex.Array,
+    last_visible_target: LastVisibleTarget,
     num_agents: int,
     num_zones: int,
     heuristic_config: TABSHeuristicConfig,
     physics_params: PhysicsParams,
-) -> chex.Array:
+) -> Tuple[Action, LastVisibleTarget]:
     """
     Heuristic policy for different unit types in TABS battle simulator.
 
@@ -466,8 +527,9 @@ def heuristic_policy(
     """
     parsed_obs = ParsedObservation.from_obs(obs, num_agents, num_zones)
 
-    discrete_action = get_discrete_action(heuristic_config, parsed_obs, physics_params)
-    visible_target = get_visible_target(parsed_obs)
+    discrete_action, visible_target, last_visible_target = get_discrete_action(
+        heuristic_config, parsed_obs, physics_params, last_visible_target
+    )
     # If there exists visible target, rotate to the target, otherwise rotate 0.1pi to find target
 
     attackable_target = visible_target & parsed_obs.other.is_attackable
@@ -500,4 +562,7 @@ def heuristic_policy(
     # 4. If there exists no target, turn left to find target
 
     is_random = jax.random.bernoulli(key, heuristic_config.epsilon)
-    return (discrete_action * ~is_random + random_discrete_action * is_random).astype(jnp.int32)
+    return (
+        (discrete_action * ~is_random + random_discrete_action * is_random).astype(jnp.int32),
+        last_visible_target,
+    )
