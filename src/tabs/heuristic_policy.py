@@ -53,6 +53,25 @@ class OwnState:
 
 
 @dataclass
+class ZoneState:
+    zone_type: chex.Array
+    position: chex.Array
+    axes: chex.Array
+    damage: chex.Array
+
+    @classmethod
+    def from_obs(cls, obs: chex.Array, num_agents: int, num_zones: int) -> "OtherState":
+        other = obs[14 + (num_agents - 1) * 16 :].reshape(num_zones, -1)
+
+        return cls(
+            zone_type=other[:, 0],
+            position=other[:, 1:3],
+            axes=other[:, 3:5],
+            damage=other[:, 5],
+        )
+
+
+@dataclass
 class OtherState:
     health: chex.Array
     health_ratio: chex.Array
@@ -98,12 +117,14 @@ class OtherState:
 class ParsedObservation:
     own: OwnState
     other: OtherState
+    zone: ZoneState
 
     @classmethod
-    def from_obs(cls, obs: chex.Array, num_agents: int) -> "ParsedObservation":
+    def from_obs(cls, obs: chex.Array, num_agents: int, num_zones: int) -> "ParsedObservation":
         return cls(
             own=OwnState.from_obs(obs),
             other=OtherState.from_obs(obs, num_agents),
+            zone=ZoneState.from_obs(obs, num_agents, num_zones),
         )
 
 
@@ -311,15 +332,50 @@ def get_discrete_action(
 
     attackable_if_rotate = dx**2 + dy**2 < parsed_obs.own.radius**2
 
+    # --------------- action calculation for bush zone ---------------
+    is_bush_zone = parsed_obs.zone.zone_type == 2
+    exist_bush_zone = jnp.sum(is_bush_zone) > 0
+    zone_distnace = jnp.sum(
+        jnp.square(parsed_obs.zone.position), axis=-1
+    ) + jnp.inf * jnp.logical_not(is_bush_zone)
+    min_zone_distance_index = jnp.argmin(zone_distnace)
+    min_zone_distance = parsed_obs.zone.position[min_zone_distance_index]
+    max_relative_axis = jnp.argmax(
+        jnp.abs(min_zone_distance)
+    )  # Find the axis with the largest absolute value
+    max_relative_axis_value = min_zone_distance[max_relative_axis]
+    max_relative_axis_direction = jnp.sign(max_relative_axis_value)
+    x_axis = max_relative_axis == 0  # If the axis is 0, the unit is moving in the x-axis
+    zone_positive_direction = max_relative_axis_direction > 0
+    zone_direction_move_action = (
+        UnitAction.RIGHT * (x_axis & zone_positive_direction)
+        + UnitAction.LEFT * (x_axis & ~zone_positive_direction)
+        + UnitAction.UP * (~x_axis & zone_positive_direction)
+        + UnitAction.DOWN * (~x_axis & ~zone_positive_direction)
+    )
+
+    is_in_bush_zone = jnp.all(
+        min_zone_distance**2 < parsed_obs.zone.axes[min_zone_distance_index] ** 2
+    )
+
     # --------------- Calculate final action ---------------
     final_action = jnp.where(
         kiting,
         kite_direction_move_action,
         jnp.where(
             attackable_if_rotate
-            & jnp.logical_not(parsed_obs.other.is_attackable[min_distance_index]),
+            & jnp.logical_not(parsed_obs.other.is_attackable[min_distance_index])
+            & exist_visible_target,
             rotate_action,
-            direction_move_action,
+            jnp.where(
+                exist_visible_target,
+                direction_move_action,
+                jnp.where(
+                    exist_bush_zone & jnp.logical_not(is_in_bush_zone),
+                    zone_direction_move_action,
+                    UnitAction.TURN_RIGHT,
+                ),
+            ),
         ),
     )
 
@@ -330,6 +386,7 @@ def heuristic_policy(
     key: jax.random.PRNGKey,
     obs: chex.Array,
     num_agents: int,
+    num_zones: int,
     heuristic_config: TABSHeuristicConfig,
     physics_params: PhysicsParams,
 ) -> chex.Array:
@@ -405,11 +462,10 @@ def heuristic_policy(
     14 : is_attackable
     15 : speed
     """
-    parsed_obs = ParsedObservation.from_obs(obs, num_agents)
+    parsed_obs = ParsedObservation.from_obs(obs, num_agents, num_zones)
 
     discrete_action = get_discrete_action(heuristic_config, parsed_obs, physics_params)
     visible_target = get_visible_target(parsed_obs)
-    exist_visible_target = jnp.sum(visible_target) > 0
     # If there exists visible target, rotate to the target, otherwise rotate 0.1pi to find target
 
     attackable_target = visible_target & parsed_obs.other.is_attackable
