@@ -368,7 +368,6 @@ class GameManager:
         return self.replace(
             attack_target=maksed_relative_distnace.argmin(axis=1),
             attackable_matrix=attackable_matrix,
-            attack_matrix=jnp.zeros_like(attackable_matrix, dtype=jnp.bool),
             visible_matrix=(sight_inside).squeeze().T,
             distance_matrix=position_diff,
         )
@@ -466,16 +465,18 @@ class TABS(BaseMAEnv):
         }
 
         self.empty_state["game_manager"] = GameManager(
-            attack_target=jnp.array([0]),
-            attackable_matrix=jnp.array([[False]]),
-            attack_matrix=jnp.array([[False]]),
-            visible_matrix=jnp.array([[False]]),
-            distance_matrix=jnp.array([[0]]),
-            reward=jnp.array([0.0]),
-            done=jnp.array([False]),
+            attack_target=jnp.zeros((len(self.unit_keys),), dtype=jnp.int32),
+            attackable_matrix=jnp.zeros((len(self.unit_keys), len(self.unit_keys)), dtype=jnp.bool),
+            attack_matrix=jnp.zeros((len(self.unit_keys), len(self.unit_keys)), dtype=jnp.bool),
+            visible_matrix=jnp.zeros((len(self.unit_keys), len(self.unit_keys)), dtype=jnp.bool),
+            distance_matrix=jnp.zeros(
+                (len(self.unit_keys), len(self.unit_keys)), dtype=jnp.float32
+            ),
+            reward=jnp.zeros((len(self.unit_keys), 1), dtype=jnp.float32),
+            done=jnp.zeros((len(self.unit_keys), 1), dtype=jnp.bool),
             timestep=jnp.array([0]),
-            team_hp_ratio=jnp.ones(self.max_team),
-            last_team_hp_ratio=jnp.ones(self.max_team),
+            team_hp_ratio=jnp.ones((self.max_team,), dtype=jnp.float32),
+            last_team_hp_ratio=jnp.ones((self.max_team,), dtype=jnp.float32),
         )
 
         self.action_spaces = {
@@ -793,16 +794,18 @@ class TABS(BaseMAEnv):
             )
 
         state["game_manager"] = GameManager(
-            attack_target=jnp.array([0]),
-            attackable_matrix=jnp.array([[False]]),
-            attack_matrix=jnp.array([[False]]),
-            visible_matrix=jnp.array([[False]]),
-            distance_matrix=jnp.array([[0]]),
-            reward=jnp.array([0.0]),
-            done=jnp.array([False]),
+            attack_target=jnp.zeros((len(self.unit_keys),), dtype=jnp.int32),
+            attackable_matrix=jnp.zeros((len(self.unit_keys), len(self.unit_keys)), dtype=jnp.bool),
+            attack_matrix=jnp.zeros((len(self.unit_keys), len(self.unit_keys)), dtype=jnp.bool),
+            visible_matrix=jnp.zeros((len(self.unit_keys), len(self.unit_keys)), dtype=jnp.bool),
+            distance_matrix=jnp.zeros(
+                (len(self.unit_keys), len(self.unit_keys)), dtype=jnp.float32
+            ),
+            reward=jnp.zeros((len(self.unit_keys), 1), dtype=jnp.float32),
+            done=jnp.zeros((len(self.unit_keys), 1), dtype=jnp.bool),
             timestep=jnp.array([0]),
-            team_hp_ratio=jnp.ones(self.max_team),
-            last_team_hp_ratio=jnp.ones(self.max_team),
+            team_hp_ratio=jnp.ones((self.max_team,), dtype=jnp.float32),
+            last_team_hp_ratio=jnp.ones((self.max_team,), dtype=jnp.float32),
         )
 
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
