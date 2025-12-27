@@ -30,6 +30,7 @@ ALL_UNIT_NAMES = [
 ]
 
 SIGHT_ANGLE = math.pi / 2
+TURN_ANGLE = math.pi / 6
 
 
 class UnitID:

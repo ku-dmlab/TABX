@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from src.tabs.constants import TURN_ANGLE
 from src.tabs.environments.base_maenv import BaseMAEnv
 from src.tabs.environments.physics import (
     CircleCollider,
@@ -25,8 +26,8 @@ action_table = jnp.array(
         [-1.0, 0, 0.0],
         [1.0, 0, 0.0],
         [0.0, 0.0, 0.0],
-        [0.0, 0.0, -jnp.pi / 6],
-        [0.0, 0.0, jnp.pi / 6],
+        [0.0, 0.0, -TURN_ANGLE],
+        [0.0, 0.0, TURN_ANGLE],
         [0.0, 0.0, 0.0],
     ]
 )  # [x_move, y_move, rotate_angle]

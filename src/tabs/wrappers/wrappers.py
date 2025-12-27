@@ -7,7 +7,7 @@ from flax import struct
 
 from src.tabs import TABS
 from src.tabs.config import TABSHeuristicConfig
-from src.tabs.heuristic_policy import heuristic_policy
+from src.tabs.heuristic_policy import LastVisibleTarget, heuristic_policy
 from src.tabs.scenarios import Scenario
 
 
@@ -54,18 +54,24 @@ class TABSEnemyHeuristicWrapper(BaseWrapper):
             raise ValueError("The heuristic_params is not in env_params.")
         obs, state = self.env.reset(key, env_params)
         target_obs = self.filter_obs(obs)
-        return target_obs, state | {"heuristic_params": env_params["heuristic_params"]}
+        return target_obs, state | {"heuristic_params": env_params["heuristic_params"]} | {
+            "last_visible_targets": {unit: LastVisibleTarget() for unit in self.env.enemy_keys}
+        }
 
     def step(self, key, state, action):
         obs = self.env.get_obs(state["state"])
+        new_last_visible_targets = {}
         # Add enemy actions based on heuristic policy
         for unit in self.env.enemy_keys:
             heuristic_key, key = jax.random.split(key)
-            action[unit] = heuristic_policy(
+            action[unit], new_last_visible_targets[unit] = heuristic_policy(
                 heuristic_key,
                 obs[unit],
+                state["last_visible_targets"][unit],
                 self.env.num_agents,
+                self.env.max_n_zone,
                 state["heuristic_params"],
+                state["physics_params"],
             )
         obs, next_state, reward, done, info = self.env.step(key, state, action)
         target_obs = self.filter_obs(obs)
@@ -75,7 +81,9 @@ class TABSEnemyHeuristicWrapper(BaseWrapper):
 
         return (
             target_obs,
-            next_state | {"heuristic_params": state["heuristic_params"]},
+            next_state
+            | {"heuristic_params": state["heuristic_params"]}
+            | {"last_visible_targets": new_last_visible_targets},
             rewards,
             done,
             info,
