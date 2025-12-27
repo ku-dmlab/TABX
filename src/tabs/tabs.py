@@ -243,7 +243,8 @@ class Zone:
 
         parsed_state = objects["game_manager"].parsed_state
 
-        # The attacker in bush can be observed.
+        # The attacker in bush can be observed, and a unit in the bush that is attacked can be observed.
+        # Teammates inside the bush or attacked in the bush or attacker can share vision with each other.
         attack_in_bush = jnp.logical_and(is_in[:, None], objects["game_manager"].attack_matrix)
         visible_matrix = jnp.logical_or(visible_matrix, attack_in_bush.T)
         visible_matrix = jax.vmap(
@@ -261,22 +262,24 @@ class Zone:
 
 @struct.dataclass
 class ParsedState:
-    healths: chex.Array
-    positions: chex.Array
-    rotations: chex.Array
-    cooldowns: chex.Array
-    is_alives: chex.Array
-    teams: chex.Array
-    is_teams: chex.Array
-    attack_cooldowns: chex.Array
-    attack_damages: chex.Array
-    attack_ranges: chex.Array
-    speeds: chex.Array
-    sight_angles: chex.Array
-    body_radiuss: chex.Array
-    body_weights: chex.Array
-    max_healths: chex.Array
-    is_disabled: chex.Array
+    healths: chex.Array  # shape: (N, 1) current health for each unit
+    positions: chex.Array  # shape: (N, 2) position (x, y) for each unit
+    rotations: chex.Array  # shape: (N, 1) rotation (direction) for each unit
+    cooldowns: chex.Array  # shape: (N, 1) remaining cooldown for each unit
+    is_alives: chex.Array  # shape: (N, 1) whether each unit is alive (bool/int)
+    teams: chex.Array  # shape: (N, 1) team index for each unit
+    is_teams: (
+        chex.Array
+    )  # shape: (N, N, 1) is_same_team[i, j]: whether unit i and j are in the same team
+    attack_cooldowns: chex.Array  # shape: (N, 1) cooltime ratio for basic attack of each unit
+    attack_damages: chex.Array  # shape: (N, 1) attack damage for each unit
+    attack_ranges: chex.Array  # shape: (N, 1) attack range for each unit
+    speeds: chex.Array  # shape: (N, 1) moving speed for each unit
+    sight_angles: chex.Array  # shape: (N, 1) sight angle for each unit
+    body_radiuss: chex.Array  # shape: (N, 1) body collision radius for each unit
+    body_weights: chex.Array  # shape: (N, 1) body weight (mass) for each unit
+    max_healths: chex.Array  # shape: (N, 1) maximum health for each unit
+    is_disabled: chex.Array  # shape: (N, 1) whether each unit is currently disabled (bool/int)
 
     @classmethod
     def from_state(cls, state, keys) -> "ParsedState":
