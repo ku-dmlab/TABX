@@ -199,13 +199,20 @@ class Zone:
         return objects
 
     def act_bush(self, objects, physics_params):
-        # Hide if the unit is in the bush zone, but the unit become visible to the hit person.
+        """
+        Visibility Rules:
+            0. We assume that only units within the field of view (FoV) can be observed in all cases.
+            1. A unit in a bush is not observable, but units on the same team can observe it.
+            2. Units in the same bush can observe each other.
+            3. When a unit in a bush succeeds in attacking or is attacked, that unit is observed by the attacking team members / victim team members.
+        """
+
         is_in = self.is_in(objects)
         is_team = jnp.array(
             [value.team for (key, value) in objects.items() if "unit" in key]
         ).flatten()
 
-        # A unit in a bush is not observable, but units on the same team can observe it.
+        # Rule 1.
         # Note that we assume there is two team (0 and 1).
         visible_mask_ally = jnp.logical_or(jnp.logical_not(is_in), jnp.logical_not(is_team))
         visible_mask_enemy = jnp.logical_or(jnp.logical_not(is_in), is_team)
@@ -217,10 +224,17 @@ class Zone:
             jnp.logical_and(objects["game_manager"].visible_matrix, visible_mask_ally[None, :]),
         )
 
-        # The attacker in bush can be observed.
-        attack_in_bush = jnp.logical_and(is_in[:, None], objects["game_manager"].attack_matrix)
+        # Rule 2.
+        visible_matrix = jnp.logical_and(
+            objects["game_manager"].visible_matrix,
+            jnp.logical_or(visible_matrix, jnp.logical_and(is_in[:, None], is_in[None, :])),
+        )
 
+        # The attacker in bush can be observed.
+        # TODO: Observations are shared with members of the same team. (Rule 3)
+        attack_in_bush = jnp.logical_and(is_in[:, None], objects["game_manager"].attack_matrix)
         visible_matrix = jnp.logical_or(visible_matrix, attack_in_bush.T)
+
         objects["game_manager"] = objects["game_manager"].replace(visible_matrix=visible_matrix)
 
         return objects
