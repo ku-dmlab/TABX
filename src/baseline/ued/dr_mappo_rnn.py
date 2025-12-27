@@ -31,10 +31,10 @@ from src.tabs.wrappers import TABSEnemyHeuristicWrapper, TABSLogWrapper
 class Config:
     LR: float = 0.004
     NUM_ENVS: int = 128
-    NUM_STEPS: int = 128
+    NUM_STEPS: int = 256
     GRU_HIDDEN_DIM: int = 128
     FC_DIM_SIZE: int = 128
-    TOTAL_TIMESTEPS: int = 1e7
+    TOTAL_TIMESTEPS: int = 2e7  # NOTE
     UPDATE_EPOCHS: int = 4
     NUM_MINIBATCHES: int = 4
     GAMMA: float = 0.99
@@ -47,7 +47,7 @@ class Config:
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
     # Env
-    SCENARIO: str = "2F1K2A1H"
+    SCENARIO: str = "2F1K2A1H_2L"
     FREE_PARAM_TYPE: Literal["zone", "unit_spec", "heuristic_config"] = "zone"
     # Misc.
     SEED: int = 0
@@ -133,14 +133,14 @@ def make_train(config):
         rng, _rng = jax.random.split(rng)
         sample_rngs = jax.random.split(_rng, config["NUM_ENVS"])
 
-        env_params = {
+        init_env_params = {
             "scenario": vscenario,
             "zone_scenario": zone_scenario,
             "physics_params": PhysicsParams(),
             "heuristic_params": TABSHeuristicConfig(),
         }
 
-        env_params = jax.vmap(sample_random_level, in_axes=(None, 0))(env_params, sample_rngs)
+        env_params = jax.vmap(sample_random_level, in_axes=(None, 0))(init_env_params, sample_rngs)
 
         rng, _rng = jax.random.split(rng)
         reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
@@ -154,7 +154,7 @@ def make_train(config):
             runner_state, update_steps = update_runner_state
 
             def _env_step(runner_state, unused):
-                train_states, env_state, last_obs, last_done, hstates, rng = runner_state
+                train_states, env_state, last_obs, last_done, hstates, levels, rng = runner_state
 
                 # SELECT ACTION
                 rng, _rng = jax.random.split(rng)
@@ -191,7 +191,7 @@ def make_train(config):
                 rng, _rng = jax.random.split(rng)
                 rng_step = jax.random.split(_rng, config["NUM_ENVS"])
                 obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, 0))(
-                    rng_step, env_state, env_act, env_params
+                    rng_step, env_state, env_act, levels
                 )
                 # info = jax.tree.map(lambda x: x.reshape((config["NUM_ACTORS"])), info)
                 done_batch = batchify(done, env.agents, config["NUM_ACTORS"]).squeeze()
@@ -213,17 +213,18 @@ def make_train(config):
                     obsv,
                     done_batch,
                     (ac_hstate, cr_hstate),
+                    info["levels"],
                     rng,
                 )
                 return runner_state, transition
 
-            initial_hstates = runner_state[-2]
+            initial_hstates = runner_state[-3]
             runner_state, traj_batch = jax.lax.scan(
                 _env_step, runner_state, None, config["NUM_STEPS"]
             )
 
             # CALCULATE ADVANTAGE
-            train_states, env_state, last_obs, last_done, hstates, rng = runner_state
+            train_states, env_state, last_obs, last_done, hstates, levels, rng = runner_state
 
             last_world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
             last_world_state = jnp.repeat(
@@ -417,7 +418,7 @@ def make_train(config):
 
             update_steps = update_steps + 1
             jax.experimental.io_callback(callback, None, metric)
-            runner_state = (train_states, env_state, last_obs, last_done, hstates, rng)
+            runner_state = (train_states, env_state, last_obs, last_done, hstates, levels, rng)
             return (runner_state, update_steps), metric
 
         rng, _rng = jax.random.split(rng)
@@ -427,6 +428,7 @@ def make_train(config):
             obsv,
             jnp.zeros((config["NUM_ACTORS"]), dtype=bool),
             (ac_init_hstate, cr_init_hstate),
+            env_params,
             _rng,
         )
         runner_state, metric = jax.lax.scan(

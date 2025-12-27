@@ -43,10 +43,10 @@ from src.tabs.wrappers.wrappers import (
 class Config:
     LR: float = 0.004
     NUM_ENVS: int = 128
-    NUM_STEPS: int = 128
+    NUM_STEPS: int = 256
     GRU_HIDDEN_DIM: int = 128
     FC_DIM_SIZE: int = 128
-    TOTAL_TIMESTEPS: int = 1e8  # NOTE
+    TOTAL_TIMESTEPS: int = 5e7  # NOTE
     UPDATE_EPOCHS: int = 4
     NUM_MINIBATCHES: int = 4
     GAMMA: float = 0.99
@@ -59,7 +59,7 @@ class Config:
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
     # Env
-    SCENARIO: str = "2F1K2A1H"
+    SCENARIO: str = "2F1K2A1H_2L"
     FREE_PARAM_TYPE: Literal["zone", "unit_spec", "heuristic_config"] = "zone"
     # PLR
     SCORE_FUNC: str = "MaxMC"  # MaxMC, pvl
@@ -192,7 +192,7 @@ def make_train(config):
         )
 
         rng, _rng = jax.random.split(rng)
-        env_params = {
+        init_env_params = {
             "scenario": vscenario,
             "zone_scenario": zone_scenario,
             "physics_params": PhysicsParams(),
@@ -200,7 +200,7 @@ def make_train(config):
         }
         sample_random_level = level_generator(FREE_PARAM_TYPES[config["FREE_PARAM_TYPE"]])
         mutate_level = mutate_level_generator(FREE_PARAM_TYPES[config["FREE_PARAM_TYPE"]])
-        pholder_level = sample_random_level(env_params, _rng)
+        pholder_level = sample_random_level(init_env_params, _rng)
         pholder_level_batch = jax.tree.map(
             lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0), pholder_level
         )
@@ -227,8 +227,6 @@ def make_train(config):
         def _update_step(update_runner_state, unused):
             # COLLECT TRAJECTORIES
             runner_state, update_steps = update_runner_state
-
-            initial_hstates = runner_state[-2]
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition):
@@ -498,32 +496,24 @@ def make_train(config):
                     It also then adds the levels to the level buffer if they have high-enough scores.
                     The agent is updated on these trajectories iff `config["exploratory_grad_updates"]` is True.
                     """
-                    train_states, sample_state, env_state, last_obs, last_done, hstates, rng = (
-                        runner_state
-                    )
+                    train_states, sample_state, env_state, rng = runner_state
 
                     sampler = sample_state.sampler
 
                     # Reset
-                    env_params = {
-                        "scenario": vscenario,
-                        "zone_scenario": zone_scenario,
-                        "physics_params": PhysicsParams(),
-                        "heuristic_params": TABSHeuristicConfig(),
-                    }
                     rng, rng_levels, rng_reset = jax.random.split(rng, 3)
                     new_levels = jax.vmap(sample_random_level, in_axes=(None, 0))(
-                        env_params, jax.random.split(rng_levels, config["NUM_ENVS"])
+                        init_env_params, jax.random.split(rng_levels, config["NUM_ENVS"])
                     )
                     reset_rng = jax.random.split(rng_reset, config["NUM_ENVS"])
-                    last_obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(reset_rng, new_levels)
+                    init_obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(reset_rng, new_levels)
 
                     runner_state = (
                         train_states,
                         env_state,
-                        last_obs,
-                        last_done,
-                        hstates,
+                        init_obs,
+                        jnp.zeros((config["NUM_ACTORS"]), dtype=bool),
+                        (ac_init_hstate, cr_init_hstate),
                         new_levels,
                         rng,
                     )
@@ -583,7 +573,7 @@ def make_train(config):
                     # Update
                     update_state, loss_info = _update_epoch(
                         train_states,
-                        initial_hstates,
+                        (ac_init_hstate, cr_init_hstate),
                         traj_batch,
                         advantages,
                         targets,
@@ -593,15 +583,7 @@ def make_train(config):
 
                     train_states, hstates, traj_batch, advantages, targets, rng = update_state
 
-                    output_state = (
-                        train_states,
-                        sample_state,
-                        env_state,
-                        last_obs,
-                        last_done,
-                        hstates,
-                        rng,
-                    )
+                    output_state = (train_states, sample_state, env_state, rng)
 
                     return output_state, loss_info
 
@@ -609,9 +591,7 @@ def make_train(config):
                     """
                     This samples levels from the level buffer.
                     """
-                    train_states, sample_state, env_state, last_obs, last_done, hstates, rng = (
-                        runner_state
-                    )
+                    train_states, sample_state, env_state, rng = runner_state
 
                     sampler = sample_state.sampler
 
@@ -621,14 +601,14 @@ def make_train(config):
                         sampler, rng_levels, config["NUM_ENVS"]
                     )
                     reset_rng = jax.random.split(rng_reset, config["NUM_ENVS"])
-                    last_obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(reset_rng, levels)
+                    init_obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(reset_rng, levels)
 
                     runner_state = (
                         train_states,
                         env_state,
-                        last_obs,
-                        last_done,
-                        hstates,
+                        init_obs,
+                        jnp.zeros((config["NUM_ACTORS"]), dtype=bool),
+                        (ac_init_hstate, cr_init_hstate),
                         levels,
                         rng,
                     )
@@ -691,7 +671,7 @@ def make_train(config):
                     # Update
                     update_state, loss_info = _update_epoch(
                         train_states,
-                        initial_hstates,
+                        (ac_init_hstate, cr_init_hstate),
                         traj_batch,
                         advantages,
                         targets,
@@ -701,15 +681,7 @@ def make_train(config):
 
                     train_states, hstates, traj_batch, advantages, targets, rng = update_state
 
-                    output_state = (
-                        train_states,
-                        sample_state,
-                        env_state,
-                        last_obs,
-                        last_done,
-                        hstates,
-                        rng,
-                    )
+                    output_state = (train_states, sample_state, env_state, rng)
 
                     return output_state, loss_info
 
@@ -718,9 +690,7 @@ def make_train(config):
                     This mutates the previous batch of replay levels and potentially adds them to the level buffer.
                     This also updates the policy iff `config["exploratory_grad_updates"]` is True.
                     """
-                    train_states, sample_state, env_state, last_obs, last_done, hstates, rng = (
-                        runner_state
-                    )
+                    train_states, sample_state, env_state, rng = runner_state
 
                     sampler = sample_state.sampler
 
@@ -731,16 +701,16 @@ def make_train(config):
                         parent_levels, jax.random.split(rng_mutate, config["NUM_ENVS"])
                     )
                     reset_rng = jax.random.split(rng_reset, config["NUM_ENVS"])
-                    last_obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(
+                    init_obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(
                         reset_rng, child_levels
                     )
 
                     runner_state = (
                         train_states,
                         env_state,
-                        last_obs,
-                        last_done,
-                        hstates,
+                        init_obs,
+                        jnp.zeros((config["NUM_ACTORS"]), dtype=bool),
+                        (ac_init_hstate, cr_init_hstate),
                         child_levels,
                         rng,
                     )
@@ -800,7 +770,7 @@ def make_train(config):
                     # Update
                     update_state, loss_info = _update_epoch(
                         train_states,
-                        initial_hstates,
+                        (ac_init_hstate, cr_init_hstate),
                         traj_batch,
                         advantages,
                         targets,
@@ -810,15 +780,7 @@ def make_train(config):
 
                     train_states, hstates, traj_batch, advantages, targets, rng = update_state
 
-                    output_state = (
-                        train_states,
-                        sample_state,
-                        env_state,
-                        last_obs,
-                        last_done,
-                        hstates,
-                        rng,
-                    )
+                    output_state = (train_states, sample_state, env_state, rng)
 
                     return output_state, loss_info
 
@@ -848,15 +810,7 @@ def make_train(config):
 
             output_state, loss_info = _update(runner_state)
 
-            (
-                train_states,
-                sample_state,
-                env_state,
-                last_obs,
-                last_done,
-                hstates,
-                rng,
-            ) = output_state
+            (train_states, sample_state, env_state, rng) = output_state
 
             loss_info["ratio_0"] = loss_info["ratio"].at[0, 0].get()
             loss_info = jax.tree.map(lambda x: x.mean(), loss_info)
@@ -888,27 +842,11 @@ def make_train(config):
 
             update_steps = update_steps + 1
             jax.experimental.io_callback(callback, None, metric)
-            runner_state = (
-                train_states,
-                sample_state,
-                env_state,
-                last_obs,
-                last_done,
-                hstates,
-                rng,
-            )
+            runner_state = (train_states, sample_state, env_state, rng)
             return (runner_state, update_steps), metric
 
         rng, _rng = jax.random.split(rng)
-        runner_state = (
-            (actor_train_state, critic_train_state),
-            sample_state,
-            env_state,
-            obsv,
-            jnp.zeros((config["NUM_ACTORS"]), dtype=bool),
-            (ac_init_hstate, cr_init_hstate),
-            _rng,
-        )
+        runner_state = ((actor_train_state, critic_train_state), sample_state, env_state, _rng)
         runner_state, metric = jax.lax.scan(
             _update_step, (runner_state, 0), None, config["NUM_UPDATES"]
         )

@@ -38,4 +38,7 @@ class LevelAutoResetWrapper(BaseWrapper):
             reset_obs,
             next_obs,
         )
+
+        info["levels"] = jax.tree.map(lambda x, y: jnp.where(ep_done, x, y), new_level, env_params)
+
         return next_obs, next_env_state, reward, done, info
