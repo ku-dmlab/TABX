@@ -111,9 +111,20 @@ class DefaultUnit:
         attack_success = can_attack & is_attack & target_attackable[target_id.reshape()]
 
         objects["game_manager"] = objects["game_manager"].replace(
-            attack_matrix=game_manager.attack_matrix.at[
-                self.status.id.reshape(), target_id.reshape()
-            ].set(attack_success.reshape())
+            attack_matrix=objects["game_manager"]
+            .attack_matrix.at[self.status.id.reshape(), target_id.reshape()]
+            .set(
+                objects["game_manager"].attack_matrix[self.status.id.reshape(), target_id.reshape()]
+                | attack_success.reshape()
+            )
+        )
+        objects["game_manager"] = objects["game_manager"].replace(
+            attack_matrix=objects["game_manager"]
+            .attack_matrix.at[target_id.reshape(), self.status.id.reshape()]
+            .set(
+                objects["game_manager"].attack_matrix[target_id.reshape(), self.status.id.reshape()]
+                | attack_success.reshape()
+            )
         )
 
         move_action = (
@@ -199,13 +210,20 @@ class Zone:
         return objects
 
     def act_bush(self, objects, physics_params):
-        # Hide if the unit is in the bush zone, but the unit become visible to the hit person.
+        """
+        Visibility Rules:
+            0. We assume that only units within the field of view (FoV) can be observed in all cases.
+            1. A unit in a bush is not observable, but units on the same team can observe it.
+            2. Units in the same bush can observe each other.
+            3. When a unit in a bush succeeds in attacking or is attacked, that unit is observed by the attacking team members / victim team members.
+        """
+
         is_in = self.is_in(objects)
         is_team = jnp.array(
             [value.team for (key, value) in objects.items() if "unit" in key]
         ).flatten()
 
-        # A unit in a bush is not observable, but units on the same team can observe it.
+        # Rule 1.
         # Note that we assume there is two team (0 and 1).
         visible_mask_ally = jnp.logical_or(jnp.logical_not(is_in), jnp.logical_not(is_team))
         visible_mask_enemy = jnp.logical_or(jnp.logical_not(is_in), is_team)
@@ -217,16 +235,92 @@ class Zone:
             jnp.logical_and(objects["game_manager"].visible_matrix, visible_mask_ally[None, :]),
         )
 
-        # The attacker in bush can be observed.
-        attack_in_bush = jnp.logical_and(is_in[:, None], objects["game_manager"].attack_matrix)
+        # Rule 2.
+        visible_matrix = jnp.logical_and(
+            objects["game_manager"].visible_matrix,
+            jnp.logical_or(visible_matrix, jnp.logical_and(is_in[:, None], is_in[None, :])),
+        )
 
+        parsed_state = objects["game_manager"].parsed_state
+
+        # The attacker in bush can be observed, and a unit in the bush that is attacked can be observed.
+        # Teammates inside the bush or attacked in the bush or attacker can share vision with each other.
+        attack_in_bush = jnp.logical_and(is_in[:, None], objects["game_manager"].attack_matrix)
         visible_matrix = jnp.logical_or(visible_matrix, attack_in_bush.T)
+        visible_matrix = jax.vmap(
+            lambda is_team, visible_matrix: is_team[:, None] & visible_matrix[None], in_axes=(0, 0)
+        )(parsed_state.is_teams[..., 0], visible_matrix).sum(axis=0, dtype=jnp.bool)
+        visible_matrix = jnp.logical_and(visible_matrix, objects["game_manager"].visible_matrix)
+
         objects["game_manager"] = objects["game_manager"].replace(visible_matrix=visible_matrix)
 
         return objects
 
     def act_nothing(self, objects, physics_params):
         return objects
+
+
+@struct.dataclass
+class ParsedState:
+    healths: chex.Array  # shape: (N, 1) current health for each unit
+    positions: chex.Array  # shape: (N, 2) position (x, y) for each unit
+    rotations: chex.Array  # shape: (N, 1) rotation (direction) for each unit
+    cooldowns: chex.Array  # shape: (N, 1) remaining cooldown for each unit
+    is_alives: chex.Array  # shape: (N, 1) whether each unit is alive (bool/int)
+    teams: chex.Array  # shape: (N, 1) team index for each unit
+    is_teams: (
+        chex.Array
+    )  # shape: (N, N, 1) is_same_team[i, j]: whether unit i and j are in the same team
+    attack_cooldowns: chex.Array  # shape: (N, 1) cooltime ratio for basic attack of each unit
+    attack_damages: chex.Array  # shape: (N, 1) attack damage for each unit
+    attack_ranges: chex.Array  # shape: (N, 1) attack range for each unit
+    speeds: chex.Array  # shape: (N, 1) moving speed for each unit
+    sight_angles: chex.Array  # shape: (N, 1) sight angle for each unit
+    body_radiuss: chex.Array  # shape: (N, 1) body collision radius for each unit
+    body_weights: chex.Array  # shape: (N, 1) body weight (mass) for each unit
+    max_healths: chex.Array  # shape: (N, 1) maximum health for each unit
+    is_disabled: chex.Array  # shape: (N, 1) whether each unit is currently disabled (bool/int)
+
+    @classmethod
+    def from_state(cls, state, keys) -> "ParsedState":
+        healths = jnp.stack([state[unit].status.health for unit in keys])
+        max_healths = healths / jnp.stack([state[unit].status.max_health for unit in keys])
+        positions = jnp.stack([state[unit].transform.position for unit in keys])
+        rotations = jnp.stack([state[unit].transform.rotation for unit in keys]) / (jnp.pi * 2)
+        attack_ranges = jnp.stack([state[unit].status.attack_range for unit in keys])
+        attack_damages = jnp.stack([state[unit].status.attack_damage for unit in keys])
+        cooldowns = jnp.stack([state[unit].status.cooldown for unit in keys])
+        attack_cooldowns = cooldowns / jnp.stack(
+            [state[unit].status.attack_cooldown for unit in keys]
+        )
+
+        body_radiuss = jnp.stack([state[unit].collider.radius for unit in keys])
+        body_weights = jnp.stack([state[unit].rigidbody.mass for unit in keys])
+        sight_angles = jnp.stack([state[unit].status.sight_angle for unit in keys]) / (jnp.pi * 2)
+        teams = jnp.stack([state[unit].team for unit in keys])
+        is_alives = jnp.stack([state[unit].status.is_alive for unit in keys])
+        speeds = jnp.stack([state[unit].status.speed for unit in keys])
+        is_disabled = jnp.stack([state[unit].status.is_disabled for unit in keys])
+
+        is_ally = teams[None] == teams[:, None]
+        return cls(
+            healths=healths,
+            positions=positions,
+            rotations=rotations,
+            cooldowns=cooldowns,
+            is_alives=is_alives,
+            teams=teams,
+            is_teams=is_ally,
+            attack_cooldowns=attack_cooldowns,
+            attack_damages=attack_damages,
+            attack_ranges=attack_ranges,
+            max_healths=max_healths,
+            body_radiuss=body_radiuss,
+            body_weights=body_weights,
+            sight_angles=sight_angles,
+            speeds=speeds,
+            is_disabled=is_disabled,
+        )
 
 
 @struct.dataclass
@@ -241,6 +335,7 @@ class GameManager:
     distance_matrix: chex.Array
     team_hp_ratio: chex.Array
     last_team_hp_ratio: chex.Array
+    parsed_state: ParsedState
 
     def get_units_in_attack_range(
         self,
@@ -305,6 +400,9 @@ class GameManager:
         )
 
         return available_target
+
+    def update_parsed_state(self, state, unit_keys):
+        return self.replace(parsed_state=ParsedState.from_state(state, unit_keys))
 
     def update_distance_matrix(self, objects, unit_keys):
         unit_position_vector = jnp.stack([objects[key].transform.position for key in unit_keys])
@@ -477,6 +575,7 @@ class TABS(BaseMAEnv):
             timestep=jnp.array([0]),
             team_hp_ratio=jnp.ones((self.max_team,), dtype=jnp.float32),
             last_team_hp_ratio=jnp.ones((self.max_team,), dtype=jnp.float32),
+            parsed_state=ParsedState.from_state(self.empty_state, self.unit_keys),
         )
 
         self.action_spaces = {
@@ -593,26 +692,7 @@ class TABS(BaseMAEnv):
 
         keys = self.unit_keys
 
-        healths = jnp.stack([state[unit].status.health for unit in keys])
-        max_healths = healths / jnp.stack([state[unit].status.max_health for unit in keys])
-        positions = jnp.stack([state[unit].transform.position for unit in keys])
-        rotations = jnp.stack([state[unit].transform.rotation for unit in keys]) / (jnp.pi * 2)
-        attack_ranges = jnp.stack([state[unit].status.attack_range for unit in keys])
-        attack_damages = jnp.stack([state[unit].status.attack_damage for unit in keys])
-        cooldowns = jnp.stack([state[unit].status.cooldown for unit in keys])
-        attack_cooldowns = cooldowns / jnp.stack(
-            [state[unit].status.attack_cooldown for unit in keys]
-        )
-
-        body_radiuss = jnp.stack([state[unit].collider.radius for unit in keys])
-        body_weights = jnp.stack([state[unit].rigidbody.mass for unit in keys])
-        sight_angles = jnp.stack([state[unit].status.sight_angle for unit in keys]) / (jnp.pi * 2)
-        teams = jnp.stack([state[unit].team for unit in keys])
-        is_alives = jnp.stack([state[unit].status.is_alive for unit in keys])
-        speeds = jnp.stack([state[unit].status.speed for unit in keys])
-
-        is_ally = teams[None] == teams[:, None]
-
+        parsed_state = state["game_manager"].parsed_state
         n_unit = state["game_manager"].attackable_matrix.shape[0]
 
         roll_shifts = jnp.arange(0, -n_unit, step=-1)
@@ -625,21 +705,24 @@ class TABS(BaseMAEnv):
             :, 1:, None
         ]
         rolled_distnace_matrix = v_roll(state["game_manager"].distance_matrix, roll_shifts)[:, 1:]
-        rolled_is_ally = v_roll(is_ally, roll_shifts)[:, 1:]
+        rolled_is_ally = v_roll(parsed_state.is_teams, roll_shifts)[:, 1:]
 
-        repeated_health = jnp.repeat(healths[None], repeats=n_unit, axis=0)
-        repeated_max_health = jnp.repeat(max_healths[None], repeats=n_unit, axis=0)
-        repeated_attack_damage = jnp.repeat(attack_damages[None], repeats=n_unit, axis=0)
-        repeated_attack_range = jnp.repeat(attack_ranges[None], repeats=n_unit, axis=0)
-        repeated_rotation = jnp.repeat(rotations[None], repeats=n_unit, axis=0)
-        repeated_is_alive = jnp.repeat(is_alives[None], repeats=n_unit, axis=0)
-        repeated_attack_cooldown = jnp.repeat(attack_cooldowns[None], repeats=n_unit, axis=0)
-        repeated_radius = jnp.repeat(body_radiuss[None], repeats=n_unit, axis=0)
-        repeated_mass = jnp.repeat(body_weights[None], repeats=n_unit, axis=0)
-        repeated_sight_angle = jnp.repeat(sight_angles[None], repeats=n_unit, axis=0)
-        repeated_cooldown = jnp.repeat(cooldowns[None], repeats=n_unit, axis=0)
-        repeated_speed = jnp.repeat(speeds[None], repeats=n_unit, axis=0)
-
+        repeated_health = jnp.repeat(parsed_state.healths[None], repeats=n_unit, axis=0)
+        repeated_max_health = jnp.repeat(parsed_state.max_healths[None], repeats=n_unit, axis=0)
+        repeated_attack_damage = jnp.repeat(
+            parsed_state.attack_damages[None], repeats=n_unit, axis=0
+        )
+        repeated_attack_range = jnp.repeat(parsed_state.attack_ranges[None], repeats=n_unit, axis=0)
+        repeated_rotation = jnp.repeat(parsed_state.rotations[None], repeats=n_unit, axis=0)
+        repeated_is_alive = jnp.repeat(parsed_state.is_alives[None], repeats=n_unit, axis=0)
+        repeated_attack_cooldown = jnp.repeat(
+            parsed_state.attack_cooldowns[None], repeats=n_unit, axis=0
+        )
+        repeated_radius = jnp.repeat(parsed_state.body_radiuss[None], repeats=n_unit, axis=0)
+        repeated_mass = jnp.repeat(parsed_state.body_weights[None], repeats=n_unit, axis=0)
+        repeated_sight_angle = jnp.repeat(parsed_state.sight_angles[None], repeats=n_unit, axis=0)
+        repeated_cooldown = jnp.repeat(parsed_state.cooldowns[None], repeats=n_unit, axis=0)
+        repeated_speed = jnp.repeat(parsed_state.speeds[None], repeats=n_unit, axis=0)
         rolled_health = v_roll(repeated_health, roll_shifts)[:, 1:]
         rolled_max_health = v_roll(repeated_max_health, roll_shifts)[:, 1:]
         rolled_attack_damage = v_roll(repeated_attack_damage, roll_shifts)[:, 1:]
@@ -655,19 +738,19 @@ class TABS(BaseMAEnv):
 
         own_feature = jnp.concatenate(
             (
-                healths,
-                max_healths,
-                positions,
-                rotations,
-                attack_ranges,
-                attack_damages,
-                cooldowns,
-                attack_cooldowns,
-                body_radiuss,
-                body_weights,
-                sight_angles,
-                is_alives,
-                speeds,
+                parsed_state.healths,
+                parsed_state.max_healths,
+                parsed_state.positions,
+                parsed_state.rotations,
+                parsed_state.attack_ranges,
+                parsed_state.attack_damages,
+                parsed_state.cooldowns,
+                parsed_state.attack_cooldowns,
+                parsed_state.body_radiuss,
+                parsed_state.body_weights,
+                parsed_state.sight_angles,
+                parsed_state.is_alives,
+                parsed_state.speeds,
             ),
             axis=1,
         )
@@ -712,7 +795,7 @@ class TABS(BaseMAEnv):
         ).flatten()
 
         zone_types = jnp.repeat(zone_types[None], repeats=n_unit, axis=0)
-        zone_rel_positions = zone_positions[None] - positions[:, None]
+        zone_rel_positions = zone_positions[None] - parsed_state.positions[:, None]
         zone_axes = jnp.repeat(zone_axes[None], repeats=n_unit, axis=0)
         zone_damages = jnp.repeat(zone_damages[None], repeats=n_unit, axis=0)
         zone_feature = jnp.concatenate(
@@ -725,19 +808,19 @@ class TABS(BaseMAEnv):
         observations = {key: concated_obs[i] for i, key in enumerate(keys)}
         unit_world_state = jnp.concatenate(
             (
-                healths,
-                max_healths,
-                positions,
-                rotations,
-                attack_ranges,
-                attack_damages,
-                cooldowns,
-                attack_cooldowns,
-                body_radiuss,
-                body_weights,
-                sight_angles,
-                is_alives,
-                speeds,
+                parsed_state.healths,
+                parsed_state.max_healths,
+                parsed_state.positions,
+                parsed_state.rotations,
+                parsed_state.attack_ranges,
+                parsed_state.attack_damages,
+                parsed_state.cooldowns,
+                parsed_state.attack_cooldowns,
+                parsed_state.body_radiuss,
+                parsed_state.body_weights,
+                parsed_state.sight_angles,
+                parsed_state.is_alives,
+                parsed_state.speeds,
             ),
             axis=-1,
         ).flatten()
@@ -806,6 +889,7 @@ class TABS(BaseMAEnv):
             timestep=jnp.array([0]),
             team_hp_ratio=jnp.ones((self.max_team,), dtype=jnp.float32),
             last_team_hp_ratio=jnp.ones((self.max_team,), dtype=jnp.float32),
+            parsed_state=ParsedState.from_state(state, self.unit_keys),
         )
 
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
@@ -820,6 +904,7 @@ class TABS(BaseMAEnv):
     def step(self, key, env_state, actions):
         state = env_state["state"]
         physics_params = env_state["physics_params"]
+        parsed_state: ParsedState = state["game_manager"].parsed_state
 
         for sprite in state.keys():
             if hasattr(state[sprite], "update"):
@@ -853,9 +938,9 @@ class TABS(BaseMAEnv):
                 jnp.logical_not(state[sprite].status.is_alive) | state[sprite].status.is_disabled
             )
 
-        is_alives = jnp.stack([state[unit].status.is_alive for unit in self.unit_keys])
-        teams = jnp.stack([state[unit].team for unit in self.unit_keys])
-        is_disabled = jnp.stack([state[unit].status.is_disabled for unit in self.unit_keys])
+        is_alives = parsed_state.is_alives
+        teams = parsed_state.teams
+        is_disabled = parsed_state.is_disabled
 
         def is_team_done(team):
             return ((teams == team) & (~is_alives | is_disabled)).sum() == (teams == team).sum()
@@ -870,8 +955,13 @@ class TABS(BaseMAEnv):
         # If all teams except one are eliminated or truncated, the episode is done
         # Note that truncation does not mean the episode is done, but set done to True (please refer to https://github.com/FLAIROx/JaxMARL/blob/main/jaxmarl/environments/smax/smax_env.py)
         dones["__all__"] = (team_dones.sum() >= self.max_team - 1) | truncation
-        state["game_manager"] = state["game_manager"].update_team_hp_ratio(
-            state, teams, is_disabled, self.unit_keys, self.max_team
+        state["game_manager"] = (
+            state["game_manager"]
+            .update_team_hp_ratio(state, teams, is_disabled, self.unit_keys, self.max_team)
+            .update_parsed_state(state, self.unit_keys)
+        )
+        state["game_manager"] = state["game_manager"].replace(
+            attack_matrix=jnp.zeros_like(state["game_manager"].attack_matrix, jnp.bool)
         )
         team_hp_ratio = state["game_manager"].team_hp_ratio
         delta_hp = team_hp_ratio - state["game_manager"].last_team_hp_ratio
