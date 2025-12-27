@@ -111,16 +111,21 @@ class DefaultUnit:
         attack_success = can_attack & is_attack & target_attackable[target_id.reshape()]
 
         objects["game_manager"] = objects["game_manager"].replace(
-            attack_matrix=objects["game_manager"].attack_matrix.at[
-                self.status.id.reshape(), target_id.reshape()
-            ].set(objects["game_manager"].attack_matrix[self.status.id.reshape(), target_id.reshape()] |attack_success.reshape())
+            attack_matrix=objects["game_manager"]
+            .attack_matrix.at[self.status.id.reshape(), target_id.reshape()]
+            .set(
+                objects["game_manager"].attack_matrix[self.status.id.reshape(), target_id.reshape()]
+                | attack_success.reshape()
+            )
         )
         objects["game_manager"] = objects["game_manager"].replace(
-            attack_matrix=objects["game_manager"].attack_matrix.at[
-                target_id.reshape(), self.status.id.reshape()
-            ].set(objects["game_manager"].attack_matrix[target_id.reshape(), self.status.id.reshape()] | attack_success.reshape())
+            attack_matrix=objects["game_manager"]
+            .attack_matrix.at[target_id.reshape(), self.status.id.reshape()]
+            .set(
+                objects["game_manager"].attack_matrix[target_id.reshape(), self.status.id.reshape()]
+                | attack_success.reshape()
+            )
         )
-        
 
         move_action = (
             action_table[action, :2] * action_able * self.status.speed
@@ -235,14 +240,15 @@ class Zone:
             objects["game_manager"].visible_matrix,
             jnp.logical_or(visible_matrix, jnp.logical_and(is_in[:, None], is_in[None, :])),
         )
-        
+
         parsed_state = objects["game_manager"].parsed_state
 
         # The attacker in bush can be observed.
-        # TODO: Observations are shared with members of the same team. (Rule 3)
         attack_in_bush = jnp.logical_and(is_in[:, None], objects["game_manager"].attack_matrix)
         visible_matrix = jnp.logical_or(visible_matrix, attack_in_bush.T)
-        visible_matrix = jax.vmap(lambda is_team, visible_matrix : is_team[:, None] & visible_matrix[None], in_axes=(0, 0))(parsed_state.is_teams[..., 0], visible_matrix).sum(axis=0, dtype=jnp.bool)
+        visible_matrix = jax.vmap(
+            lambda is_team, visible_matrix: is_team[:, None] & visible_matrix[None], in_axes=(0, 0)
+        )(parsed_state.is_teams[..., 0], visible_matrix).sum(axis=0, dtype=jnp.bool)
         visible_matrix = jnp.logical_and(visible_matrix, objects["game_manager"].visible_matrix)
 
         objects["game_manager"] = objects["game_manager"].replace(visible_matrix=visible_matrix)
@@ -295,22 +301,22 @@ class ParsedState:
 
         is_ally = teams[None] == teams[:, None]
         return cls(
-            healths = healths,
-            positions = positions,
-            rotations = rotations,
-            cooldowns = cooldowns,
-            is_alives = is_alives,
-            teams = teams,
-            is_teams = is_ally,
-            attack_cooldowns = attack_cooldowns,
-            attack_damages = attack_damages,
-            attack_ranges = attack_ranges,
-            max_healths = max_healths,
-            body_radiuss = body_radiuss,
-            body_weights = body_weights,
-            sight_angles = sight_angles,
-            speeds = speeds,
-            is_disabled = is_disabled
+            healths=healths,
+            positions=positions,
+            rotations=rotations,
+            cooldowns=cooldowns,
+            is_alives=is_alives,
+            teams=teams,
+            is_teams=is_ally,
+            attack_cooldowns=attack_cooldowns,
+            attack_damages=attack_damages,
+            attack_ranges=attack_ranges,
+            max_healths=max_healths,
+            body_radiuss=body_radiuss,
+            body_weights=body_weights,
+            sight_angles=sight_angles,
+            speeds=speeds,
+            is_disabled=is_disabled,
         )
 
 
@@ -951,7 +957,9 @@ class TABS(BaseMAEnv):
             .update_team_hp_ratio(state, teams, is_disabled, self.unit_keys, self.max_team)
             .update_parsed_state(state, self.unit_keys)
         )
-        state["game_manager"] = state["game_manager"].replace(attack_matrix = jnp.zeros_like(state["game_manager"].attack_matrix, jnp.bool))
+        state["game_manager"] = state["game_manager"].replace(
+            attack_matrix=jnp.zeros_like(state["game_manager"].attack_matrix, jnp.bool)
+        )
         team_hp_ratio = state["game_manager"].team_hp_ratio
         delta_hp = team_hp_ratio - state["game_manager"].last_team_hp_ratio
         reward_matrix = (jnp.identity(self.max_team) - 0.5) * 2.0
