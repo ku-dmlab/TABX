@@ -1,9 +1,12 @@
-from typing import Any
+import os
+from typing import Any, Dict, Union
 
 import chex
 import jax
 import jax.numpy as jnp
 from flax.training.train_state import TrainState
+from flax.traverse_util import flatten_dict, unflatten_dict
+from safetensors.flax import load_file, save_file
 
 from src.tabs.constants import ALL_UNIT_NAMES
 from src.tabs.tabs import TABS
@@ -115,3 +118,13 @@ def get_battle_metric(env: TABS, last_state):
             "episode_wins": log_state.returned_episode_wins[:, 0].mean(),
         }
     )
+
+
+def save_params(params: Dict, filename: Union[str, os.PathLike]) -> None:
+    flattened_dict = flatten_dict(params, sep=",")
+    save_file(flattened_dict, filename)
+
+
+def load_params(filename: Union[str, os.PathLike]) -> Dict:
+    flattened_dict = load_file(filename)
+    return unflatten_dict(flattened_dict, sep=",")
