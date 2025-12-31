@@ -55,6 +55,9 @@ class Config:
     NUM_TO_SAVE: int = 1000
     NUM_ENVS_TO_GENERATE: int = 64
     UPDATE_FREQ: int = 64
+    # Eval.
+    EVAL_STEPS: int = 256
+    NUM_EVAL: int = 10
     # Misc.
     SEED: int = 0
     PROJECT_NAME: str = "sfl_mappo_rnn"  # wandb project name
@@ -159,6 +162,13 @@ def make_train(config):
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, 0))(reset_rng, env_params)
         ac_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], 128)
         cr_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], 128)
+
+        # For evaluation
+        rng, _rng, _rng_reset = jax.random.split(rng, 3)
+        sample_rngs = jax.random.split(_rng, config["NUM_EVAL"])
+        eval_levels = jax.vmap(sample_random_level, in_axes=(None, 0))(init_env_params, sample_rngs)
+        reset_rngs = jax.random.split(_rng_reset, config["NUM_EVAL"])
+        eval_obsv, eval_env_state = jax.vmap(env.reset, in_axes=(0, 0))(reset_rngs, eval_levels)
 
         def get_learnability_set(actor_train_state, rng):
             BATCH_ACTORS = config["BATCH_SIZE"] * env.num_agents
@@ -521,6 +531,82 @@ def make_train(config):
                 metric["learnability_set_mean_score"] = learnability_scores.mean()
 
                 metric["update_steps"] = update_steps
+
+                def evaluate(actor_train_state, rng):
+                    BATCH_ACTORS = config["NUM_EVAL"] * env.num_agents
+
+                    def _rollout(carry, unused):
+                        (
+                            actor_train_state,
+                            env_state,
+                            last_obs,
+                            last_done,
+                            ac_hstate,
+                            levels,
+                            rng,
+                        ) = carry
+
+                        # SELECT ACTION
+                        rng, _rng = jax.random.split(rng)
+                        avail_actions = jax.vmap(env.get_avail_actions)(env_state)
+                        avail_actions = jax.lax.stop_gradient(
+                            batchify(avail_actions, env.agents, BATCH_ACTORS)
+                        )
+                        obs_batch = batchify(last_obs, env.agents, BATCH_ACTORS)
+                        ac_in = (
+                            obs_batch[np.newaxis, :],
+                            last_done[np.newaxis, :],
+                            avail_actions,
+                        )
+                        ac_hstate, pi = actor_network.apply(
+                            actor_train_state.params, ac_hstate, ac_in
+                        )
+                        action = pi.sample(seed=_rng)
+                        env_act = unbatchify(action, env.agents, config["NUM_EVAL"], env.num_agents)
+                        env_act = {k: v.squeeze() for k, v in env_act.items()}
+
+                        # STEP ENV
+                        rng, _rng = jax.random.split(rng)
+                        rng_step = jax.random.split(_rng, config["NUM_EVAL"])
+                        obsv, env_state, reward, done, info = jax.vmap(
+                            env.step, in_axes=(0, 0, 0, 0)
+                        )(rng_step, env_state, env_act, levels)
+                        done_batch = batchify(done, env.agents, BATCH_ACTORS).squeeze()
+
+                        carry = (
+                            actor_train_state,
+                            env_state,
+                            obsv,
+                            done_batch,
+                            ac_hstate,
+                            levels,
+                            rng,
+                        )
+
+                        return carry, None
+
+                    carry = (
+                        actor_train_state,
+                        eval_env_state,
+                        eval_obsv,
+                        jnp.zeros((BATCH_ACTORS), dtype=bool),
+                        ScannedRNN.initialize_carry(BATCH_ACTORS, 128),
+                        eval_levels,
+                        rng,
+                    )
+                    carry, _ = jax.lax.scan(_rollout, carry, None, config["EVAL_STEPS"])
+                    metric = get_battle_metric(env, carry[1])
+
+                    eval_metric = {}
+                    for key in metric.keys():
+                        eval_metric[f"eval/{key}"] = metric[key]
+
+                    return eval_metric
+
+                rng, _rng = jax.random.split(rng)
+                eval_metric = evaluate(train_states[0], _rng)
+
+                metric |= eval_metric
 
                 def callback(metric):
                     wandb.log(metric)
