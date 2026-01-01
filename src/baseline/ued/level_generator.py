@@ -13,13 +13,17 @@ from src.tabs.scenarios import Scenario, ZoneScenario
 FREE_PARAM_TYPES = {"zone": 0, "unit_spec": 1, "heuristic_config": 2}
 
 zone_ranges = {
-    "zone_type": [0, 2],
+    "zone_type": [0, 3],
     "position_x": [15, 45],  # battle field width: 60.5
     "position_y": [10, 30],  # battle field height: 39
     "axes_x": [2, 10],
     "axes_y": [2, 5],
-    "damage": [2, 20],
+    "effect_value": [2, 20],
 }
+
+
+effect_value_coef = jnp.array([1.0, 1.0, 1.0, 0.05])
+
 
 
 def randomize_zone(env_params: Level, rng: chex.PRNGKey) -> Level:
@@ -66,12 +70,12 @@ def randomize_zone(env_params: Level, rng: chex.PRNGKey) -> Level:
                     ),
                 ]
             ).T,
-            damage=jax.random.uniform(
+            effect_value=jax.random.uniform(
                 rngs[5],
                 shape=(n_zones, 1),
-                minval=zone_ranges["damage"][0],
-                maxval=zone_ranges["damage"][1],
-            ),
+                minval=zone_ranges["effect_value"][0],
+                maxval=zone_ranges["effect_value"][1],
+            ) * effect_value_coef[zone_scenario.zone_type],
         )
         return zone_scenario
 
@@ -221,11 +225,11 @@ def mutate_zone(env_params: Level, rng: chex.PRNGKey, num_edits=3) -> Level:
                     ),
                 ]
             ).T,
-            damage=jnp.clip(
-                zone_scenario.damage + jax.random.uniform(rngs[4], minval=-4, maxval=4),
-                min=zone_ranges["damage"][0],
-                max=zone_ranges["damage"][1],
-            ),
+            effect_value=jnp.clip(
+                zone_scenario.effect_value + jax.random.uniform(rngs[4], minval=-4, maxval=4),
+                min=zone_ranges["effect_value"][0],
+                max=zone_ranges["effect_value"][1],
+            ) * effect_value_coef[zone_scenario.zone_type],
         )
         return zone_scenario
 
@@ -253,13 +257,16 @@ def mutate_zone(env_params: Level, rng: chex.PRNGKey, num_edits=3) -> Level:
     def _change_type(zone_scenario: ZoneScenario, rng: chex.PRNGKey) -> ZoneScenario:
         # Randomly reassign zone type
         n_zones = zone_scenario.zone_type.shape[0]
+
+        changed_zone_type = jax.random.randint(
+            rng,
+            shape=(n_zones, 1),
+            minval=zone_ranges["zone_type"][0],
+            maxval=zone_ranges["zone_type"][1],
+        )
         zone_scenario = zone_scenario.replace(
-            zone_type=jax.random.randint(
-                rng,
-                shape=(n_zones, 1),
-                minval=zone_ranges["zone_type"][0],
-                maxval=zone_ranges["zone_type"][1],
-            )
+            zone_type=changed_zone_type,
+            effect_value= zone_scenario.effect_value * effect_value_coef[changed_zone_type] / effect_value_coef[zone_scenario.zone_type],
         )
         return zone_scenario
 
