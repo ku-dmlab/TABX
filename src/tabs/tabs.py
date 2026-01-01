@@ -64,6 +64,7 @@ class UnitStatus:
     attack_type: chex.Array  # Type of attack the unit performs
     is_disabled: chex.Array  # Boolean showing whether the unit is disabled
     speed: chex.Array  # Speed of the unit
+    max_speed: chex.Array  # Maximum speed of the unit
 
 
 @struct.dataclass
@@ -95,6 +96,9 @@ class DefaultUnit:
             damage_dealt=self.damage_dealt,
             is_attacking=self.is_attacking,
         )
+
+    def late_update(self, **kwargs):
+        return self.replace(status=self.status.replace(speed=self.status.max_speed))
 
     def act(self, objects, action, **kwargs):
         action = action.reshape()
@@ -172,6 +176,9 @@ class DefaultUnit:
             health=jnp.clip(self.status.health - damage, 0.0, self.status.max_health)
         )
 
+    def slow_down(self, percent):
+        return self.replace(status=self.status.replace(speed=jnp.clip(self.status.speed * (1 - percent), 0.0, self.status.max_speed)))
+
 
 @struct.dataclass
 class Zone:
@@ -182,7 +189,7 @@ class Zone:
     def act(self, objects, physics_params):
         return jax.lax.switch(
             self.zone_type.reshape(),
-            [self.act_nothing, self.act_lava, self.act_bush],
+            [self.act_nothing, self.act_lava, self.act_bush, self.act_swamp],
             objects,
             physics_params,
         )
@@ -256,9 +263,19 @@ class Zone:
 
         return objects
 
-    def act_nothing(self, objects, physics_params):
+    def act_swamp(self, objects, physics_params):
+        unit_objects = {key: value for (key, value) in objects.items() if "unit" in key}
+        is_in = self.is_in(objects)
+
+        for key, unit in unit_objects.items():
+            # Only slow down units that are inside the swamp zone
+            slow_factor = is_in[unit.status.id] * self.damage
+            objects[key] = unit.slow_down(slow_factor)
+
         return objects
 
+    def act_nothing(self, objects, physics_params):
+        return objects
 
 @struct.dataclass
 class ParsedState:
@@ -546,6 +563,7 @@ class TABS(BaseMAEnv):
                     attack_type=jnp.array([AttackType.DEFAULT]),
                     max_health=jnp.array([1.0]),
                     speed=jnp.array([1.0]),
+                    max_speed=jnp.array([1.0]),
                 ),
                 damage_dealt=jnp.array([0.0]),
                 is_attacking=jnp.array([False]),
@@ -861,6 +879,7 @@ class TABS(BaseMAEnv):
                     attack_type=vscenario.attack_types[i],
                     max_health=vscenario.healths[i],
                     speed=vscenario.speeds[i],
+                    max_speed=vscenario.speeds[i],
                 ),
                 damage_dealt=jnp.array([0.0]),
                 is_attacking=jnp.array([False]),
@@ -922,6 +941,11 @@ class TABS(BaseMAEnv):
             state[sprite] = state[sprite].act(state, actions[sprite], physics_params=physics_params)
 
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
+
+        for sprite in state.keys():
+            if hasattr(state[sprite], "late_update"):
+                state[sprite] = state[sprite].late_update(config=physics_params)
+
 
         # handling zone effect
         for sprite in state.keys():
