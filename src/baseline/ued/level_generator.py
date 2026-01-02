@@ -1,6 +1,5 @@
 from enum import IntEnum
-from functools import partial
-from typing import Callable
+from typing import Callable, Tuple
 from typing import Dict as Level
 
 import chex
@@ -23,7 +22,6 @@ zone_ranges = {
 
 
 effect_value_coef = jnp.array([1.0, 1.0, 1.0, 0.05])
-
 
 
 def randomize_zone(env_params: Level, rng: chex.PRNGKey) -> Level:
@@ -75,7 +73,8 @@ def randomize_zone(env_params: Level, rng: chex.PRNGKey) -> Level:
                 shape=(n_zones, 1),
                 minval=zone_ranges["effect_value"][0],
                 maxval=zone_ranges["effect_value"][1],
-            ) * effect_value_coef[zone_scenario.zone_type],
+            )
+            * effect_value_coef[zone_scenario.zone_type],
         )
         return zone_scenario
 
@@ -169,14 +168,28 @@ def randomize_heuristic_config(env_params: Level, rng: chex.PRNGKey) -> Level:
     return env_params
 
 
-def level_generator(free_param_type: int) -> Callable:
+def level_generator(free_param_types: Tuple) -> Callable:
     def generate_level(env_params: Level, rng: chex.PRNGKey) -> Level:
-        return jax.lax.switch(
-            free_param_type,
-            [randomize_zone, randomize_unit_specs, randomize_heuristic_config],
-            env_params,
-            rng,
+        def _generate_level(carry, free_param_type: int):
+            env_params, rng = carry
+
+            rng, _rng = jax.random.split(rng)
+            env_params = jax.lax.switch(
+                free_param_type,
+                [randomize_zone, randomize_unit_specs, randomize_heuristic_config],
+                env_params,
+                _rng,
+            )
+
+            return (env_params, rng), None
+
+        (env_params, _), _ = jax.lax.scan(
+            _generate_level,
+            (env_params, rng),
+            jnp.array(jax.tree.map(lambda x: FREE_PARAM_TYPES[x], free_param_types)),
         )
+
+        return env_params
 
     return generate_level
 
@@ -229,7 +242,8 @@ def mutate_zone(env_params: Level, rng: chex.PRNGKey, num_edits=3) -> Level:
                 zone_scenario.effect_value + jax.random.uniform(rngs[4], minval=-4, maxval=4),
                 min=zone_ranges["effect_value"][0],
                 max=zone_ranges["effect_value"][1],
-            ) * effect_value_coef[zone_scenario.zone_type],
+            )
+            * effect_value_coef[zone_scenario.zone_type],
         )
         return zone_scenario
 
@@ -266,7 +280,9 @@ def mutate_zone(env_params: Level, rng: chex.PRNGKey, num_edits=3) -> Level:
         )
         zone_scenario = zone_scenario.replace(
             zone_type=changed_zone_type,
-            effect_value= zone_scenario.effect_value * effect_value_coef[changed_zone_type] / effect_value_coef[zone_scenario.zone_type],
+            effect_value=zone_scenario.effect_value
+            * effect_value_coef[changed_zone_type]
+            / effect_value_coef[zone_scenario.zone_type],
         )
         return zone_scenario
 
@@ -368,13 +384,27 @@ def mutate_heuristic_config(env_params: Level, rng: chex.PRNGKey) -> Level:
     return env_params
 
 
-def mutate_level_generator(free_param_type: int) -> Callable:
+def mutate_level_generator(free_param_types: Tuple) -> Callable:
     def mutate_level(env_params: Level, rng: chex.PRNGKey) -> Level:
-        return jax.lax.switch(
-            free_param_type,
-            [mutate_zone, mutate_unit_spec, mutate_heuristic_config],
-            env_params,
-            rng,
+        def _mutate_level(carry, free_param_type: int):
+            env_params, rng = carry
+
+            rng, _rng = jax.random.split(rng)
+            env_params = jax.lax.switch(
+                free_param_type,
+                [mutate_zone, mutate_unit_spec, mutate_heuristic_config],
+                env_params,
+                _rng,
+            )
+
+            return (env_params, rng), None
+
+        (env_params, _), _ = jax.lax.scan(
+            _mutate_level,
+            (env_params, rng),
+            jnp.array(jax.tree.map(lambda x: FREE_PARAM_TYPES[x], free_param_types)),
         )
+
+        return env_params
 
     return mutate_level
