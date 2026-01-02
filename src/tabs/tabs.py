@@ -64,6 +64,7 @@ class UnitStatus:
     attack_type: chex.Array  # Type of attack the unit performs
     is_disabled: chex.Array  # Boolean showing whether the unit is disabled
     speed: chex.Array  # Speed of the unit
+    max_speed: chex.Array  # Maximum speed of the unit
 
 
 @struct.dataclass
@@ -95,6 +96,9 @@ class DefaultUnit:
             damage_dealt=self.damage_dealt,
             is_attacking=self.is_attacking,
         )
+
+    def late_update(self, **kwargs):
+        return self.replace(status=self.status.replace(speed=self.status.max_speed))
 
     def act(self, objects, action, **kwargs):
         action = action.reshape()
@@ -172,17 +176,20 @@ class DefaultUnit:
             health=jnp.clip(self.status.health - damage, 0.0, self.status.max_health)
         )
 
+    def slow_down(self, percent):
+        return self.replace(status=self.status.replace(speed=jnp.clip(self.status.speed * (1 - percent), 0.0, self.status.max_speed)))
+
 
 @struct.dataclass
 class Zone:
     zone_type: chex.Array  # The zone type, 1 for lava, 2 for bush
     ellipse: Ellipse  # The parameter of ellipse
-    damage: chex.Array  # The damage dealt by the lava zone
+    effect_value: chex.Array  # The damage dealt by the lava zone
 
     def act(self, objects, physics_params):
         return jax.lax.switch(
             self.zone_type.reshape(),
-            [self.act_nothing, self.act_lava, self.act_bush],
+            [self.act_nothing, self.act_lava, self.act_bush, self.act_swamp],
             objects,
             physics_params,
         )
@@ -204,7 +211,7 @@ class Zone:
 
         for key, unit in unit_objects.items():
             objects[key] = unit.replace(
-                status=unit.on_damage(is_in[unit.status.id] * self.damage * physics_params.dt)
+                status=unit.on_damage(is_in[unit.status.id] * self.effect_value * physics_params.dt)
             )
 
         return objects
@@ -256,9 +263,19 @@ class Zone:
 
         return objects
 
-    def act_nothing(self, objects, physics_params):
+    def act_swamp(self, objects, physics_params):
+        unit_objects = {key: value for (key, value) in objects.items() if "unit" in key}
+        is_in = self.is_in(objects)
+
+        for key, unit in unit_objects.items():
+            # Only slow down units that are inside the swamp zone
+            slow_factor = is_in[unit.status.id] * self.effect_value
+            objects[key] = unit.slow_down(slow_factor)
+
         return objects
 
+    def act_nothing(self, objects, physics_params):
+        return objects
 
 @struct.dataclass
 class ParsedState:
@@ -546,6 +563,7 @@ class TABS(BaseMAEnv):
                     attack_type=jnp.array([AttackType.DEFAULT]),
                     max_health=jnp.array([1.0]),
                     speed=jnp.array([1.0]),
+                    max_speed=jnp.array([1.0]),
                 ),
                 damage_dealt=jnp.array([0.0]),
                 is_attacking=jnp.array([False]),
@@ -557,7 +575,7 @@ class TABS(BaseMAEnv):
             name: Zone(
                 zone_type=jnp.array([0]),
                 ellipse=Ellipse(position=jnp.array([0.0, 0.0]), axes=jnp.array([1.0, 1.0])),
-                damage=jnp.array([0.0]),
+                effect_value=jnp.array([0.0]),
             )
             for name in self.zone_keys
         }
@@ -781,7 +799,7 @@ class TABS(BaseMAEnv):
         zone_types = jnp.stack([state[zone].zone_type for zone in self.zone_keys])
         zone_positions = jnp.stack([state[zone].ellipse.position for zone in self.zone_keys])
         zone_axes = jnp.stack([state[zone].ellipse.axes for zone in self.zone_keys])
-        zone_damages = jnp.stack([state[zone].damage for zone in self.zone_keys])
+        zone_effect_values = jnp.stack([state[zone].effect_value for zone in self.zone_keys])
 
         # For world state
         zone_world_feature = jnp.concatenate(
@@ -789,7 +807,7 @@ class TABS(BaseMAEnv):
                 zone_types,
                 zone_positions,
                 zone_axes,
-                zone_damages,
+                zone_effect_values,
             ),
             axis=1,
         ).flatten()
@@ -797,9 +815,9 @@ class TABS(BaseMAEnv):
         zone_types = jnp.repeat(zone_types[None], repeats=n_unit, axis=0)
         zone_rel_positions = zone_positions[None] - parsed_state.positions[:, None]
         zone_axes = jnp.repeat(zone_axes[None], repeats=n_unit, axis=0)
-        zone_damages = jnp.repeat(zone_damages[None], repeats=n_unit, axis=0)
+        zone_effect_values = jnp.repeat(zone_effect_values[None], repeats=n_unit, axis=0)
         zone_feature = jnp.concatenate(
-            (zone_types, zone_rel_positions, zone_axes, zone_damages), axis=-1
+            (zone_types, zone_rel_positions, zone_axes, zone_effect_values), axis=-1
         )
         zone_feature = jnp.logical_not(zone_types == 0) * zone_feature
         zone_feature = zone_feature.reshape(n_unit, -1)
@@ -861,6 +879,7 @@ class TABS(BaseMAEnv):
                     attack_type=vscenario.attack_types[i],
                     max_health=vscenario.healths[i],
                     speed=vscenario.speeds[i],
+                    max_speed=vscenario.speeds[i],
                 ),
                 damage_dealt=jnp.array([0.0]),
                 is_attacking=jnp.array([False]),
@@ -873,7 +892,7 @@ class TABS(BaseMAEnv):
                     position=env_params["zone_scenario"].position[i],
                     axes=env_params["zone_scenario"].axes[i],
                 ),
-                damage=env_params["zone_scenario"].damage[i],
+                effect_value=env_params["zone_scenario"].effect_value[i],
             )
 
         state["game_manager"] = GameManager(
@@ -922,6 +941,11 @@ class TABS(BaseMAEnv):
             state[sprite] = state[sprite].act(state, actions[sprite], physics_params=physics_params)
 
         state["game_manager"] = state["game_manager"].update_distance_matrix(state, self.unit_keys)
+
+        for sprite in state.keys():
+            if hasattr(state[sprite], "late_update"):
+                state[sprite] = state[sprite].late_update(config=physics_params)
+
 
         # handling zone effect
         for sprite in state.keys():

@@ -39,7 +39,7 @@ class ZoneScenario:
     zone_type: chex.Array
     position: chex.Array
     axes: chex.Array
-    damage: chex.Array
+    effect_value: chex.Array
 
 
 @struct.dataclass
@@ -307,41 +307,41 @@ def generate_scenario_config(
         zone_type = jnp.zeros((n_zone, 1), dtype=jnp.int32)
         position = jnp.zeros((n_zone, 2))
         axes = jnp.ones((n_zone, 2))
-        damage = jnp.zeros((n_zone, 1))
+        effect_value = jnp.zeros((n_zone, 1))
     elif zone_scenario_name == ZONESCENARIO[1]:
         zone_type = jnp.array([1, 1]).reshape(-1, 1)
         position = jnp.array([[-20.0, -5.0], [20.0, 5.0]]).reshape(-1, 2)
         axes = jnp.array([[10.0, 5.0], [10.0, 5.0]]).reshape(-1, 2)
-        damage = jnp.array([10.0, 10.0]).reshape(-1, 1)
+        effect_value = jnp.array([10.0, 10.0]).reshape(-1, 1)
     elif zone_scenario_name == ZONESCENARIO[2]:
         zone_type = jnp.array([2, 2, 2]).reshape(-1, 1)
         position = jnp.array([[-22.5, -7.0], [22.5, 7.0], [0, 0.0]]).reshape(-1, 2)
         axes = jnp.array([[5.0, 7.0], [5.0, 7.0], [3.0, 3.0]]).reshape(-1, 2)
-        damage = jnp.array([0.0, 0.0, 0.0]).reshape(-1, 1)
+        effect_value = jnp.array([0.0, 0.0, 0.0]).reshape(-1, 1)
     elif zone_scenario_name == ZONESCENARIO[3]:
         zone_type = jnp.array([1, 1, 2, 2]).reshape(-1, 1)
         position = jnp.array([[-20.0, -5.0], [20.0, 5.0], [-24.0, 7.0], [24.0, -7.0]]).reshape(
             -1, 2
         )
         axes = jnp.array([[10.0, 5.0], [10.0, 5.0], [5.0, 5.0], [5.0, 5.0]]).reshape(-1, 2)
-        damage = jnp.array([10.0, 10.0, 0.0, 0.0]).reshape(-1, 1)
+        effect_value = jnp.array([10.0, 10.0, 0.0, 0.0]).reshape(-1, 1)
     elif zone_scenario_name == PREDEFINED_SCENARIOS[0]:
         zone_type = jnp.array([1, 1]).reshape(-1, 1)
         position = jnp.array([[-24.0, -3.0], [-16.0, -12.5]]).reshape(-1, 2)
         axes = jnp.array([[7.5, 3.0], [3.0, 10.0]]).reshape(-1, 2)
-        damage = jnp.array([10.0, 10.0]).reshape(-1, 1)
+        effect_value = jnp.array([10.0, 10.0]).reshape(-1, 1)
     elif zone_scenario_name == PREDEFINED_SCENARIOS[1]:
         zone_type = jnp.array([1, 1, 1, 1]).reshape(-1, 1)
         position = jnp.array([[-3.25, -6.0], [-3.25, 6.0], [4.0, 15.0], [4.0, -15.0]]).reshape(
             -1, 2
         )
         axes = jnp.array([[7.5, 3.0], [7.5, 3.0], [3.0, 9.0], [3.0, 9.0]]).reshape(-1, 2)
-        damage = jnp.array([10.0, 10.0, 10.0, 10.0]).reshape(-1, 1)
+        effect_value = jnp.array([10.0, 10.0, 10.0, 10.0]).reshape(-1, 1)
     elif zone_scenario_name == PREDEFINED_SCENARIOS[2]:
         zone_type = jnp.array([2, 2]).reshape(-1, 1)
         position = jnp.array([[-24.25, -10.0], [-24, 10.0]]).reshape(-1, 2)
         axes = jnp.array([[3.0, 3.0], [3.0, 3.0]]).reshape(-1, 2)
-        damage = jnp.array([0.0, 0.0]).reshape(-1, 1)
+        effect_value = jnp.array([0.0, 0.0]).reshape(-1, 1)
     else:
         raise NotImplementedError
 
@@ -353,7 +353,7 @@ def generate_scenario_config(
         zone_type=jnp.zeros((n_zone, 1)).at[:_n_zone].set(zone_type[:_n_zone]).astype(jnp.int32),
         position=jnp.zeros((n_zone, 2)).at[:_n_zone].set(position[:_n_zone]).astype(jnp.float32),
         axes=jnp.zeros((n_zone, 2)).at[:_n_zone].set(axes[:_n_zone]).astype(jnp.float32),
-        damage=jnp.zeros((n_zone, 1)).at[:_n_zone].set(damage[:_n_zone]).astype(jnp.float32),
+        effect_value=jnp.zeros((n_zone, 1)).at[:_n_zone].set(effect_value[:_n_zone]).astype(jnp.float32),
     )
 
     # TABS Configuration
