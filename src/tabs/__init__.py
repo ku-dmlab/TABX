@@ -1,5 +1,6 @@
+import os
+
 from src.tabs.constants import ALL_UNIT_NAMES, UNITID2CHAR, UnitID
-from src.tabs.tabs import TABS
 
 # Check if the length of UnitID and get_all_unit_names are the same for
 unit_id_length = len([v for k, v in UnitID.__dict__.items() if not k.startswith("__")])
@@ -21,3 +22,8 @@ if unit_id_length != all_unit_names_length:
     raise ValueError(
         f"UnitID and get_all_unit_names must have the same length: {unit_id_length} != {all_unit_names_length}"
     )
+
+
+UNIT_SCENARIOS = [f.replace(".json", "") for f in os.listdir("src/scenarios/units")]
+ZONE_SCENARIOS = [f.replace(".json", "") for f in os.listdir("src/scenarios/zones")]
+CHALLENGES = [f.replace(".json", "") for f in os.listdir("src/scenarios/challenges")]
