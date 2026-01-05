@@ -177,7 +177,11 @@ class DefaultUnit:
         )
 
     def slow_down(self, percent):
-        return self.replace(status=self.status.replace(speed=jnp.clip(self.status.speed * (1 - percent), 0.0, self.status.max_speed)))
+        return self.replace(
+            status=self.status.replace(
+                speed=jnp.clip(self.status.speed * (1 - percent), 0.0, self.status.max_speed)
+            )
+        )
 
 
 @struct.dataclass
@@ -276,6 +280,7 @@ class Zone:
 
     def act_nothing(self, objects, physics_params):
         return objects
+
 
 @struct.dataclass
 class ParsedState:
@@ -946,7 +951,6 @@ class TABS(BaseMAEnv):
             if hasattr(state[sprite], "late_update"):
                 state[sprite] = state[sprite].late_update(config=physics_params)
 
-
         # handling zone effect
         for sprite in state.keys():
             if hasattr(state[sprite], "zone_type"):
@@ -1036,24 +1040,21 @@ class TABS(BaseMAEnv):
     def get_avail_actions(self, state):
         return {agent: jnp.ones((self.action_spaces[agent].n,)) for agent in self.unit_keys}
 
-    def init_render(self, ax, state: Dict, scenario_name: str):
-        from src.tabs.visualize.rendering import get_battle_simulator_render
+    def init_render(self, ax, state: Dict):
+        from src.tabs.visualize.rendering import HEIGHT, WIDTH, get_tabs_render
 
-        self.scenario_name = scenario_name
-
-        frame = get_battle_simulator_render(
-            scenario_name=self.scenario_name, state=state["state"], unit_keys=self.unit_keys
+        frame = get_tabs_render(
+            state=state["state"], unit_keys=self.unit_keys, zone_keys=self.zone_keys
         )
 
         # Render
         ax.clear()
-        # NOTE: We fix 480p
-        ax.set_xlim([0.0, 640])
-        ax.set_ylim([0.0, 480])
+        ax.set_xlim([0.0, WIDTH])
+        ax.set_ylim([0.0, HEIGHT])
         ax.axis("off")
 
         return ax.imshow(frame)
 
     def update_render(self, im, state: Dict):
         ax = im.axes
-        return self.init_render(ax, state, self.scenario_name)
+        return self.init_render(ax, state)

@@ -11,13 +11,11 @@ class Visualizer:
     def __init__(
         self,
         env: BaseMAEnv,
-        scenario_name: str,
         state_seq: chex.Array,
         reward_seq: chex.Array = None,
-        interval: int = 150,
+        interval: int = 120,
     ):
         self.env = env
-        self.scenario_name = scenario_name
 
         self.interval = interval
         self.state_seq = state_seq
@@ -47,21 +45,7 @@ class Visualizer:
             plt.show(block=True)
 
     def init(self):
-        self.im = self.env.init_render(self.ax, self.state_seq[0], self.scenario_name)
+        self.im = self.env.init_render(self.ax, self.state_seq[0])
 
     def update(self, frame):
         self.im = self.env.update_render(self.im, self.state_seq[frame])
-
-
-class UnitCombVisualizer(Visualizer):
-    """Visualizer especially for the TABSUnitComb environment."""
-
-    def __init__(self, env, scenario_name, state_seq, reward_seq=None, interval=1024):
-        super().__init__(env, scenario_name, state_seq, reward_seq, interval)
-
-
-class UnitDeployVisualizer(Visualizer):
-    """Visualizer especially for the TABSUnitDeploy environment."""
-
-    def __init__(self, env, scenario_name, state_seq, reward_seq=None, interval=1024):
-        super().__init__(env, scenario_name, state_seq, reward_seq, interval)
