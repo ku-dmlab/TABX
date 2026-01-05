@@ -1,31 +1,26 @@
 import jax
 
 from src.tabs import TABS
-from src.tabs.config import PhysicsParams, TABSConfig, TABSHeuristicConfig
-from src.tabs.scenarios import generate_scenario
+from src.tabs.config import PhysicsParams, TABSHeuristicConfig
+from src.tabs.scenarios import generate_scenario_config
 from src.tabs.visualize import Visualizer
 from src.tabs.wrappers import TABSEnemyHeuristicWrapper
 
 if __name__ == "__main__":
     num_steps = 120
-    scenario_name = "2F1K2A1H_tight"
+    seed = 0
+    scenario_name = "2F1K2A1H_2L2B"
 
-    tabs_conf = TABSConfig(scenario_name=scenario_name)
-    scenario = generate_scenario(tabs_conf)
-    tabs_config = TABSConfig(
-        scenario_name=scenario_name,
-        max_n_ally=int(scenario.ally_unit_comp.sum().item()),
-        max_n_enemy=int(scenario.enemy_unit_comp.sum().item()),
-    )
-
-    env = TABS(cfg=tabs_conf)
+    vscenario, zone_scenario, tabs_config = generate_scenario_config(scenario_name=scenario_name)
+    env = TABS(cfg=tabs_config)
     env = TABSEnemyHeuristicWrapper(env)
 
-    rng = jax.random.PRNGKey(0)
+    rng = jax.random.PRNGKey(seed)
     rng, _rng = jax.random.split(rng)
 
     env_params = {
-        "scenario": scenario,
+        "scenario": vscenario,
+        "zone_scenario": zone_scenario,
         "physics_params": PhysicsParams(),
         "heuristic_params": TABSHeuristicConfig(),
     }
@@ -40,12 +35,12 @@ if __name__ == "__main__":
             rng, action_rng = jax.random.split(action_rng)
             env_actions[agent] = env.action_spaces[env.unit_keys[0]].sample(rng)
 
-        obs, next_state, reward, done, info = jax.jit(env.step)(step_rng, env_state, env_actions)
+        obs, next_state, reward, done, info = env.step(step_rng, env_state, env_actions)
 
         return (next_state, rng), next_state
 
-    carry, stacked = jax.lax.scan(rollout_body, (env_state, rng), None, num_steps)
+    _, stacked = jax.lax.scan(rollout_body, (env_state, rng), None, num_steps)
     state_seq = [jax.tree.map(lambda x: x[i], stacked) for i in range(num_steps)]
 
-    visualizer = Visualizer(env, tabs_conf.scenario_name, state_seq)
-    visualizer.animate(save_fname="tabs.gif", view=False)
+    visualizer = Visualizer(env, state_seq)
+    visualizer.animate(save_fname=f"{scenario_name}.gif", view=False)
