@@ -129,7 +129,7 @@ class MapEditor:
         self.zone_panel_x = right_panel_x
         self.zone_panel_y = self.toolbar_y + self.toolbar_height + 10  # 120
         self.zone_panel_width = 370
-        self.zone_panel_height = 220
+        self.zone_panel_height = 240  # Increased to fit description
         self.zone_panel_dragging = False
         self.zone_panel_drag_offset = (0, 0)
 
@@ -178,24 +178,33 @@ class MapEditor:
 
         # Load scenario
         self.show_load_dialog = False
-        self.available_scenarios = []
-        self.filtered_scenarios = []  # Search filtered scenarios
+        self.available_scenarios = {}  # Dict: folder_name -> list of files
+        self.folder_expanded = {}  # Dict: folder_name -> bool (expanded or collapsed)
+        self.filtered_scenarios = []  # Search filtered scenarios (flat list)
         self.load_scroll_offset = 0
         self.selected_scenario_index = None
+        self.selected_folder = None  # Which folder the selected file is in
         self.search_query = ""  # Search query
         self.search_active = False  # Search input active
 
         # New scenario dialog
         self.show_new_scenario_dialog = False
         self.new_scenario_inputs = {
-            "scenario_name": "new_scenario",
             "max_height": str(int(max_field_height)),
             "max_width": str(int(max_field_width)),
             "margin_w": str(int(FIELD_MARGIN_WIDTH)),
             "margin_h": str(int(FIELD_MARGIN_HEIGHT)),
             "unit_spacing": str(self.unit_spacing),
         }
-        self.active_input_field = "scenario_name"  # 'scenario_name', 'max_height', 'max_width', 'margin_w', 'margin_h', 'unit_spacing'
+        self.active_input_field = (
+            "max_height"  # 'max_height', 'max_width', 'margin_w', 'margin_h', 'unit_spacing'
+        )
+
+        # Save scenario dialog
+        self.show_save_dialog = False
+        self.save_folder_selection = "challenges"  # 'challenges', 'units', 'zones'
+        self.save_scenario_name = "new_scenario"  # Scenario name for saving
+        self.save_name_input_active = False
 
         # Calculate field boundaries
         self.calculate_field_boundaries()
@@ -1223,8 +1232,21 @@ class MapEditor:
         swamp_text_y = y_offset + (40 - swamp_text.get_height()) // 2
         self.screen.blit(swamp_text, (swamp_text_x, swamp_text_y))
 
+        # Zone description based on selected type
+        y_offset += 48
+        zone_descriptions = {
+            1: "Deals damage over time to units inside",
+            2: "Provides cover",
+            3: "Slows down unit movement speed",
+        }
+        desc_text = self.tiny_font.render(
+            zone_descriptions[self.selected_zone_type], True, LIGHT_GRAY
+        )
+        desc_x = panel_x + (panel_width - desc_text.get_width()) // 2
+        self.screen.blit(desc_text, (desc_x, y_offset))
+
         # Effect value input section
-        y_offset += 50
+        y_offset += 25
         effect_label = self.small_font.render("Set effect value", True, WHITE)
         effect_label_x = panel_x + (panel_width - effect_label.get_width()) // 2
         self.screen.blit(effect_label, (effect_label_x, y_offset))
@@ -1272,7 +1294,7 @@ class MapEditor:
 
         # Dialog box - consistent with palette style
         dialog_width = 400
-        dialog_height = 420
+        dialog_height = 330
         dialog_x = (SCREEN_WIDTH - dialog_width) // 2
         dialog_y = (SCREEN_HEIGHT - dialog_height) // 2
 
@@ -1296,14 +1318,13 @@ class MapEditor:
         title_x = dialog_x + (dialog_width - title.get_width()) // 2
         self.screen.blit(title, (title_x, dialog_y + 7))
 
-        # Input fields
+        # Input fields (removed scenario_name)
         y_offset = dialog_y + title_bar_height + 15
         fields = [
-            ("scenario_name", "Scenario Name:", self.new_scenario_inputs["scenario_name"]),
             ("max_height", "Max Field Height:", self.new_scenario_inputs["max_height"]),
             ("max_width", "Max Field Width:", self.new_scenario_inputs["max_width"]),
-            ("margin_w", "Margin Width:", self.new_scenario_inputs["margin_w"]),
             ("margin_h", "Margin Height:", self.new_scenario_inputs["margin_h"]),
+            ("margin_w", "Margin Width:", self.new_scenario_inputs["margin_w"]),
             ("unit_spacing", "Unit Spacing:", self.new_scenario_inputs["unit_spacing"]),
         ]
 
@@ -1329,7 +1350,7 @@ class MapEditor:
             y_offset += 50
 
         # Buttons
-        button_y = dialog_y + dialog_height - 50
+        button_y = dialog_y + dialog_height - 40
         button_width = 150
         button_height = 35
         create_btn = pygame.Rect(dialog_x + 30, button_y, button_width, button_height)
@@ -1347,6 +1368,117 @@ class MapEditor:
         cancel_x = cancel_btn.x + (button_width - cancel_text.get_width()) // 2
         cancel_y = cancel_btn.y + (button_height - cancel_text.get_height()) // 2
         self.screen.blit(create_text, (create_x, create_y))
+        self.screen.blit(cancel_text, (cancel_x, cancel_y))
+
+    def draw_save_dialog(self):
+        """Draw the save scenario dialog with folder selection"""
+        # Semi-transparent overlay
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.screen.blit(overlay, (0, 0))
+
+        # Dialog box - more compact
+        dialog_width = 380
+        dialog_height = 205
+        dialog_x = (SCREEN_WIDTH - dialog_width) // 2
+        dialog_y = (SCREEN_HEIGHT - dialog_height) // 2
+
+        # Background
+        dialog_surface = pygame.Surface((dialog_width, dialog_height), pygame.SRCALPHA)
+        dialog_surface.fill((80, 80, 80, 240))
+        self.screen.blit(dialog_surface, (dialog_x, dialog_y))
+        pygame.draw.rect(self.screen, BLACK, (dialog_x, dialog_y, dialog_width, dialog_height), 2)
+
+        # Title bar
+        title_bar_height = 30
+        pygame.draw.rect(
+            self.screen, (50, 50, 50), (dialog_x, dialog_y, dialog_width, title_bar_height)
+        )
+        pygame.draw.rect(
+            self.screen, BLACK, (dialog_x, dialog_y, dialog_width, title_bar_height), 2
+        )
+
+        # Title (centered)
+        title = self.small_font.render("Save Scenario", True, WHITE)
+        title_x = dialog_x + (dialog_width - title.get_width()) // 2
+        self.screen.blit(title, (title_x, dialog_y + 7))
+
+        # Scenario name input
+        name_y = dialog_y + title_bar_height + 15
+        name_label = self.small_font.render("Name:", True, WHITE)
+        self.screen.blit(name_label, (dialog_x + 20, name_y + 3))
+
+        name_input_box = pygame.Rect(dialog_x + 75, name_y, 285, 28)
+        name_color = YELLOW if self.save_name_input_active else LIGHT_GRAY
+        pygame.draw.rect(self.screen, name_color, name_input_box)
+        pygame.draw.rect(self.screen, BLACK, name_input_box, 2)
+
+        # Display scenario name
+        display_name = self.save_scenario_name + ("|" if self.save_name_input_active else "")
+        name_text = self.small_font.render(display_name, True, BLACK)
+        self.screen.blit(name_text, (name_input_box.x + 8, name_input_box.y + 5))
+
+        # Folder selection - compact 3 buttons in a row
+        folder_y = name_y + 45
+        folder_label = self.small_font.render("Folder:", True, WHITE)
+        self.screen.blit(folder_label, (dialog_x + 20, folder_y + 8))
+
+        button_width = 85
+        button_height = 32
+        button_spacing = 8
+        folders = ["challenges", "units", "zones"]
+
+        for i, folder in enumerate(folders):
+            btn_x = dialog_x + 75 + i * (button_width + button_spacing)
+            btn_rect = pygame.Rect(btn_x, folder_y, button_width, button_height)
+
+            # Highlight selected folder
+            if folder == self.save_folder_selection:
+                pygame.draw.rect(self.screen, YELLOW, btn_rect)
+                text_color = BLACK
+            else:
+                pygame.draw.rect(self.screen, (70, 70, 70), btn_rect)
+                text_color = WHITE
+
+            pygame.draw.rect(self.screen, BLACK, btn_rect, 2)
+
+            # Draw folder name (abbreviated)
+            folder_display = folder[:4].upper() if len(folder) > 8 else folder.upper()
+            folder_text = self.tiny_font.render(folder_display, True, text_color)
+            text_x = btn_x + (button_width - folder_text.get_width()) // 2
+            text_y = folder_y + (button_height - folder_text.get_height()) // 2
+            self.screen.blit(folder_text, (text_x, text_y))
+
+        # Description text - compact
+        desc_y = folder_y + button_height + 12
+        folder_descriptions = {
+            "challenges": "Full scenarios (units + zones)",
+            "units": "Unit compositions only",
+            "zones": "Zone layouts only",
+        }
+        desc_text = self.tiny_font.render(
+            folder_descriptions[self.save_folder_selection], True, LIGHT_GRAY
+        )
+        desc_x = dialog_x + (dialog_width - desc_text.get_width()) // 2
+        self.screen.blit(desc_text, (desc_x, desc_y))
+
+        # Save and Cancel buttons - compact
+        save_cancel_y = dialog_y + dialog_height - 45
+        save_btn = pygame.Rect(dialog_x + 60, save_cancel_y, 110, 32)
+        cancel_btn = pygame.Rect(dialog_x + 210, save_cancel_y, 110, 32)
+
+        pygame.draw.rect(self.screen, GREEN, save_btn)
+        pygame.draw.rect(self.screen, BLACK, save_btn, 2)
+        pygame.draw.rect(self.screen, RED, cancel_btn)
+        pygame.draw.rect(self.screen, BLACK, cancel_btn, 2)
+
+        save_text = self.small_font.render("Save", True, BLACK)
+        cancel_text = self.small_font.render("Cancel", True, BLACK)
+        save_x = save_btn.x + (110 - save_text.get_width()) // 2
+        save_y = save_btn.y + (32 - save_text.get_height()) // 2
+        cancel_x = cancel_btn.x + (110 - cancel_text.get_width()) // 2
+        cancel_y = cancel_btn.y + (32 - cancel_text.get_height()) // 2
+        self.screen.blit(save_text, (save_x, save_y))
         self.screen.blit(cancel_text, (cancel_x, cancel_y))
 
     def draw_load_dialog(self):
@@ -1407,46 +1539,147 @@ class MapEditor:
         )
         pygame.draw.rect(self.screen, BLACK, (dialog_x + 15, list_y, list_bg_width, list_height), 2)
 
-        # Use filtered scenarios
-        scenarios_to_show = (
-            self.filtered_scenarios if self.search_query else self.available_scenarios
-        )
-
-        # Draw file list with scrolling - reduce width to show background
+        # Draw file list with scrolling
         item_height = 32
         item_width = list_bg_width - 10  # 5px margin on each side
         visible_items = list_height // item_height
 
-        for i in range(visible_items):
-            item_index = i + self.load_scroll_offset
-            if item_index < len(scenarios_to_show):
-                filename = scenarios_to_show[item_index]
-                item_y = list_y + i * item_height + 2  # 2px margin top/bottom
-                item_x = dialog_x + 20  # 5px left margin
+        if self.search_query:
+            # Search mode - show flat filtered list
+            scenarios_to_show = self.filtered_scenarios
 
-                # Highlight selected item
-                if item_index == self.selected_scenario_index:
-                    pygame.draw.rect(
-                        self.screen, YELLOW, (item_x, item_y, item_width, item_height - 2)
-                    )
-                else:
-                    pygame.draw.rect(
-                        self.screen, (70, 70, 70), (item_x, item_y, item_width, item_height - 2)
-                    )
+            for i in range(visible_items):
+                item_index = i + self.load_scroll_offset
+                if item_index < len(scenarios_to_show):
+                    folder, filename = scenarios_to_show[item_index]
+                    item_y = list_y + i * item_height + 2
+                    item_x = dialog_x + 20
 
-                # Draw filename
-                file_text = self.small_font.render(filename, True, WHITE)
-                self.screen.blit(file_text, (item_x + 10, item_y + 5))
+                    # Highlight selected item
+                    is_selected = item_index == self.selected_scenario_index
+                    if is_selected:
+                        pygame.draw.rect(
+                            self.screen, YELLOW, (item_x, item_y, item_width, item_height - 2)
+                        )
+                    else:
+                        pygame.draw.rect(
+                            self.screen, (70, 70, 70), (item_x, item_y, item_width, item_height - 2)
+                        )
 
-        # Scroll indicator
-        if len(scenarios_to_show) > visible_items:
-            scroll_info = self.tiny_font.render(
-                f"Showing {min(self.load_scroll_offset + visible_items, len(scenarios_to_show))}/{len(scenarios_to_show)} (Use mouse wheel to scroll)",
-                True,
-                LIGHT_GRAY,
-            )
-            scroll_x = dialog_x + (dialog_width - scroll_info.get_width()) // 2
-            self.screen.blit(scroll_info, (scroll_x, list_y + list_height + 5))
+                    # Draw folder/filename
+                    display_text = f"[{folder}] {filename}"
+                    file_text = self.small_font.render(display_text, True, WHITE)
+                    self.screen.blit(file_text, (item_x + 10, item_y + 5))
+
+            # Scroll indicator
+            if len(scenarios_to_show) > visible_items:
+                scroll_info = self.tiny_font.render(
+                    f"Showing {min(self.load_scroll_offset + visible_items, len(scenarios_to_show))}/{len(scenarios_to_show)} (Use mouse wheel to scroll)",
+                    True,
+                    LIGHT_GRAY,
+                )
+                scroll_x = dialog_x + (dialog_width - scroll_info.get_width()) // 2
+                self.screen.blit(scroll_info, (scroll_x, list_y + list_height + 5))
+        else:
+            # Folder structure mode
+            current_y = list_y + 2
+            display_index = 0
+            skip_count = self.load_scroll_offset
+
+            for folder_name in ["challenges", "units", "zones"]:
+                if folder_name not in self.available_scenarios:
+                    continue
+
+                # Skip items for scrolling
+                if skip_count > 0:
+                    skip_count -= 1
+                    display_index += 1
+                    if self.folder_expanded.get(folder_name, False):
+                        files_to_skip = min(skip_count, len(self.available_scenarios[folder_name]))
+                        skip_count -= files_to_skip
+                        display_index += files_to_skip
+                    continue
+
+                # Check if we're out of visible area
+                if current_y + item_height > list_y + list_height:
+                    break
+
+                item_x = dialog_x + 20
+
+                # Draw folder header
+                is_expanded = self.folder_expanded.get(folder_name, False)
+                folder_bg_color = (90, 90, 90)
+                pygame.draw.rect(
+                    self.screen, folder_bg_color, (item_x, current_y, item_width, item_height - 2)
+                )
+
+                # Draw expand/collapse icon (use triangle symbols that render better)
+                icon = "▼" if is_expanded else "►"
+                icon_text = self.font.render(
+                    icon, True, WHITE
+                )  # Use main font for better rendering
+                self.screen.blit(icon_text, (item_x + 10, current_y + 3))
+
+                # Draw folder name
+                folder_text = self.small_font.render(folder_name.upper(), True, YELLOW)
+                self.screen.blit(folder_text, (item_x + 40, current_y + 5))
+
+                current_y += item_height
+                display_index += 1
+
+                # Draw files if expanded
+                if is_expanded:
+                    for file_idx, filename in enumerate(self.available_scenarios[folder_name]):
+                        # Skip for scrolling
+                        if skip_count > 0:
+                            skip_count -= 1
+                            display_index += 1
+                            continue
+
+                        # Check if we're out of visible area
+                        if current_y + item_height > list_y + list_height:
+                            break
+
+                        # Check if this file is selected
+                        is_selected = (
+                            self.selected_scenario_index == display_index
+                            and self.selected_folder == folder_name
+                        )
+
+                        if is_selected:
+                            pygame.draw.rect(
+                                self.screen,
+                                YELLOW,
+                                (item_x + 20, current_y, item_width - 20, item_height - 2),
+                            )
+                        else:
+                            pygame.draw.rect(
+                                self.screen,
+                                (70, 70, 70),
+                                (item_x + 20, current_y, item_width - 20, item_height - 2),
+                            )
+
+                        # Draw filename (indented)
+                        file_text = self.small_font.render(filename, True, WHITE)
+                        self.screen.blit(file_text, (item_x + 30, current_y + 5))
+
+                        current_y += item_height
+                        display_index += 1
+
+            # Scroll indicator (count total items)
+            total_items = len(self.available_scenarios)
+            for folder_name in self.available_scenarios:
+                if self.folder_expanded.get(folder_name, False):
+                    total_items += len(self.available_scenarios[folder_name])
+
+            if total_items > visible_items:
+                scroll_info = self.tiny_font.render(
+                    f"Use mouse wheel to scroll",
+                    True,
+                    LIGHT_GRAY,
+                )
+                scroll_x = dialog_x + (dialog_width - scroll_info.get_width()) // 2
+                self.screen.blit(scroll_info, (scroll_x, list_y + list_height + 5))
 
         # Buttons
         button_y = dialog_y + dialog_height - 45
@@ -1572,6 +1805,10 @@ class MapEditor:
         # Draw new scenario dialog if active
         if self.show_new_scenario_dialog:
             self.draw_new_scenario_dialog()
+
+        # Draw save dialog if active
+        if self.show_save_dialog:
+            self.draw_save_dialog()
 
         # Draw load dialog if active
         if self.show_load_dialog:
@@ -1847,6 +2084,10 @@ class MapEditor:
         if self.show_new_scenario_dialog:
             return self.handle_new_scenario_dialog_click(pos)
 
+        # Handle save dialog if open
+        if self.show_save_dialog:
+            return self.handle_save_dialog_click(pos)
+
         # Handle load dialog if open
         if self.show_load_dialog:
             return self.handle_load_dialog_click(pos)
@@ -1929,6 +2170,7 @@ class MapEditor:
                 return True  # Clicked inside panel
 
         # Check Zone palette (only if in zone mode)
+        # Check Zone palette (only if in zone mode)
         if self.edit_mode == "zone":
             panel_x = self.zone_panel_x
             panel_y = self.zone_panel_y
@@ -1938,37 +2180,49 @@ class MapEditor:
 
             # Check if clicking inside panel
             if panel_x <= x <= panel_x + panel_width and panel_y <= y <= panel_y + panel_height:
-                # y_offset matches draw_zone_palette: title(30) + inst(5+20) + count(20+30) = 85
-                y_offset = panel_y + title_bar_height + 55
+                # ---- EXACT y_offset flow from draw_zone_palette ----
+                y_offset = panel_y + title_bar_height + 5  # instructions
+                y_offset += 20  # zone count
+                y_offset += 30  # space before buttons
+
                 btn_width = 110
+                btn_height = 40
                 btn_spacing = 5
 
-                # Zone type buttons (110x40 with 5px spacing)
-                lava_x_pos = panel_x + 10
-                if lava_x_pos <= x <= lava_x_pos + btn_width and y_offset <= y <= y_offset + 40:
+                # Zone type buttons
+                lava_x = panel_x + 10
+                bush_x = panel_x + 10 + btn_width + btn_spacing
+                swamp_x = panel_x + 10 + (btn_width + btn_spacing) * 2
+
+                if lava_x <= x <= lava_x + btn_width and y_offset <= y <= y_offset + btn_height:
                     self.selected_zone_type = 1
                     self.zone_effect_value = 10.0
                     return True
 
-                bush_x_pos = panel_x + 10 + btn_width + btn_spacing
-                if bush_x_pos <= x <= bush_x_pos + btn_width and y_offset <= y <= y_offset + 40:
+                if bush_x <= x <= bush_x + btn_width and y_offset <= y <= y_offset + btn_height:
                     self.selected_zone_type = 2
                     self.zone_effect_value = 0.0
                     return True
 
-                swamp_x_pos = panel_x + 10 + (btn_width + btn_spacing) * 2
-                if swamp_x_pos <= x <= swamp_x_pos + btn_width and y_offset <= y <= y_offset + 40:
+                if swamp_x <= x <= swamp_x + btn_width and y_offset <= y <= y_offset + btn_height:
                     self.selected_zone_type = 3
                     self.zone_effect_value = 0.2
                     return True
 
-                # Effect value input (button + 50 + label + 25)
-                effect_input_y = y_offset + 75
+                # Zone description
+                y_offset += 48
+
+                # Effect label
+                y_offset += 25
+
+                # Input row
+                y_offset += 25
                 input_width = 240
                 apply_width = 100
-                input_box_rect = pygame.Rect(panel_x + 10, effect_input_y, input_width, 35)
+
+                input_box_rect = pygame.Rect(panel_x + 10, y_offset, input_width, 35)
                 apply_btn_rect = pygame.Rect(
-                    panel_x + 10 + input_width + 10, effect_input_y, apply_width, 35
+                    panel_x + 10 + input_width + 10, y_offset, apply_width, 35
                 )
 
                 if input_box_rect.collidepoint(x, y) and self.selected_zone_type != 2:
@@ -1988,31 +2242,34 @@ class MapEditor:
                                     self.zone_effect_value = new_value
                         except ValueError:
                             pass
+
                     self.text_input_active = False
                     self.text_input_value = ""
                     return True
+
                 return True  # Clicked inside panel
 
         return False
 
     def handle_new_scenario_dialog_click(self, pos):
-        """Handle clicks in the new scenario dialog"""
+        """Handle clicks in the new scenario dialog (aligned with draw_new_scenario_dialog)"""
         x, y = pos
 
+        # MUST match draw_new_scenario_dialog
         dialog_width = 400
-        dialog_height = 420
+        dialog_height = 330
         dialog_x = (SCREEN_WIDTH - dialog_width) // 2
         dialog_y = (SCREEN_HEIGHT - dialog_height) // 2
 
-        # Check input field clicks
         title_bar_height = 30
+
+        # Input fields (same order as draw, scenario_name removed)
         y_offset = dialog_y + title_bar_height + 15
         fields = [
-            "scenario_name",
             "max_height",
             "max_width",
-            "margin_w",
             "margin_h",
+            "margin_w",
             "unit_spacing",
         ]
 
@@ -2023,22 +2280,75 @@ class MapEditor:
                 return True
             y_offset += 50
 
-        # Check button clicks
-        button_y = dialog_y + dialog_height - 50
+        # Buttons (must match draw)
+        button_y = dialog_y + dialog_height - 40
         button_width = 150
         button_height = 35
+
         create_btn = pygame.Rect(dialog_x + 30, button_y, button_width, button_height)
         cancel_btn = pygame.Rect(dialog_x + 220, button_y, button_width, button_height)
 
         if create_btn.collidepoint(x, y):
             self.create_new_scenario()
             return True
-        elif cancel_btn.collidepoint(x, y):
+
+        if cancel_btn.collidepoint(x, y):
             self.show_new_scenario_dialog = False
             self.active_input_field = None
             return True
 
         return True  # Consume all clicks when dialog is open
+
+    def handle_save_dialog_click(self, pos):
+        """Handle clicks in the save scenario dialog"""
+        x, y = pos
+
+        # MUST match draw_save_dialog()
+        dialog_width = 380
+        dialog_height = 205
+        dialog_x = (SCREEN_WIDTH - dialog_width) // 2
+        dialog_y = (SCREEN_HEIGHT - dialog_height) // 2
+        title_bar_height = 30
+
+        # Scenario name input box
+        name_y = dialog_y + title_bar_height + 15
+        name_input_box = pygame.Rect(dialog_x + 75, name_y, 285, 28)
+
+        if name_input_box.collidepoint(x, y):
+            self.save_name_input_active = True
+            return True
+        else:
+            self.save_name_input_active = False
+
+        # Folder selection buttons
+        folder_y = name_y + 45
+        button_width = 85
+        button_height = 32
+        button_spacing = 8
+        folders = ["challenges", "units", "zones"]
+
+        for i, folder in enumerate(folders):
+            btn_x = dialog_x + 75 + i * (button_width + button_spacing)
+            btn_rect = pygame.Rect(btn_x, folder_y, button_width, button_height)
+
+            if btn_rect.collidepoint(x, y):
+                self.save_folder_selection = folder
+                return True
+
+        # Save and Cancel buttons
+        save_cancel_y = dialog_y + dialog_height - 45
+        save_btn = pygame.Rect(dialog_x + 60, save_cancel_y, 110, 32)
+        cancel_btn = pygame.Rect(dialog_x + 210, save_cancel_y, 110, 32)
+
+        if save_btn.collidepoint(x, y):
+            self.save_scenario_file()
+            return True
+        elif cancel_btn.collidepoint(x, y):
+            self.show_save_dialog = False
+            self.save_name_input_active = False
+            return True
+
+        return True
 
     def handle_load_dialog_click(self, pos):
         """Handle clicks in the load scenario dialog"""
@@ -2068,19 +2378,75 @@ class MapEditor:
         item_height = 32
         item_width = list_bg_width - 10
 
-        scenarios_to_show = (
-            self.filtered_scenarios if self.search_query else self.available_scenarios
-        )
-
         if dialog_x + 20 <= x <= dialog_x + 20 + item_width and list_y <= y <= list_y + list_height:
-            # Calculate which item was clicked
-            relative_y = y - list_y - 2  # Account for 2px top margin
-            item_index = relative_y // item_height
-            actual_index = item_index + self.load_scroll_offset
+            if self.search_query:
+                # Search mode - flat list
+                relative_y = y - list_y - 2  # Account for 2px top margin
+                clicked_row = relative_y // item_height
+                actual_index = clicked_row + self.load_scroll_offset
+                if actual_index < len(self.filtered_scenarios):
+                    self.selected_scenario_index = actual_index
+                    self.selected_folder = self.filtered_scenarios[actual_index][0]
+                    return True
+            else:
+                # Folder structure mode - use actual Y position matching
+                current_y = list_y + 2
+                display_index = 0
+                skip_count = self.load_scroll_offset
 
-            if actual_index < len(scenarios_to_show):
-                self.selected_scenario_index = actual_index
-                return True
+                for folder_name in ["challenges", "units", "zones"]:
+                    if folder_name not in self.available_scenarios:
+                        continue
+
+                    # Skip items for scrolling
+                    if skip_count > 0:
+                        skip_count -= 1
+                        display_index += 1
+                        if self.folder_expanded.get(folder_name, False):
+                            files_to_skip = min(
+                                skip_count, len(self.available_scenarios[folder_name])
+                            )
+                            skip_count -= files_to_skip
+                            display_index += files_to_skip
+                        continue
+
+                    # Check if we're out of visible area
+                    if current_y + item_height > list_y + list_height:
+                        break
+
+                    # Check if folder header was clicked
+                    if current_y <= y < current_y + item_height:
+                        # Toggle folder expansion
+                        self.folder_expanded[folder_name] = not self.folder_expanded.get(
+                            folder_name, False
+                        )
+                        return True
+
+                    current_y += item_height
+                    display_index += 1
+
+                    # Check files if expanded
+                    if self.folder_expanded.get(folder_name, False):
+                        for file_idx, filename in enumerate(self.available_scenarios[folder_name]):
+                            # Skip for scrolling
+                            if skip_count > 0:
+                                skip_count -= 1
+                                display_index += 1
+                                continue
+
+                            # Check if we're out of visible area
+                            if current_y + item_height > list_y + list_height:
+                                break
+
+                            # Check if this file was clicked
+                            if current_y <= y < current_y + item_height:
+                                # File was clicked
+                                self.selected_scenario_index = display_index
+                                self.selected_folder = folder_name
+                                return True
+
+                            current_y += item_height
+                            display_index += 1
 
         # Check button clicks
         button_y = dialog_y + dialog_height - 45
@@ -2090,13 +2456,49 @@ class MapEditor:
         cancel_btn = pygame.Rect(dialog_x + 250, button_y, button_width, button_height)
 
         if load_btn.collidepoint(x, y):
-            if self.selected_scenario_index is not None:
-                filename = scenarios_to_show[self.selected_scenario_index]
-                self.load_scenario_file(filename)
+            if self.selected_scenario_index is not None and self.selected_folder is not None:
+                if self.search_query:
+                    folder, filename = self.filtered_scenarios[self.selected_scenario_index]
+                    self.load_scenario_file(folder, filename)
+                else:
+                    # Find the selected file in folder structure
+                    display_index = 0
+                    skip_count = self.load_scroll_offset
+
+                    for folder_name in ["challenges", "units", "zones"]:
+                        if folder_name not in self.available_scenarios:
+                            continue
+
+                        if skip_count > 0:
+                            skip_count -= 1
+                            display_index += 1
+                            if self.folder_expanded.get(folder_name, False):
+                                files_to_skip = min(
+                                    skip_count, len(self.available_scenarios[folder_name])
+                                )
+                                skip_count -= files_to_skip
+                                display_index += files_to_skip
+                            continue
+
+                        # Skip folder header
+                        display_index += 1
+
+                        if self.folder_expanded.get(folder_name, False):
+                            for filename in self.available_scenarios[folder_name]:
+                                if skip_count > 0:
+                                    skip_count -= 1
+                                    display_index += 1
+                                    continue
+
+                                if display_index == self.selected_scenario_index:
+                                    self.load_scenario_file(folder_name, filename)
+                                    return True
+
+                                display_index += 1
             return True
         elif cancel_btn.collidepoint(x, y):
             self.show_load_dialog = False
-            self.selected_scenario_index = None
+            # Keep selected scenario and folder (don't reset)
             self.search_query = ""
             self.search_active = False
             return True
@@ -2124,7 +2526,6 @@ class MapEditor:
             self.max_field_height = new_max_height
             self.max_field_width = new_max_width
             self.unit_spacing = new_unit_spacing
-            self.scenario_name = self.new_scenario_inputs.get("scenario_name", "new_scenario")
 
             # Calculate grid size based on fixed unit spacing
             self.grid_height = int(new_max_height / self.unit_spacing)
@@ -2208,6 +2609,17 @@ class MapEditor:
                     return
 
     def save_scenario(self):
+        """Show save scenario dialog"""
+        self.show_save_dialog = True
+        # Set default folder based on current content
+        if len(self.zones) > 0 and len([u for row in self.grid for u in row if u > 0]) == 0:
+            self.save_folder_selection = "zones"
+        elif len(self.zones) == 0 and len([u for row in self.grid for u in row if u > 0]) > 0:
+            self.save_folder_selection = "units"
+        else:
+            self.save_folder_selection = "challenges"
+
+    def save_scenario_file(self):
         """Save scenario as JSON (env_params.json format)"""
         # Extract unit information from grid data (separate ally and enemy)
         ally_units = []  # (position, unit_id, team, rotation)
@@ -2374,35 +2786,48 @@ class MapEditor:
             },
         }
 
-        # Create scenarios/challenges folder (if not exists)
-        os.makedirs("src/scenarios/challenges", exist_ok=True)
+        # Create scenarios folder (if not exists)
+        folder_path = f"src/scenarios/{self.save_folder_selection}"
+        os.makedirs(folder_path, exist_ok=True)
 
         # Save JSON file with scenario name
-        scenario_name = self.new_scenario_inputs.get("scenario_name", "new_scenario")
-        file_path = f"src/scenarios/challenges/{scenario_name}.json"
+        scenario_name = self.save_scenario_name if self.save_scenario_name else "new_scenario"
+        file_path = f"{folder_path}/{scenario_name}.json"
         with open(file_path, "w") as f:
             json.dump(scenario_data, f, indent=2)
 
+        # Close save dialog
+        self.show_save_dialog = False
+        self.save_name_input_active = False
+
     def load_scenario(self):
         """Display scenario load dialog"""
-        # Load JSON file list from scenarios/challenges folder
-        scenarios_path = "src/scenarios/challenges"
-        if os.path.exists(scenarios_path):
-            files = [f for f in os.listdir(scenarios_path) if f.endswith(".json")]
-            self.available_scenarios = sorted(files, reverse=True)  # Latest files first
-        else:
-            self.available_scenarios = []
+        # Load JSON files from all scenario subfolders
+        scenarios_base = "src/scenarios"
+        self.available_scenarios = {}
+        self.folder_expanded = {}
+
+        if os.path.exists(scenarios_base):
+            # Get all subdirectories
+            for folder_name in ["challenges", "units", "zones"]:
+                folder_path = os.path.join(scenarios_base, folder_name)
+                if os.path.exists(folder_path):
+                    files = [f for f in os.listdir(folder_path) if f.endswith(".json")]
+                    if files:
+                        self.available_scenarios[folder_name] = sorted(files, reverse=True)
+                        self.folder_expanded[folder_name] = True  # Start expanded
 
         self.show_load_dialog = True
         self.load_scroll_offset = 0
         self.selected_scenario_index = None
+        self.selected_folder = None
         self.search_query = ""
         self.search_active = False
         self.filtered_scenarios = []
 
-    def load_scenario_file(self, filename):
+    def load_scenario_file(self, folder, filename):
         """Load selected scenario file"""
-        file_path = f"src/scenarios/challenges/{filename}"
+        file_path = f"src/scenarios/{folder}/{filename}"
         try:
             with open(file_path, "r") as f:
                 data = json.load(f)
@@ -2634,7 +3059,11 @@ class MapEditor:
 
                 elif event.type == pygame.MOUSEWHEEL:
                     # Check if dialog is open first
-                    if self.show_load_dialog or self.show_new_scenario_dialog:
+                    if (
+                        self.show_load_dialog
+                        or self.show_new_scenario_dialog
+                        or self.show_save_dialog
+                    ):
                         # Handle scroll only when load dialog is open
                         if self.show_load_dialog:
                             mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -2648,14 +3077,19 @@ class MapEditor:
                                 dialog_x <= mouse_x <= dialog_x + dialog_width
                                 and dialog_y <= mouse_y <= dialog_y + dialog_height
                             ):
-                                scenarios_to_show = (
-                                    self.filtered_scenarios
-                                    if self.search_query
-                                    else self.available_scenarios
-                                )
-                                max_scroll = max(
-                                    0, len(scenarios_to_show) - 10
-                                )  # Show 10 at a time
+                                if self.search_query:
+                                    # Search mode - flat list
+                                    max_scroll = max(0, len(self.filtered_scenarios) - 10)
+                                else:
+                                    # Folder structure mode - count total visible items
+                                    total_items = len(self.available_scenarios)
+                                    for folder_name in self.available_scenarios:
+                                        if self.folder_expanded.get(folder_name, False):
+                                            total_items += len(
+                                                self.available_scenarios[folder_name]
+                                            )
+                                    max_scroll = max(0, total_items - 10)
+
                                 self.load_scroll_offset = max(
                                     0, min(max_scroll, self.load_scroll_offset - event.y)
                                 )
@@ -2752,6 +3186,18 @@ class MapEditor:
                         else:
                             if event.unicode in "0123456789.":
                                 self.new_scenario_inputs[self.active_input_field] += event.unicode
+                    elif self.show_save_dialog and self.save_name_input_active:
+                        # Handle scenario name input in save dialog
+                        if event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+                            self.save_name_input_active = False
+                        elif event.key == pygame.K_ESCAPE:
+                            self.save_name_input_active = False
+                        elif event.key == pygame.K_BACKSPACE:
+                            self.save_scenario_name = self.save_scenario_name[:-1]
+                        else:
+                            # Add character (alphanumeric, underscore, hyphen)
+                            if event.unicode.isprintable() and event.unicode not in '/\\:*?"<>|':
+                                self.save_scenario_name += event.unicode
                     elif self.show_load_dialog and self.search_active:
                         # Handle search input in load dialog
                         if event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
@@ -2765,11 +3211,11 @@ class MapEditor:
                             self.search_query = self.search_query[:-1]
                             # Update filtered list
                             if self.search_query:
-                                self.filtered_scenarios = [
-                                    f
-                                    for f in self.available_scenarios
-                                    if self.search_query.lower() in f.lower()
-                                ]
+                                self.filtered_scenarios = []
+                                for folder, files in self.available_scenarios.items():
+                                    for filename in files:
+                                        if self.search_query.lower() in filename.lower():
+                                            self.filtered_scenarios.append((folder, filename))
                             else:
                                 self.filtered_scenarios = []
                             self.load_scroll_offset = 0
@@ -2779,11 +3225,11 @@ class MapEditor:
                             if event.unicode.isprintable():
                                 self.search_query += event.unicode
                                 # Update filtered list
-                                self.filtered_scenarios = [
-                                    f
-                                    for f in self.available_scenarios
-                                    if self.search_query.lower() in f.lower()
-                                ]
+                                self.filtered_scenarios = []
+                                for folder, files in self.available_scenarios.items():
+                                    for filename in files:
+                                        if self.search_query.lower() in filename.lower():
+                                            self.filtered_scenarios.append((folder, filename))
                                 self.load_scroll_offset = 0
                                 self.selected_scenario_index = None
                     elif self.text_input_active:
