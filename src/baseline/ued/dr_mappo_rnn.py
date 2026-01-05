@@ -20,9 +20,9 @@ from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
 from src.baseline.ued.level_generator import FREE_PARAM_TYPES, level_generator
 from src.baseline.ued.wrappers import LevelAutoResetWrapper
 from src.baseline.utils import batchify, get_battle_metric, unbatchify
-from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario_config
+from src.tabs.tabs import TABS
 from src.tabs.utils import Transition
 from src.tabs.wrappers import TABSEnemyHeuristicWrapper, TABSLogWrapper
 

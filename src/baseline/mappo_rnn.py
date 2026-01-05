@@ -14,9 +14,9 @@ from flax.training.train_state import TrainState
 import wandb
 from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
 from src.baseline.utils import batchify, get_battle_metric, unbatchify
-from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario_config
+from src.tabs.tabs import TABS
 from src.tabs.utils import Transition
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
@@ -45,7 +45,7 @@ class Config:
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
     # Env
-    SCENARIO: str = "2F1K2A1H"
+    SCENARIO: str = "elbow"
     # Misc.
     SEED: int = 0
     PROJECT_NAME: str = "mappo_rnn"  # wandb project name
