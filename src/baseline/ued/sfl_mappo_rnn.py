@@ -13,15 +13,15 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tyro
+import wandb
 from flax.training.train_state import TrainState
 
-import wandb
 from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
-from src.baseline.ued.level_generator import level_generator
+from src.baseline.ued.level_generator import FREE_PARAM_TYPES, level_generator
 from src.baseline.utils import batchify, get_battle_metric, unbatchify
 from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
-from src.tabs.scenarios import generate_scenario_config
+from src.tabs.scenarios import build_batched_scenarios
 from src.tabs.utils import Transition
 from src.tabs.wrappers import TABSAutoResetWrapper, TABSEnemyHeuristicWrapper, TABSLogWrapper
 
@@ -47,7 +47,7 @@ class Config:
     ANNEAL_LR: bool = True
     # Env
     SCENARIO: str = "2F1K2A1H_2L"
-    FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
+    FREE_PARAM_TYPE: Literal["zone", "unit_spec", "heuristic_config"] = "zone"
     # SFL
     ROLLOUT_STEPS: int = 2000
     BATCH_SIZE: int = 5000
@@ -64,15 +64,15 @@ class Config:
 
 
 def make_train(config):
-    vscenario, zone_scenario, tabs_config = generate_scenario_config(
-        scenario_name=config["SCENARIO"]
+    vscenario, zone_scenario, tabs_config = build_batched_scenarios(
+        scenario_names=config["SCENARIO"], n_repeat=config["NUM_ENVS"]
     )
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
     env = TABSAutoResetWrapper(env)
 
-    sample_random_level = level_generator(config["FREE_PARAM_TYPE"])
+    sample_random_level = level_generator(FREE_PARAM_TYPES[config["FREE_PARAM_TYPE"]])
 
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (
@@ -148,11 +148,15 @@ def make_train(config):
         rng, _rng = jax.random.split(rng)
         sample_rngs = jax.random.split(_rng, config["NUM_ENVS"])
 
-        init_env_params = {
+        init_env_params = jax.tree.map(
+            lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0),
+            {
+                "physics_params": PhysicsParams(),
+                "heuristic_params": TABSHeuristicConfig(),
+            },
+        ) | {
             "scenario": vscenario,
             "zone_scenario": zone_scenario,
-            "physics_params": PhysicsParams(),
-            "heuristic_params": TABSHeuristicConfig(),
         }
 
         env_params = jax.vmap(sample_random_level, in_axes=(None, 0))(init_env_params, sample_rngs)
