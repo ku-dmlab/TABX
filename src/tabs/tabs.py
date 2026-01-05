@@ -16,7 +16,7 @@ from src.tabs.environments.physics import (
     physics_update,
 )
 from src.tabs.environments.spaces import Box, Discrete
-from src.tabs.scenarios import TABSConfig, VectorizedScenario, get_vectorized_scenario
+from src.tabs.scenarios import TABSConfig, VectorizedScenario
 from src.tabs.utils import notify
 
 action_table = jnp.array(
@@ -177,7 +177,11 @@ class DefaultUnit:
         )
 
     def slow_down(self, percent):
-        return self.replace(status=self.status.replace(speed=jnp.clip(self.status.speed * (1 - percent), 0.0, self.status.max_speed)))
+        return self.replace(
+            status=self.status.replace(
+                speed=jnp.clip(self.status.speed * (1 - percent), 0.0, self.status.max_speed)
+            )
+        )
 
 
 @struct.dataclass
@@ -276,6 +280,7 @@ class Zone:
 
     def act_nothing(self, objects, physics_params):
         return objects
+
 
 @struct.dataclass
 class ParsedState:
@@ -796,33 +801,36 @@ class TABS(BaseMAEnv):
             )
             * rolled_visible_matrix
         ).reshape(n_unit, -1)
-        zone_types = jnp.stack([state[zone].zone_type for zone in self.zone_keys])
-        zone_positions = jnp.stack([state[zone].ellipse.position for zone in self.zone_keys])
-        zone_axes = jnp.stack([state[zone].ellipse.axes for zone in self.zone_keys])
-        zone_effect_values = jnp.stack([state[zone].effect_value for zone in self.zone_keys])
+        if self.max_n_zone > 0:
+            zone_types = jnp.stack([state[zone].zone_type for zone in self.zone_keys])
+            zone_positions = jnp.stack([state[zone].ellipse.position for zone in self.zone_keys])
+            zone_axes = jnp.stack([state[zone].ellipse.axes for zone in self.zone_keys])
+            zone_effect_values = jnp.stack([state[zone].effect_value for zone in self.zone_keys])
 
-        # For world state
-        zone_world_feature = jnp.concatenate(
-            (
-                zone_types,
-                zone_positions,
-                zone_axes,
-                zone_effect_values,
-            ),
-            axis=1,
-        ).flatten()
+            # For world state
+            zone_world_feature = jnp.concatenate(
+                (
+                    zone_types,
+                    zone_positions,
+                    zone_axes,
+                    zone_effect_values,
+                ),
+                axis=1,
+            ).flatten()
 
-        zone_types = jnp.repeat(zone_types[None], repeats=n_unit, axis=0)
-        zone_rel_positions = zone_positions[None] - parsed_state.positions[:, None]
-        zone_axes = jnp.repeat(zone_axes[None], repeats=n_unit, axis=0)
-        zone_effect_values = jnp.repeat(zone_effect_values[None], repeats=n_unit, axis=0)
-        zone_feature = jnp.concatenate(
-            (zone_types, zone_rel_positions, zone_axes, zone_effect_values), axis=-1
-        )
-        zone_feature = jnp.logical_not(zone_types == 0) * zone_feature
-        zone_feature = zone_feature.reshape(n_unit, -1)
+            zone_types = jnp.repeat(zone_types[None], repeats=n_unit, axis=0)
+            zone_rel_positions = zone_positions[None] - parsed_state.positions[:, None]
+            zone_axes = jnp.repeat(zone_axes[None], repeats=n_unit, axis=0)
+            zone_effect_values = jnp.repeat(zone_effect_values[None], repeats=n_unit, axis=0)
+            zone_feature = jnp.concatenate(
+                (zone_types, zone_rel_positions, zone_axes, zone_effect_values), axis=-1
+            )
+            zone_feature = jnp.logical_not(zone_types == 0) * zone_feature
+            zone_feature = zone_feature.reshape(n_unit, -1)
 
-        concated_obs = jnp.concatenate((own_feature, other_feature, zone_feature), axis=1)
+            concated_obs = jnp.concatenate((own_feature, other_feature, zone_feature), axis=1)
+        else:
+            concated_obs = jnp.concatenate((own_feature, other_feature), axis=1)
         observations = {key: concated_obs[i] for i, key in enumerate(keys)}
         unit_world_state = jnp.concatenate(
             (
@@ -842,8 +850,10 @@ class TABS(BaseMAEnv):
             ),
             axis=-1,
         ).flatten()
-
-        observations["world_state"] = jnp.concatenate([unit_world_state, zone_world_feature])
+        if self.max_n_zone > 0:
+            observations["world_state"] = jnp.concatenate([unit_world_state, zone_world_feature])
+        else:
+            observations["world_state"] = unit_world_state
         return observations
 
     def reset(self, key, env_params):
@@ -945,7 +955,6 @@ class TABS(BaseMAEnv):
         for sprite in state.keys():
             if hasattr(state[sprite], "late_update"):
                 state[sprite] = state[sprite].late_update(config=physics_params)
-
 
         # handling zone effect
         for sprite in state.keys():

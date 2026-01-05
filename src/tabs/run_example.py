@@ -13,7 +13,7 @@ from src.tabs.wrappers.wrappers import (
 if __name__ == "__main__":
     n_envs = 5
     num_steps = 10
-    scenario_name = "2F1K2A1H"
+    scenario_name = "elbow"
 
     vscenario, zone_scenario, tabs_config = generate_scenario_config(scenario_name=scenario_name)
     env = TABS(cfg=tabs_config)

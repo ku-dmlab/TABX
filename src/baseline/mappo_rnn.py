@@ -45,7 +45,7 @@ class Config:
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
     # Env
-    SCENARIO: str = "2F1K2A1H"
+    SCENARIO: str = "elbow"
     # Misc.
     SEED: int = 0
     PROJECT_NAME: str = "mappo_rnn"  # wandb project name

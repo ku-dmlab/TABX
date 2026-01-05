@@ -27,7 +27,6 @@ ckpt*/
 *.csv
 *.txt
 *.pkl
-*.json
 *.npy
 *.npz
 *.gif
