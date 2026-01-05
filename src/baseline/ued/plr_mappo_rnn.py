@@ -15,13 +15,12 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tyro
-import wandb
 from flax import core, struct
 from flax.training.train_state import TrainState
 
+import wandb
 from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
 from src.baseline.ued.level_generator import (
-    FREE_PARAM_TYPES,
     level_generator,
     mutate_level_generator,
 )
@@ -60,7 +59,7 @@ class Config:
     ANNEAL_LR: bool = True
     # Env
     SCENARIO: str = "2F1K2A1H_2L"
-    FREE_PARAM_TYPE: Literal["zone", "unit_spec", "heuristic_config"] = "zone"
+    FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
     # PLR
     SCORE_FUNC: str = "MaxMC"  # MaxMC, pvl
     EXPLORATORY_GRAD_UPDATES: bool = False  # False if Robust PLR or ACCEL
@@ -205,8 +204,8 @@ def make_train(config):
             "scenario": vscenario,
             "zone_scenario": zone_scenario,
         }
-        sample_random_level = level_generator(FREE_PARAM_TYPES[config["FREE_PARAM_TYPE"]])
-        mutate_level = mutate_level_generator(FREE_PARAM_TYPES[config["FREE_PARAM_TYPE"]])
+        sample_random_level = level_generator(config["FREE_PARAM_TYPE"])
+        mutate_level = mutate_level_generator(config["FREE_PARAM_TYPE"])
         pholder_level = sample_random_level(init_env_params, _rng)
         pholder_level_batch = jax.tree.map(
             lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0), pholder_level

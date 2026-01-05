@@ -13,11 +13,11 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tyro
-import wandb
 from flax.training.train_state import TrainState
 
+import wandb
 from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
-from src.baseline.ued.level_generator import FREE_PARAM_TYPES, level_generator
+from src.baseline.ued.level_generator import level_generator
 from src.baseline.utils import batchify, get_battle_metric, unbatchify
 from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
@@ -47,7 +47,7 @@ class Config:
     ANNEAL_LR: bool = True
     # Env
     SCENARIO: str = "2F1K2A1H_2L"
-    FREE_PARAM_TYPE: Literal["zone", "unit_spec", "heuristic_config"] = "zone"
+    FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
     # SFL
     ROLLOUT_STEPS: int = 2000
     BATCH_SIZE: int = 5000
@@ -72,7 +72,7 @@ def make_train(config):
     env = TABSEnemyHeuristicWrapper(env)
     env = TABSAutoResetWrapper(env)
 
-    sample_random_level = level_generator(FREE_PARAM_TYPES[config["FREE_PARAM_TYPE"]])
+    sample_random_level = level_generator(config["FREE_PARAM_TYPE"])
 
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = (
