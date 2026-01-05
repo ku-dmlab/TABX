@@ -347,8 +347,6 @@ class ParsedState:
 
 @struct.dataclass
 class GameManager:
-    reward: chex.Array
-    done: chex.Array
     timestep: chex.Array
     attack_target: chex.Array
     attackable_matrix: chex.Array
@@ -493,11 +491,7 @@ class GameManager:
         )
 
     def update(self, **kwargs):
-        return self.replace(
-            reward=jnp.array([0.0]),
-            done=jnp.array([False]),
-            timestep=self.timestep + 1,
-        )
+        return self.replace(timestep=self.timestep + 1)
 
     def update_team_hp_ratio(self, state, teams, is_disabled, unit_keys, max_team):
         hp = jnp.stack([state[unit].status.health for unit in unit_keys])
@@ -593,8 +587,6 @@ class TABS(BaseMAEnv):
             distance_matrix=jnp.zeros(
                 (len(self.unit_keys), len(self.unit_keys)), dtype=jnp.float32
             ),
-            reward=jnp.zeros((len(self.unit_keys), 1), dtype=jnp.float32),
-            done=jnp.zeros((len(self.unit_keys), 1), dtype=jnp.bool),
             timestep=jnp.array([0]),
             team_hp_ratio=jnp.ones((self.max_team,), dtype=jnp.float32),
             last_team_hp_ratio=jnp.ones((self.max_team,), dtype=jnp.float32),
@@ -913,8 +905,6 @@ class TABS(BaseMAEnv):
             distance_matrix=jnp.zeros(
                 (len(self.unit_keys), len(self.unit_keys)), dtype=jnp.float32
             ),
-            reward=jnp.zeros((len(self.unit_keys), 1), dtype=jnp.float32),
-            done=jnp.zeros((len(self.unit_keys), 1), dtype=jnp.bool),
             timestep=jnp.array([0]),
             team_hp_ratio=jnp.ones((self.max_team,), dtype=jnp.float32),
             last_team_hp_ratio=jnp.ones((self.max_team,), dtype=jnp.float32),
