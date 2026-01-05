@@ -14,9 +14,9 @@ import tyro
 import wandb
 from src.baseline.layers import MixingNetwork, QScannedRNN, RNNQNetwork
 from src.baseline.utils import CustomTrainState, Timestep, get_battle_metric
+from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario_config
-from src.tabs.tabs import TABS
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
     TABSEnemyHeuristicWrapper,

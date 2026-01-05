@@ -8,8 +8,8 @@ from flax.training.train_state import TrainState
 from flax.traverse_util import flatten_dict, unflatten_dict
 from safetensors.flax import load_file, save_file
 
+from src.tabs import TABS
 from src.tabs.constants import ALL_UNIT_NAMES
-from src.tabs.tabs import TABS
 
 
 @chex.dataclass(frozen=True)

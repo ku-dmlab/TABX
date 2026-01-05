@@ -1,9 +1,9 @@
 import jax
 import jax.numpy as jnp
 
+from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario_config
-from src.tabs.tabs import TABS
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
     TABSEnemyHeuristicWrapper,

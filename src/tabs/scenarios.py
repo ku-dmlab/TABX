@@ -10,10 +10,11 @@ import jax.numpy as jnp
 import numpy as np
 from flax import struct
 
-from src.tabs import CHALLENGES, UNIT_SCENARIOS, ZONE_SCENARIOS
-from src.tabs.config import PhysicsParams, TABSConfig
-from src.tabs.constants import PREDEFINED_SCENARIOS, SCENARIOS, UNITID2CHAR, ZONESCENARIO, UnitID
-from src.tabs.units import get_all_unit_spec
+from src.tabs.config import TABSConfig
+
+UNIT_SCENARIOS = [f.replace(".json", "") for f in os.listdir("src/scenarios/units")]
+ZONE_SCENARIOS = [f.replace(".json", "") for f in os.listdir("src/scenarios/zones")]
+CHALLENGES = [f.replace(".json", "") for f in os.listdir("src/scenarios/challenges")]
 
 
 def load_challenge(challenge_name: str):

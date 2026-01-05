@@ -28,9 +28,9 @@ from src.baseline.ued.level_generator import (
 from src.baseline.ued.level_sampler import LevelSampler
 from src.baseline.ued.scores import compute_max_returns, max_mc, positive_value_loss
 from src.baseline.utils import batchify, get_battle_metric, unbatchify
+from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.scenarios import generate_scenario_config
-from src.tabs.tabs import TABS
 from src.tabs.utils import Transition
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,

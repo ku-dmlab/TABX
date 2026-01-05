@@ -5,10 +5,10 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from src.tabs import TABS
 from src.tabs.config import TABSHeuristicConfig
 from src.tabs.heuristic_policy import LastVisibleTarget, heuristic_policy
 from src.tabs.scenarios import Scenario
-from src.tabs.tabs import TABS
 
 
 class BaseWrapper:
