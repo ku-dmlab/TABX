@@ -20,11 +20,7 @@ from flax.training.train_state import TrainState
 
 import wandb
 from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
-from src.baseline.ued.level_generator import (
-    FREE_PARAM_TYPES,
-    level_generator,
-    mutate_level_generator,
-)
+from src.baseline.ued.level_generator import level_generator, mutate_level_generator
 from src.baseline.ued.level_sampler import LevelSampler
 from src.baseline.ued.scores import compute_max_returns, max_mc, positive_value_loss
 from src.baseline.utils import batchify, get_battle_metric, unbatchify
@@ -60,7 +56,7 @@ class Config:
     ANNEAL_LR: bool = True
     # Env
     SCENARIO: str = "2F1K2A1H_2L"
-    FREE_PARAM_TYPE: Literal["zone", "unit_spec", "heuristic_config"] = "zone"
+    FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
     # PLR
     SCORE_FUNC: str = "MaxMC"  # MaxMC, pvl
     EXPLORATORY_GRAD_UPDATES: bool = False  # False if Robust PLR or ACCEL
@@ -201,8 +197,8 @@ def make_train(config):
             "physics_params": PhysicsParams(),
             "heuristic_params": TABSHeuristicConfig(),
         }
-        sample_random_level = level_generator(FREE_PARAM_TYPES[config["FREE_PARAM_TYPE"]])
-        mutate_level = mutate_level_generator(FREE_PARAM_TYPES[config["FREE_PARAM_TYPE"]])
+        sample_random_level = level_generator(config["FREE_PARAM_TYPE"])
+        mutate_level = mutate_level_generator(config["FREE_PARAM_TYPE"])
         pholder_level = sample_random_level(init_env_params, _rng)
         pholder_level_batch = jax.tree.map(
             lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0), pholder_level
