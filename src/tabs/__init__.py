@@ -1,1 +1,1 @@
-from src.tabs import TABS
+from src.tabs.tabs import TABS
