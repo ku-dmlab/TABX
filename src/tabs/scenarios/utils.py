@@ -124,6 +124,7 @@ def generate_padded_zone_scenario(zone_scenario: ZoneScenario, max_n_zone: int):
 def build_batched_scenarios(
     scenario_names: List[str] | str,
     n_repeat: int = 1,
+    squeeze_when_single_scenario: bool = True,
     max_n_ally: Optional[int] = None,
     max_n_enemy: Optional[int] = None,
     max_n_zone: Optional[int] = None,
@@ -156,6 +157,10 @@ def build_batched_scenarios(
         lambda *args: jnp.repeat(jnp.stack(args), axis=0, repeats=n_repeat),
         *zone_scenarios,
     )
+
+    if squeeze_when_single_scenario and (len(scenario_names) * n_repeat == 1):
+        stacked_vscenario = jax.tree.map(lambda x: x.squeeze(axis=0), stacked_vscenario)
+        stacked_zone_scenario = jax.tree.map(lambda x: x.squeeze(axis=0), stacked_zone_scenario)
 
     # TABS Configuration
     tabs_config = TABSConfig(

@@ -218,7 +218,9 @@ def load_physics_params_from_json(physics_param_name: str = "default"):
 
 
 def build_batched_physics_params(
-    physics_param_names: List[str] | str = "default", n_repeat: int = 1
+    physics_param_names: List[str] | str = "default",
+    n_repeat: int = 1,
+    squeeze_when_single_physics: bool = True,
 ):
     if isinstance(physics_param_names, str):
         physics_param_names = [physics_param_names]
@@ -230,4 +232,6 @@ def build_batched_physics_params(
         lambda *args: jnp.repeat(jnp.stack(args), axis=0, repeats=n_repeat),
         *physics_params,
     )
+    if squeeze_when_single_physics and (len(physics_param_names) * n_repeat == 1):
+        stacked_physics_params = jax.tree.map(lambda x: x.squeeze(axis=0), stacked_physics_params)
     return stacked_physics_params
