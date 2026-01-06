@@ -2,6 +2,7 @@
 Based on JaxMARL Implementation of MAPPO
 """
 
+import os
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -10,11 +11,11 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tyro
-import wandb
 from flax.training.train_state import TrainState
 
+import wandb
 from src.baseline.layers import ActorCriticRNN, ScannedRNN
-from src.baseline.utils import batchify, get_battle_metric, unbatchify
+from src.baseline.utils import batchify, get_battle_metric, save_params, unbatchify
 from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.scenarios import build_batched_scenarios
@@ -58,10 +59,12 @@ class Config:
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
     # Env
-    SCENARIO: str = "2F1K2A1H"
+    SCENARIO: str = "elbow"
     # Misc.
     SEED: int = 0
-    PROJECT_NAME: str = "mappo_rnn"  # wandb project name
+    PROJECT_NAME: str = "ippo_rnn"  # wandb project name
+    SAVE_PATH: str = "./ckpt"
+    SAVE_VIDEO: bool = False
 
 
 def make_train(config):
@@ -390,3 +393,78 @@ if __name__ == "__main__":
     train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
         result = train_fn(jax.random.key(config.SEED))
+
+    # Save trained model
+    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME)
+    os.makedirs(save_path, exist_ok=True)
+    runner_state = result["runner_state"][0]
+    save_params(
+        runner_state[0].params,
+        os.path.join(
+            save_path,
+            f"{config.SCENARIO}_seed{config.SEED}_actor.safetensors",
+        ),
+    )
+
+    if config.SAVE_VIDEO:
+        # Visualize
+        from src.tabs.visualize import Visualizer
+
+        vscenario, zone_scenario, tabs_config = build_batched_scenarios(
+            scenario_names=config.SCENARIO
+        )
+        vscenario = jax.tree.map(lambda x: x[0], vscenario)
+        zone_scenario = jax.tree.map(lambda x: x[0], zone_scenario)
+        env = TABS(cfg=tabs_config)
+        env = TABSEnemyHeuristicWrapper(env)
+        num_steps = env.max_episode_steps
+
+        init_hstate = ScannedRNN.initialize_carry(1, 128)
+        network = ActorCriticRNN(env.action_space(env.agents[0]).n, config=config.__dict__)
+
+        rng = jax.random.PRNGKey(config.SEED)
+        rng, _rng = jax.random.split(rng)
+
+        env_params = {
+            "scenario": vscenario,
+            "zone_scenario": zone_scenario,
+            "physics_params": PhysicsParams(),
+            "heuristic_params": TABSHeuristicConfig(),
+        }
+        obs, env_state = env.reset(_rng, env_params)
+
+        def rollout_body(carry, _):
+            (obs, env_state, done, hstate, rng) = carry
+            # Random policy
+            rng, step_rng, action_rng = jax.random.split(rng, 3)
+            avail_actions = env.get_avail_actions(env_state)
+            ac_in = (
+                jnp.expand_dims(batchify(obs, env.agents, env.num_agents), 1),
+                done,
+                jnp.expand_dims(batchify(avail_actions, env.agents, env.num_agents), 1),
+            )
+
+            hstate, pi, _ = network.apply(runner_state[0].params, hstate, ac_in)
+            action = pi.sample(seed=action_rng)
+            env_act = unbatchify(action, env.agents, 1, env.num_agents)
+            env_act = {k: v.squeeze() for k, v in env_act.items()}
+            obs, next_state, reward, done, info = env.step(step_rng, env_state, env_act)
+
+            return (
+                obs,
+                next_state,
+                batchify(done, env.agents, env.num_agents),
+                hstate,
+                rng,
+            ), next_state
+
+        _, stacked = jax.lax.scan(
+            rollout_body,
+            (obs, env_state, jnp.zeros((env.num_agents, 1), dtype=jnp.bool), init_hstate, rng),
+            None,
+            num_steps,
+        )
+        state_seq = [jax.tree.map(lambda x: x[i], stacked) for i in range(num_steps)]
+
+        visualizer = Visualizer(env, state_seq)
+        visualizer.animate(save_fname=os.path.join(save_path, f"{config.SCENARIO}.gif"), view=False)
