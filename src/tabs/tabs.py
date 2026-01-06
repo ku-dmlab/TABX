@@ -1038,8 +1038,25 @@ class TABS(BaseMAEnv):
     def init_render(self, ax, state: Dict):
         from src.tabs.visualize.rendering import HEIGHT, WIDTH, get_tabs_render
 
+        pos_min = (
+            state["state"][self.unit_keys[0]].pos_min[0].item(),
+            state["state"][self.unit_keys[0]].pos_min[1].item(),
+        )
+        pos_max = (
+            state["state"][self.unit_keys[0]].pos_max[0].item(),
+            state["state"][self.unit_keys[0]].pos_max[1].item(),
+        )
+
+        pix_unit_size_x = WIDTH // (pos_max[0] - pos_min[0])
+        pix_unit_size_y = HEIGHT // (pos_max[1] - pos_min[1])
+
+        pix_unit_size = min(pix_unit_size_x, pix_unit_size_y)
+
         frame = get_tabs_render(
-            state=state["state"], unit_keys=self.unit_keys, zone_keys=self.zone_keys
+            state=state["state"],
+            unit_keys=self.unit_keys,
+            zone_keys=self.zone_keys,
+            pix_unit_size=pix_unit_size,
         )
 
         # Render
