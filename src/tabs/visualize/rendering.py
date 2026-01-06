@@ -1,4 +1,5 @@
 import math
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -44,6 +45,8 @@ WIDTH = 1920
 HEIGHT = 1080
 
 PIX_UNIT_SIZE = 24
+
+ASSET_PATH = Path(__file__).resolve().parent.joinpath("assets", "units")
 
 pygame.font.init()
 
@@ -251,26 +254,30 @@ def draw_unit(
             if pix_unit:
                 pygame.draw.circle(portrait_surface, COLOR_PIX_ALLY, center, max(1, radius))
             else:
-                portrait = pygame.image.load(f"./assets/units/{ALL_UNIT_NAMES[unit_id]}_ally.png")
+                portrait = pygame.image.load(
+                    ASSET_PATH.joinpath(f"{ALL_UNIT_NAMES[unit_id]}_ally.png")
+                )
         else:
             if pix_unit:
                 pygame.draw.circle(portrait_surface, COLOR_PIX_ALLY_DEAD, center, max(1, radius))
             else:
                 portrait = pygame.image.load(
-                    f"./assets/units/{ALL_UNIT_NAMES[unit_id]}_ally_dead.png"
+                    ASSET_PATH.joinpath(f"{ALL_UNIT_NAMES[unit_id]}_ally_dead.png")
                 )
     else:
         if is_alive:
             if pix_unit:
                 pygame.draw.circle(portrait_surface, COLOR_PIX_ENEMY, center, max(1, radius))
             else:
-                portrait = pygame.image.load(f"./assets/units/{ALL_UNIT_NAMES[unit_id]}_enemy.png")
+                portrait = pygame.image.load(
+                    ASSET_PATH.joinpath(f"{ALL_UNIT_NAMES[unit_id]}_enemy.png")
+                )
         else:
             if pix_unit:
                 pygame.draw.circle(portrait_surface, COLOR_PIX_ENEMY_DEAD, center, max(1, radius))
             else:
                 portrait = pygame.image.load(
-                    f"./assets/units/{ALL_UNIT_NAMES[unit_id]}_enemy_dead.png"
+                    ASSET_PATH.joinpath(f"{ALL_UNIT_NAMES[unit_id]}_enemy_dead.png")
                 )
 
     if not pix_unit:
