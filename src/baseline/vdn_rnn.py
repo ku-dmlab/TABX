@@ -2,6 +2,7 @@
 Based on JaxMARL Implementation of VDN
 """
 
+import os
 from dataclasses import dataclass
 
 import flashbax as fbx
@@ -10,10 +11,10 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tyro
-import wandb
 
+import wandb
 from src.baseline.layers import QScannedRNN, RNNQNetwork
-from src.baseline.utils import CustomTrainState, Timestep, get_battle_metric
+from src.baseline.utils import CustomTrainState, Timestep, get_battle_metric, save_params
 from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.scenarios import build_batched_scenarios
@@ -52,10 +53,18 @@ class Config:
     TEST_NUM_STEPS: int = 512
     TEST_NUM_ENVS: int = 512  # number of episodes to average over, can affect performance
     # Env
-    SCENARIO: str = "2F1K2A1H"
+    SCENARIO: str = "elbow"
     # Misc.
     SEED: int = 0
     PROJECT_NAME: str = "vdn_rnn"  # wandb project name
+    SAVE_PATH: str = "./ckpt"
+    SAVE_VIDEO: bool = False
+
+
+def get_greedy_actions(q_vals, valid_actions):
+    unavail_actions = 1 - valid_actions
+    q_vals = q_vals - (unavail_actions * 1e10)
+    return jnp.argmax(q_vals, axis=-1)
 
 
 def make_train(config, env, env_params, test_env_params):
@@ -66,11 +75,6 @@ def make_train(config, env, env_params, test_env_params):
         end_value=config["EPS_FINISH"],
         transition_steps=config["EPS_DECAY"] * config["NUM_UPDATES"],
     )
-
-    def get_greedy_actions(q_vals, valid_actions):
-        unavail_actions = 1 - valid_actions
-        q_vals = q_vals - (unavail_actions * 1e10)
-        return jnp.argmax(q_vals, axis=-1)
 
     # epsilon-greedy exploration
     def eps_greedy_exploration(rng, q_vals, eps, valid_actions):
@@ -531,6 +535,83 @@ def main(config):
     train_fn = jax.jit(make_train(config.__dict__, env, env_params, test_env_params))
     with jax.disable_jit(False):
         result = train_fn(jax.random.key(config.SEED))
+
+    # Save trained model
+    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME)
+    os.makedirs(save_path, exist_ok=True)
+    runner_state = result["runner_state"]
+    save_params(
+        runner_state[0].params,
+        os.path.join(
+            save_path,
+            f"{config.SCENARIO}_seed{config.SEED}_qf.safetensors",
+        ),
+    )
+
+    if config.SAVE_VIDEO:
+        # Visualize
+        from src.tabs.visualize import Visualizer
+
+        vscenario, zone_scenario, tabs_config = build_batched_scenarios(
+            scenario_names=config.SCENARIO
+        )
+        vscenario = jax.tree.map(lambda x: x[0], vscenario)
+        zone_scenario = jax.tree.map(lambda x: x[0], zone_scenario)
+        env = TABS(cfg=tabs_config)
+        env = TABSEnemyHeuristicWrapper(env)
+        num_steps = env.max_episode_steps
+
+        def batchify(x: dict):
+            return jnp.stack([x[agent] for agent in env.agents], axis=0)
+
+        def unbatchify(x: jnp.ndarray):
+            return {agent: x[i] for i, agent in enumerate(env.agents)}
+
+        init_hs = QScannedRNN.initialize_carry(config.HIDDEN_SIZE, 1)
+        network = RNNQNetwork(
+            action_dim=env.action_space(env.agents[0]).n,
+            hidden_dim=config.HIDDEN_SIZE,
+        )
+
+        rng = jax.random.PRNGKey(config.SEED)
+        rng, _rng = jax.random.split(rng)
+
+        env_params = {
+            "scenario": vscenario,
+            "zone_scenario": zone_scenario,
+            "physics_params": PhysicsParams(),
+            "heuristic_params": TABSHeuristicConfig(),
+        }
+        obs, env_state = env.reset(_rng, env_params)
+
+        def rollout_body(carry, _):
+            (obs, env_state, done, hs, rng) = carry
+            # Random policy
+            rng, step_rng = jax.random.split(rng)
+            avail_actions = env.get_avail_actions(env_state)
+
+            new_hs, q_vals = network.apply(
+                runner_state[0].params, hs, batchify(obs)[:, np.newaxis], done
+            )
+            q_vals = q_vals.squeeze(axis=1)
+
+            actions = get_greedy_actions(q_vals, batchify(avail_actions))
+            actions = unbatchify(actions)
+            obs, next_state, reward, done, info = env.step(step_rng, env_state, actions)
+
+            return (obs, next_state, batchify(done)[:, np.newaxis], new_hs, rng), next_state
+
+        _, stacked = jax.lax.scan(
+            rollout_body,
+            (obs, env_state, jnp.zeros((env.num_agents, 1), dtype=jnp.bool), init_hs, rng),
+            None,
+            num_steps,
+        )
+        state_seq = [jax.tree.map(lambda x: x[i], stacked) for i in range(num_steps)]
+
+        visualizer = Visualizer(env, state_seq)
+        visualizer.animate(save_fname=os.path.join(save_path, f"{config.SCENARIO}.gif"), view=False)
+
     return result
 
 
