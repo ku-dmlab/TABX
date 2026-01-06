@@ -26,7 +26,7 @@ from src.baseline.ued.level_generator import (
 )
 from src.baseline.ued.level_sampler import LevelSampler
 from src.baseline.ued.scores import compute_max_returns, max_mc, positive_value_loss
-from src.baseline.utils import batchify, get_battle_metric, unbatchify
+from src.baseline.utils import batchify, get_battle_metric, save_params, unbatchify
 from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
 from src.tabs.scenarios import build_batched_scenarios
@@ -80,6 +80,8 @@ class Config:
     # Misc.
     SEED: int = 0
     PROJECT_NAME: str = "plr_mappo_rnn"  # wandb project name
+    SAVE_PATH: str = "./ckpt"
+    SAVE_VIDEO: bool = False
 
 
 class UpdateState(IntEnum):
@@ -934,3 +936,15 @@ if __name__ == "__main__":
     train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
         result = train_fn(jax.random.key(config.SEED))
+
+    # Save trained model
+    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME)
+    os.makedirs(save_path, exist_ok=True)
+    runner_state = result["runner_state"][0]
+    save_params(
+        runner_state[0][0].params,
+        os.path.join(
+            save_path,
+            f"{config.SCENARIO}_seed{config.SEED}_actor.safetensors",
+        ),
+    )
