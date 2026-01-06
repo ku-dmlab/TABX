@@ -22,7 +22,7 @@ from src.baseline.ued.wrappers import LevelAutoResetWrapper
 from src.baseline.utils import batchify, get_battle_metric, unbatchify
 from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
-from src.tabs.scenarios import generate_scenario_config
+from src.tabs.scenarios import build_batched_scenarios
 from src.tabs.utils import Transition
 from src.tabs.wrappers import TABSEnemyHeuristicWrapper, TABSLogWrapper
 
@@ -58,8 +58,8 @@ class Config:
 
 
 def make_train(config):
-    vscenario, zone_scenario, tabs_config = generate_scenario_config(
-        scenario_name=config["SCENARIO"]
+    vscenario, zone_scenario, tabs_config = build_batched_scenarios(
+        scenario_names=config["SCENARIO"], n_repeat=config["NUM_ENVS"]
     )
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
@@ -136,11 +136,15 @@ def make_train(config):
         rng, _rng = jax.random.split(rng)
         sample_rngs = jax.random.split(_rng, config["NUM_ENVS"])
 
-        init_env_params = {
+        init_env_params = jax.tree.map(
+            lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0),
+            {
+                "physics_params": PhysicsParams(),
+                "heuristic_params": TABSHeuristicConfig(),
+            },
+        ) | {
             "scenario": vscenario,
             "zone_scenario": zone_scenario,
-            "physics_params": PhysicsParams(),
-            "heuristic_params": TABSHeuristicConfig(),
         }
 
         env_params = jax.vmap(sample_random_level, in_axes=(None, 0))(init_env_params, sample_rngs)

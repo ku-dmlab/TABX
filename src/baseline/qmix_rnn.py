@@ -10,13 +10,13 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tyro
-
 import wandb
+
 from src.baseline.layers import MixingNetwork, QScannedRNN, RNNQNetwork
 from src.baseline.utils import CustomTrainState, Timestep, get_battle_metric
 from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
-from src.tabs.scenarios import generate_scenario_config
+from src.tabs.scenarios import build_batched_scenarios
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
     TABSEnemyHeuristicWrapper,
@@ -522,23 +522,37 @@ def make_train(config, env, env_params, test_env_params):
 def main(config):
     wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
 
-    vscenario, zone_scenario, tabs_config = generate_scenario_config(scenario_name=config.SCENARIO)
+    train_vscenario, train_zone_scenario, tabs_config = build_batched_scenarios(
+        scenario_names=config.SCENARIO, n_repeat=config.NUM_ENVS
+    )
+    test_vscenario, test_zone_scenario, tabs_config = build_batched_scenarios(
+        scenario_names=config.SCENARIO, n_repeat=config.TEST_NUM_ENVS
+    )
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
     env = TABSAutoResetWrapper(env)
 
-    env_params = {
-        "scenario": vscenario,
-        "zone_scenario": zone_scenario,
-        "physics_params": PhysicsParams(),
-        "heuristic_params": TABSHeuristicConfig(),
+    env_params = jax.tree.map(
+        lambda x: jnp.repeat(x[None], config.NUM_ENVS, axis=0),
+        {
+            "physics_params": PhysicsParams(),
+            "heuristic_params": TABSHeuristicConfig(),
+        },
+    ) | {
+        "scenario": train_vscenario,
+        "zone_scenario": train_zone_scenario,
     }
     test_env_params = jax.tree.map(
-        lambda x: jnp.repeat(x[None], config.TEST_NUM_ENVS, axis=0), env_params
-    )
-
-    env_params = jax.tree.map(lambda x: jnp.repeat(x[None], config.NUM_ENVS, axis=0), env_params)
+        lambda x: jnp.repeat(x[None], config.TEST_NUM_ENVS, axis=0),
+        {
+            "physics_params": PhysicsParams(),
+            "heuristic_params": TABSHeuristicConfig(),
+        },
+    ) | {
+        "scenario": test_vscenario,
+        "zone_scenario": test_zone_scenario,
+    }
 
     train_fn = jax.jit(make_train(config.__dict__, env, env_params, test_env_params))
     with jax.disable_jit(False):

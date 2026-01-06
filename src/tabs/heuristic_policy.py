@@ -69,6 +69,13 @@ class ZoneState:
 
     @classmethod
     def from_obs(cls, obs: chex.Array, num_agents: int, num_zones: int) -> "OtherState":
+        if num_zones == 0:
+            return cls(
+                zone_type=jnp.array([[0]]),
+                position=jnp.array([[0.0, 0.0]]),
+                axes=jnp.array([[0.0, 0.0]]),
+                damage=jnp.array([[0.0]]),
+            )
         other = obs[14 + (num_agents - 1) * 16 :].reshape(num_zones, -1)
 
         return cls(
