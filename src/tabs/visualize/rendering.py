@@ -44,7 +44,7 @@ COLOR_PIX_ENEMY_DEAD = (0, 76, 0)
 WIDTH = 1920
 HEIGHT = 1080
 
-PIX_UNIT_SIZE = 24
+PIX_UNIT_SIZE = 17
 
 ASSET_PATH = Path(__file__).resolve().parent.joinpath("assets", "units")
 
@@ -136,6 +136,7 @@ def draw_rectangular_attack_range(
     canvas: pygame.Surface,
     width: int,
     height: int,
+    pix_unit_size: int,
     pos: Tuple,
     rotation: float,
     attack_range: float,
@@ -155,8 +156,8 @@ def draw_rectangular_attack_range(
     ry = sin_half_angle * radius
     rect_points = [
         (rx, -ry),
-        (rx + attack_range * PIX_UNIT_SIZE, -ry),
-        (rx + attack_range * PIX_UNIT_SIZE, ry),
+        (rx + attack_range * pix_unit_size, -ry),
+        (rx + attack_range * pix_unit_size, ry),
         (rx, ry),
     ]
 
@@ -209,6 +210,7 @@ def draw_unit(
     unit: DefaultUnit,
     width: int,
     height: int,
+    pix_unit_size: int,
     show_attack: bool = True,
     show_stats_bar: bool = True,
     show_sight: bool = False,
@@ -217,9 +219,9 @@ def draw_unit(
 ):
     unit_id = int(np.array(unit.status.unit_id).item())
     pos = np.array(unit.transform.position)
-    pos = (pos[0].item() * PIX_UNIT_SIZE, pos[1].item() * PIX_UNIT_SIZE)
+    pos = (pos[0].item() * pix_unit_size, pos[1].item() * pix_unit_size)
     rotation = np.array(unit.transform.rotation).item()  # radian
-    radius = np.array(unit.collider.radius).item() * PIX_UNIT_SIZE
+    radius = np.array(unit.collider.radius).item() * pix_unit_size
     team = np.array(unit.team).item()
     health = np.array(unit.status.health).item()
     max_health = np.array(unit.status.max_health).item()
@@ -238,6 +240,7 @@ def draw_unit(
             canvas,
             width=width,
             height=height,
+            pix_unit_size=pix_unit_size,
             pos=screen_pos,
             rotation=rotation,
             attack_range=attack_range,
@@ -325,13 +328,13 @@ def draw_unit(
         )
 
 
-def draw_zone(canvas: pygame.Surface, zone: Zone, width: int, height: int):
+def draw_zone(canvas: pygame.Surface, zone: Zone, width: int, height: int, pix_unit_size: int):
     pos = np.array(zone.ellipse.position)
-    pos = (pos[0].item() * PIX_UNIT_SIZE, pos[1].item() * PIX_UNIT_SIZE)
+    pos = (pos[0].item() * pix_unit_size, pos[1].item() * pix_unit_size)
     screen_pos = world_to_screen(pos, width, height)
 
     axes = np.array(zone.ellipse.axes)
-    axes = (axes[0].item() * 2 * PIX_UNIT_SIZE, axes[1].item() * 2 * PIX_UNIT_SIZE)
+    axes = (axes[0].item() * 2 * pix_unit_size, axes[1].item() * 2 * pix_unit_size)
 
     _canvas = pygame.Surface(axes, pygame.SRCALPHA)
 
@@ -352,6 +355,7 @@ def get_tabs_render(
     state: Dict,
     unit_keys: List,
     zone_keys: List,
+    pix_unit_size: int = PIX_UNIT_SIZE,
     show_attack: bool = True,
     show_stats_bar: bool = True,
     show_sight: bool = False,
@@ -367,7 +371,7 @@ def get_tabs_render(
         _zone = state[zone_key]
         if _zone.zone_type == 0:
             continue
-        draw_zone(canvas, zone=_zone, width=WIDTH, height=HEIGHT)
+        draw_zone(canvas, zone=_zone, width=WIDTH, height=HEIGHT, pix_unit_size=pix_unit_size)
 
     # Draw units
     for unit_key in unit_keys:
@@ -379,6 +383,7 @@ def get_tabs_render(
             unit=_unit,
             width=WIDTH,
             height=HEIGHT,
+            pix_unit_size=pix_unit_size,
             show_attack=show_attack,
             show_stats_bar=show_stats_bar,
             show_sight=show_sight,

@@ -2,16 +2,19 @@ import jax
 
 from src.tabs import TABS
 from src.tabs.config import PhysicsParams, TABSHeuristicConfig
-from src.tabs.scenarios import generate_scenario_config
+from src.tabs.scenarios import build_batched_scenarios
 from src.tabs.visualize import Visualizer
 from src.tabs.wrappers import TABSEnemyHeuristicWrapper
 
 if __name__ == "__main__":
     num_steps = 120
     seed = 0
-    scenario_name = "2F1K2A1H_2L2B"
+    scenario_name = "1M1A3Hvs2K1A2H_2L2B"
 
-    vscenario, zone_scenario, tabs_config = generate_scenario_config(scenario_name=scenario_name)
+    vscenario, zone_scenario, tabs_config = build_batched_scenarios(scenario_names=scenario_name)
+    vscenario = jax.tree.map(lambda x: x[0], vscenario)
+    zone_scenario = jax.tree.map(lambda x: x[0], zone_scenario)
+
     env = TABS(cfg=tabs_config)
     env = TABSEnemyHeuristicWrapper(env)
 
