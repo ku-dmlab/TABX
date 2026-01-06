@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from flax import struct
 
 from src.tabs.config import TABSConfig
-from src.tabs.constants import TURN_ANGLE
+from src.tabs.constants import ACTION_TABLE, AttackType, UnitAction
 from src.tabs.environments.base_maenv import BaseMAEnv
 from src.tabs.environments.spaces import Box, Discrete
 from src.tabs.physics.components import (
@@ -18,35 +18,6 @@ from src.tabs.physics.components import (
 from src.tabs.physics.utils import physics_step, physics_update
 from src.tabs.scenarios.scenario import VectorizedScenario
 from src.tabs.utils import notify
-
-action_table = jnp.array(
-    [
-        [0, 1.0, 0.0],
-        [0, -1.0, 0.0],
-        [-1.0, 0, 0.0],
-        [1.0, 0, 0.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, -TURN_ANGLE],
-        [0.0, 0.0, TURN_ANGLE],
-        [0.0, 0.0, 0.0],
-    ]
-)  # [x_move, y_move, rotate_angle]
-
-
-class AttackType:
-    DEFAULT = 0
-    HEALING = 1
-
-
-class UnitAction:
-    UP = 0
-    DOWN = 1
-    LEFT = 2
-    RIGHT = 3
-    ATTACK = 4
-    TURN_LEFT = 5
-    TURN_RIGHT = 6
-    IDLE = 7
 
 
 @struct.dataclass
@@ -132,9 +103,9 @@ class DefaultUnit:
         )
 
         move_action = (
-            action_table[action, :2] * action_able * self.status.speed
+            ACTION_TABLE[action, :2] * action_able * self.status.speed
         )  # if unit is dead, do not move
-        rotate_action = action_table[action, 2] * action_able * kwargs["physics_params"].dt
+        rotate_action = ACTION_TABLE[action, 2] * action_able * kwargs["physics_params"].dt
         cooldown = is_attack & can_attack
 
         return self.replace(
@@ -594,7 +565,7 @@ class TABS(BaseMAEnv):
         )
 
         self.action_spaces = {
-            agent: Discrete(num_categories=action_table.shape[0]) for agent in self.unit_keys
+            agent: Discrete(num_categories=ACTION_TABLE.shape[0]) for agent in self.unit_keys
         }
         if self.obs_type == "unit_spec":
             self.observation_spaces = {
