@@ -8,7 +8,7 @@ from flax import struct
 from src.tabs import TABS
 from src.tabs.config import TABSHeuristicConfig
 from src.tabs.heuristic_policy import LastVisibleTarget, heuristic_policy
-from src.tabs.scenarios import Scenario
+from src.tabs.scenarios import VectorizedScenario
 
 
 class BaseWrapper:
@@ -153,7 +153,7 @@ class TABSHeuristicWrapper(BaseWrapper):
             target_obs[unit] = obs[unit]
         return target_obs
 
-    def reset(self, key, senario: Scenario):
+    def reset(self, key, senario: VectorizedScenario):
         obs, state = self.env.reset(key, senario)
         target_obs = self.filter_obs(obs)
         return target_obs, state

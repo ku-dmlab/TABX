@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
+from src.tabs.config import TABSConfig
 from src.tabs.constants import TURN_ANGLE
 from src.tabs.environments.base_maenv import BaseMAEnv
 from src.tabs.environments.physics import (
@@ -16,7 +17,7 @@ from src.tabs.environments.physics import (
     physics_update,
 )
 from src.tabs.environments.spaces import Box, Discrete
-from src.tabs.scenarios import TABSConfig, VectorizedScenario
+from src.tabs.scenarios.scenario import VectorizedScenario
 from src.tabs.utils import notify
 
 action_table = jnp.array(
