@@ -1,19 +1,15 @@
 import jax
 
-from src.tabs import TABS
-from src.tabs.config import PhysicsParams, TABSHeuristicConfig
-from src.tabs.scenarios import build_batched_scenarios
+from src.tabs import TABS, build_batched_env_params_and_config
 from src.tabs.visualize import Visualizer
 from src.tabs.wrappers import TABSEnemyHeuristicWrapper
 
 if __name__ == "__main__":
     num_steps = 120
     seed = 0
-    scenario_name = "1M1A3Hvs2K1A2H_2L2B"
+    scenario_name = "1M1A3Hvs2K1A2H_2L2B2S"
 
-    vscenario, zone_scenario, tabs_config = build_batched_scenarios(scenario_names=scenario_name)
-    vscenario = jax.tree.map(lambda x: x[0], vscenario)
-    zone_scenario = jax.tree.map(lambda x: x[0], zone_scenario)
+    env_params, tabs_config = build_batched_env_params_and_config(scenario_names=scenario_name)
 
     env = TABS(cfg=tabs_config)
     env = TABSEnemyHeuristicWrapper(env)
@@ -21,12 +17,6 @@ if __name__ == "__main__":
     rng = jax.random.PRNGKey(seed)
     rng, _rng = jax.random.split(rng)
 
-    env_params = {
-        "scenario": vscenario,
-        "zone_scenario": zone_scenario,
-        "physics_params": PhysicsParams(),
-        "heuristic_params": TABSHeuristicConfig(),
-    }
     obs, env_state = env.reset(_rng, env_params)
 
     def rollout_body(carry, _):

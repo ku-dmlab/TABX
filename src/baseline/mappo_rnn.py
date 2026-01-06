@@ -15,9 +15,7 @@ from flax.training.train_state import TrainState
 import wandb
 from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
 from src.baseline.utils import batchify, get_battle_metric, save_params, unbatchify
-from src.tabs import TABS
-from src.tabs.config import PhysicsParams, TABSHeuristicConfig
-from src.tabs.scenarios import build_batched_scenarios
+from src.tabs import TABS, build_batched_env_params_and_config
 from src.tabs.utils import Transition
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
@@ -47,6 +45,8 @@ class Config:
     ANNEAL_LR: bool = True
     # Env
     SCENARIO: str = "elbow"
+    PHYSICS: str = "default"
+    HEURISTIC: str = "easy"
     # Misc.
     SEED: int = 0
     PROJECT_NAME: str = "mappo_rnn"  # wandb project name
@@ -55,8 +55,11 @@ class Config:
 
 
 def make_train(config):
-    vscenario, zone_scenario, tabs_config = build_batched_scenarios(
-        scenario_names=config["SCENARIO"], n_repeat=config["NUM_ENVS"]
+    env_params, tabs_config = build_batched_env_params_and_config(
+        scenario_names=config["SCENARIO"],
+        physics_param_names=config["PHYSICS"],
+        heuristic_param_names=config["HEURISTIC"],
+        n_repeat=config["NUM_ENVS"],
     )
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
@@ -137,17 +140,6 @@ def make_train(config):
         # INIT ENV
         rng, _rng = jax.random.split(rng)
         reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
-
-        env_params = jax.tree.map(
-            lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0),
-            {
-                "physics_params": PhysicsParams(),
-                "heuristic_params": TABSHeuristicConfig(),
-            },
-        ) | {
-            "scenario": vscenario,
-            "zone_scenario": zone_scenario,
-        }
 
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, 0))(reset_rng, env_params)
         ac_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], config["GRU_HIDDEN_DIM"])
@@ -463,11 +455,12 @@ if __name__ == "__main__":
         # Visualize
         from src.tabs.visualize import Visualizer
 
-        vscenario, zone_scenario, tabs_config = build_batched_scenarios(
-            scenario_names=config.SCENARIO
+        env_params, tabs_config = build_batched_env_params_and_config(
+            scenario_names=config.SCENARIO,
+            physics_param_names=config.PHYSICS,
+            heuristic_param_names=config.HEURISTIC,
+            n_repeat=1,
         )
-        vscenario = jax.tree.map(lambda x: x[0], vscenario)
-        zone_scenario = jax.tree.map(lambda x: x[0], zone_scenario)
         env = TABS(cfg=tabs_config)
         env = TABSEnemyHeuristicWrapper(env)
         num_steps = env.max_episode_steps
@@ -477,13 +470,6 @@ if __name__ == "__main__":
 
         rng = jax.random.PRNGKey(config.SEED)
         rng, _rng = jax.random.split(rng)
-
-        env_params = {
-            "scenario": vscenario,
-            "zone_scenario": zone_scenario,
-            "physics_params": PhysicsParams(),
-            "heuristic_params": TABSHeuristicConfig(),
-        }
         obs, env_state = env.reset(_rng, env_params)
 
         def rollout_body(carry, _):
