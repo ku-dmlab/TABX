@@ -1,5 +1,8 @@
-import os
+from pathlib import Path
 
-UNIT_SCENARIOS = [f.replace(".json", "") for f in os.listdir("src/scenarios/units")]
-ZONE_SCENARIOS = [f.replace(".json", "") for f in os.listdir("src/scenarios/zones")]
-CHALLENGES = [f.replace(".json", "") for f in os.listdir("src/scenarios/challenges")]
+ASSET_PATH = Path(__file__).resolve().parent.joinpath("units")
+UNIT_SCENARIOS = [f.stem for f in ASSET_PATH.iterdir() if f.is_file()]
+ASSET_PATH = Path(__file__).resolve().parent.joinpath("zones")
+ZONE_SCENARIOS = [f.stem for f in ASSET_PATH.iterdir() if f.is_file()]
+ASSET_PATH = Path(__file__).resolve().parent.joinpath("challenges")
+CHALLENGES = [f.stem for f in ASSET_PATH.iterdir() if f.is_file()]

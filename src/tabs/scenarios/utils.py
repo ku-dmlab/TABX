@@ -1,12 +1,13 @@
 import json
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 
-from src.scenarios.constants import CHALLENGES, UNIT_SCENARIOS, ZONE_SCENARIOS
-from src.scenarios.scenario import VectorizedScenario, ZoneScenario
 from src.tabs.config import TABSConfig
+from src.tabs.scenarios.constants import CHALLENGES, UNIT_SCENARIOS, ZONE_SCENARIOS
+from src.tabs.scenarios.scenario import VectorizedScenario, ZoneScenario
 
 
 def load_json_to_jnp(file_path):
@@ -31,6 +32,7 @@ def load_json_to_jnp(file_path):
 
 
 def load_scenario_from_json(scenario_name: str):
+    base_path = Path(__file__).resolve().parent
     splited_scenario_name = scenario_name.split("_")
     if len(splited_scenario_name) > 1:
         scenario_name = splited_scenario_name[0]
@@ -39,25 +41,27 @@ def load_scenario_from_json(scenario_name: str):
             raise ValueError(f"Scenario name {scenario_name} not found in {UNIT_SCENARIOS}")
         if zone_name not in ZONE_SCENARIOS:
             raise ValueError(f"Zone name {zone_name} not found in {ZONE_SCENARIOS}")
-        vscenario = load_json_to_jnp(f"src/scenarios/units/{scenario_name}.json")["scenario"]
-        zone_scenario = load_json_to_jnp(f"src/scenarios/zones/{zone_name}.json")["zone_scenario"]
+        vscenario = load_json_to_jnp(str(base_path / "units" / f"{scenario_name}.json"))["scenario"]
+        zone_scenario = load_json_to_jnp(str(base_path / "zones" / f"{zone_name}.json"))[
+            "zone_scenario"
+        ]
     elif scenario_name in CHALLENGES:
-        env_params = load_json_to_jnp(f"src/scenarios/challenges/{scenario_name}.json")
+        env_params = load_json_to_jnp(str(base_path / "challenges" / f"{scenario_name}.json"))
         vscenario = env_params["scenario"]
         zone_scenario = env_params["zone_scenario"]
     else:
         if scenario_name not in UNIT_SCENARIOS:
             raise ValueError(f"Scenario name {scenario_name} not found in {UNIT_SCENARIOS}")
         zone_name = "void"
-        vscenario = load_json_to_jnp(f"src/scenarios/units/{scenario_name}.json")["scenario"]
-        zone_scenario = load_json_to_jnp(f"src/scenarios/zones/{zone_name}.json")["zone_scenario"]
+        vscenario = load_json_to_jnp(str(base_path / "units" / f"{scenario_name}.json"))["scenario"]
+        zone_scenario = load_json_to_jnp(str(base_path / "zones" / f"{zone_name}.json"))[
+            "zone_scenario"
+        ]
 
     return vscenario, zone_scenario
 
 
-def generate_padded_unit_scenario(
-    vscenario: VectorizedScenario, max_n_ally: int, max_n_enemy: int, max_n_zone: int
-):
+def generate_padded_unit_scenario(vscenario: VectorizedScenario, max_n_ally: int, max_n_enemy: int):
     padded_vsscenario = VectorizedScenario(
         positions=jnp.zeros((max_n_ally + max_n_enemy, 2)),
         rotations=jnp.zeros((max_n_ally + max_n_enemy, 1)),
@@ -138,7 +142,7 @@ def build_batched_scenarios(
         max_n_zone = max([zone_scenario.n_zone.item() for zone_scenario in zone_scenarios])
 
     vscenarios = [
-        generate_padded_unit_scenario(vscenario, max_n_ally, max_n_enemy, max_n_zone)
+        generate_padded_unit_scenario(vscenario, max_n_ally, max_n_enemy)
         for vscenario in vscenarios
     ]
     zone_scenarios = [
