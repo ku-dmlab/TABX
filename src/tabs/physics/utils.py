@@ -1,46 +1,14 @@
+import json
 from collections import namedtuple
+from pathlib import Path
+from typing import List
 
 import jax
 import jax.numpy as jnp
 
-
-class Transform(namedtuple("Transform", ["position", "rotation"])):
-    position: jnp.array
-    rotation: jnp.array
-
-
-class Ellipse(namedtuple("Ellipse", ["position", "axes"])):
-    position: jnp.array
-    axes: jnp.array
-
-
-class RigidBody(namedtuple("RigidBody", ["mass", "velocity", "acceleration", "is_kinematic"])):
-    velocity: jnp.array
-    mass: jnp.array
-    acceleration: jnp.array
-    is_kinematic: jnp.array
-
-    def __new__(
-        cls,
-        mass,
-        velocity=jnp.array([0.0, 0.0]),
-        acceleration=jnp.array([0.0, 0.0]),
-        is_kinematic=jnp.array([False]),
-    ):
-        return super().__new__(cls, mass, velocity, acceleration, is_kinematic)
-
-    def update(self, config):
-        velocity = self.velocity + self.acceleration * config.dt
-        return self._replace(velocity=velocity * (1 - self.is_kinematic))
-
-
-class BoxCollider(namedtuple("BoxCollider", ["width", "height"])):
-    width: float
-    height: float
-
-
-class CircleCollider(namedtuple("CircleCollider", ["radius"])):
-    radius: float
+from src.tabs.physics.components import BoxCollider, CircleCollider
+from src.tabs.physics.constants import PHYSICS_PARAMS
+from src.tabs.physics.params import PhysicsParams
 
 
 def circle_circle_normal(circle_a, circle_b):
@@ -223,3 +191,43 @@ def physics_update(config, object):
     transform: namedtuple = object.transform
     transform = transform._replace(position=transform.position + rigidbody.velocity * config.dt)
     return object.replace(transform=transform, rigidbody=rigidbody)
+
+
+def load_json_to_jnp(file_path):
+    with open(file_path, "r", encoding="utf-8") as f:
+        loaded = json.load(f)
+
+    def to_jnp_array(obj):
+        if isinstance(obj, dict):
+            return {k: to_jnp_array(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return jnp.array(obj)
+        else:
+            return jnp.array([obj]).reshape(-1, 1)
+
+    physics_params = to_jnp_array(loaded)
+
+    return PhysicsParams(**physics_params)
+
+
+def load_physics_params_from_json(physics_param_name: str = "default"):
+    base_path = Path(__file__).resolve().parent
+    if physics_param_name not in PHYSICS_PARAMS:
+        raise ValueError(f"Physics param name {physics_param_name} not found in {PHYSICS_PARAMS}")
+    return load_json_to_jnp(str(base_path / "parameters" / f"{physics_param_name}.json"))
+
+
+def build_batched_physics_params(
+    physics_param_names: List[str] | str = "default", n_repeat: int = 1
+):
+    if isinstance(physics_param_names, str):
+        physics_param_names = [physics_param_names]
+    physics_params = [
+        load_physics_params_from_json(physics_param_name)
+        for physics_param_name in physics_param_names
+    ]
+    stacked_physics_params = jax.tree.map(
+        lambda *args: jnp.repeat(jnp.stack(args), axis=0, repeats=n_repeat),
+        *physics_params,
+    )
+    return stacked_physics_params

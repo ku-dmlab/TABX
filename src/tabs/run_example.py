@@ -2,7 +2,8 @@ import jax
 import jax.numpy as jnp
 
 from src.tabs import TABS
-from src.tabs.config import PhysicsParams, TABSHeuristicConfig
+from src.tabs.config import TABSHeuristicConfig
+from src.tabs.physics import build_batched_physics_params
 from src.tabs.scenarios import build_batched_scenarios
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
@@ -18,6 +19,7 @@ if __name__ == "__main__":
     vscenario, zone_scenario, tabs_config = build_batched_scenarios(
         scenario_names=scenario_name, n_repeat=n_envs
     )
+    physics_params = build_batched_physics_params(physics_param_names="default", n_repeat=n_envs)
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
@@ -32,12 +34,12 @@ if __name__ == "__main__":
     env_params = jax.tree.map(
         lambda x: jnp.repeat(x[None], n_envs, axis=0),
         {
-            "physics_params": PhysicsParams(),
             "heuristic_params": TABSHeuristicConfig(),
         },
     ) | {
         "scenario": vscenario,
         "zone_scenario": zone_scenario,
+        "physics_params": physics_params,
     }
 
     init_obs, init_state = v_reset(jax.random.split(_rng, n_envs), env_params)

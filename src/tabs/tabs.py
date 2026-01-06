@@ -8,15 +8,14 @@ from flax import struct
 from src.tabs.config import TABSConfig
 from src.tabs.constants import TURN_ANGLE
 from src.tabs.environments.base_maenv import BaseMAEnv
-from src.tabs.environments.physics import (
+from src.tabs.environments.spaces import Box, Discrete
+from src.tabs.physics.components import (
     CircleCollider,
     Ellipse,
     RigidBody,
     Transform,
-    physics_step,
-    physics_update,
 )
-from src.tabs.environments.spaces import Box, Discrete
+from src.tabs.physics.utils import physics_step, physics_update
 from src.tabs.scenarios.scenario import VectorizedScenario
 from src.tabs.utils import notify
 

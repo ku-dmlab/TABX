@@ -7,14 +7,6 @@ from flax import struct
 from src.tabs.constants import ALL_UNIT_NAMES
 
 
-@struct.dataclass
-class PhysicsParams:
-    dt: float = struct.field(default_factory=lambda: jnp.array([0.5]))
-    percent: float = struct.field(default_factory=lambda: jnp.array([0.5]))
-    slop: float = struct.field(default_factory=lambda: jnp.array([0.01]))
-    restitution: float = struct.field(default_factory=lambda: jnp.array([0.8]))
-
-
 @dataclass(frozen=True)
 class TABSConfig:
     max_n_ally: int = 10  # The maximum number of ally agents
