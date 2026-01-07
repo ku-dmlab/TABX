@@ -6,8 +6,7 @@ import chex
 import jax
 import jax.numpy as jnp
 
-from src.tabs.config import TABSHeuristicParam
-from src.tabs.scenarios import Scenario, ZoneScenario
+from src.tabs import TABSHeuristicParam, VectorizedScenario, ZoneScenario
 
 FREE_PARAM_TYPES = {"zone": 0, "unit_spec": 1, "heuristic_config": 2}
 
@@ -93,7 +92,9 @@ unit_spec_ranges = {"healths": [25, 685], "speeds": [0.5, 1.4], "attack_damages"
 
 
 def randomize_unit_specs(env_params: Level, rng: chex.PRNGKey) -> Level:
-    def _randomize_unit_specs(scenario: Scenario, rng: chex.PRNGKey) -> Scenario:
+    def _randomize_unit_specs(
+        scenario: VectorizedScenario, rng: chex.PRNGKey
+    ) -> VectorizedScenario:
         n_units = scenario.healths.shape[0]
         # Randomly set unit specifications (health, speed, attack_damage)
         rngs = jax.random.split(rng, 3)
@@ -321,7 +322,7 @@ def mutate_zone(env_params: Level, rng: chex.PRNGKey, num_edits=3) -> Level:
 
 
 def mutate_unit_spec(env_params: Level, rng: chex.PRNGKey) -> Level:
-    def _mutate_unit_spec(scenario: Scenario, rng: chex.PRNGKey) -> Scenario:
+    def _mutate_unit_spec(scenario: VectorizedScenario, rng: chex.PRNGKey) -> VectorizedScenario:
         # Add noise
         rngs = jax.random.split(rng, 3)
         scenario = scenario.replace(

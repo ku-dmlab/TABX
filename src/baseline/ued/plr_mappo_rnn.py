@@ -27,9 +27,7 @@ from src.baseline.ued.level_generator import (
 from src.baseline.ued.level_sampler import LevelSampler
 from src.baseline.ued.scores import compute_max_returns, max_mc, positive_value_loss
 from src.baseline.utils import batchify, get_battle_metric, save_params, unbatchify
-from src.tabs import TABS
-from src.tabs.config import PhysicsParams, TABSHeuristicParam
-from src.tabs.scenarios import build_batched_scenarios
+from src.tabs import TABS, build_batched_env_params_and_config
 from src.tabs.utils import Transition
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
@@ -58,7 +56,9 @@ class Config:
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
     # Env
-    SCENARIO: str = "2F1K2A1H_2L"
+    SCENARIO: str = "elbow"
+    PHYSICS: str = "default"
+    HEURISTIC: str = "easy"
     FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
     # PLR
     SCORE_FUNC: str = "MaxMC"  # MaxMC, pvl
@@ -103,8 +103,10 @@ class SampleState:
 
 
 def make_train(config):
-    vscenario, zone_scenario, tabs_config = build_batched_scenarios(
-        scenario_names=config["SCENARIO"], n_repeat=config["NUM_ENVS"]
+    init_env_params, tabs_config = build_batched_env_params_and_config(
+        scenario_names=config["SCENARIO"],
+        physics_param_names=config["PHYSICS"],
+        heuristic_param_names=config["HEURISTIC"],
     )
     env = TABS(cfg=tabs_config)
     env = TABSLogWrapper(env)
@@ -196,16 +198,6 @@ def make_train(config):
         )
 
         rng, _rng = jax.random.split(rng)
-        init_env_params = jax.tree.map(
-            lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0),
-            {
-                "physics_params": PhysicsParams(),
-                "heuristic_params": TABSHeuristicParam(),
-            },
-        ) | {
-            "scenario": vscenario,
-            "zone_scenario": zone_scenario,
-        }
         sample_random_level = level_generator(config["FREE_PARAM_TYPE"])
         mutate_level = mutate_level_generator(config["FREE_PARAM_TYPE"])
         pholder_level = sample_random_level(init_env_params, _rng)
