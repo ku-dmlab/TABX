@@ -53,8 +53,8 @@ class UnitAction:
     LEFT = 2
     RIGHT = 3
     ATTACK = 4
-    TURN_LEFT = 5
-    TURN_RIGHT = 6
+    TURN_RIGHT = 5
+    TURN_LEFT = 6
     IDLE = 7
 
 
