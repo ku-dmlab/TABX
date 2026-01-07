@@ -190,7 +190,7 @@ def get_discrete_action(
     minimum_angle_if_rotate = (
         jnp.rint(rotate_angle / step_angle) * step_angle
     )  # due to rotate action always have step_angle resolution
-    rotate_action = jnp.where(rotate_angle > 0, UnitAction.TURN_RIGHT, UnitAction.TURN_LEFT)
+    rotate_action = jnp.where(rotate_angle > 0, UnitAction.TURN_LEFT, UnitAction.TURN_RIGHT)
     angle_when_rotate = minimum_angle_if_rotate + parsed_obs.own.rotation
 
     cos_attack_range_half_angle = jnp.cos(parsed_obs.own.sight_angle / 2) * parsed_obs.own.radius
@@ -268,7 +268,7 @@ def get_discrete_action(
         jnp.arctan2(min_target_move_position_nt[1], min_target_move_position_nt[0])
         - parsed_obs.own.rotation,
     )
-    rotate_action_nt = jnp.where(rotate_angle_nt > 0, UnitAction.TURN_RIGHT, UnitAction.TURN_LEFT)
+    rotate_action_nt = jnp.where(rotate_angle_nt > 0, UnitAction.TURN_LEFT, UnitAction.TURN_RIGHT)
 
     turned_enough = jnp.abs(rotate_angle_nt) <= TURN_ANGLE * physics_params.dt
 
@@ -296,7 +296,7 @@ def get_discrete_action(
                     jnp.where(
                         exist_bush_zone & jnp.logical_not(is_in_bush_zone) & own_is_ranger,
                         zone_direction_move_action,
-                        UnitAction.TURN_LEFT,
+                        UnitAction.TURN_RIGHT,
                     ),
                 ),
             ),
