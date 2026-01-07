@@ -7,7 +7,7 @@ from flax import struct
 
 from src.tabs import TABS
 from src.tabs.heuristic_policy import LastVisibleTarget, heuristic_policy
-from src.tabs.heuristic_policy.params import TABSHeuristicConfig
+from src.tabs.heuristic_policy.params import TABSHeuristicParam
 from src.tabs.scenarios import VectorizedScenario
 
 
@@ -122,7 +122,7 @@ class TABSHeuristicWrapper(BaseWrapper):
         self,
         env: TABS,
         heuristic_units: List[str] | str = "enemy",
-        heuristic_config: TABSHeuristicConfig = TABSHeuristicConfig(),
+        heuristic_config: TABSHeuristicParam = TABSHeuristicParam(),
         heuristic_obs: bool = False,
         only_ally_reward: bool = True,
     ):

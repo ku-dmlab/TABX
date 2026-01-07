@@ -7,7 +7,7 @@ import jax.numpy as jnp
 
 from src.tabs.constants import TURN_ANGLE, UnitAction
 from src.tabs.heuristic_policy.components import LastVisibleTarget, ParsedObservation
-from src.tabs.heuristic_policy.params import TABSHeuristicConfig
+from src.tabs.heuristic_policy.params import TABSHeuristicParam
 from src.tabs.physics.params import PhysicsParams
 
 
@@ -50,7 +50,7 @@ def get_visible_target(parsed_obs: ParsedObservation) -> chex.Array:
 
 
 def get_target_move_position(
-    heuristic_config: TABSHeuristicConfig, parsed_obs: ParsedObservation
+    heuristic_config: TABSHeuristicParam, parsed_obs: ParsedObservation
 ) -> chex.Array:
     """
     Get the target move position for the own unit.
@@ -93,7 +93,7 @@ Action = chex.Array
 
 
 def get_discrete_action(
-    heuristic_config: TABSHeuristicConfig,
+    heuristic_config: TABSHeuristicParam,
     parsed_obs: ParsedObservation,
     physics_params: PhysicsParams,
     last_visible_target: LastVisibleTarget,
@@ -329,7 +329,7 @@ def heuristic_policy(
     last_visible_target: LastVisibleTarget,
     num_agents: int,
     num_zones: int,
-    heuristic_config: TABSHeuristicConfig,
+    heuristic_config: TABSHeuristicParam,
     physics_params: PhysicsParams,
 ) -> Tuple[Action, LastVisibleTarget]:
     """

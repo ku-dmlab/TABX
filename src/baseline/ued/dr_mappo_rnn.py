@@ -21,7 +21,7 @@ from src.baseline.ued.level_generator import level_generator
 from src.baseline.ued.wrappers import LevelAutoResetWrapper
 from src.baseline.utils import batchify, get_battle_metric, save_params, unbatchify
 from src.tabs import TABS
-from src.tabs.config import PhysicsParams, TABSHeuristicConfig
+from src.tabs.config import PhysicsParams, TABSHeuristicParam
 from src.tabs.scenarios import build_batched_scenarios
 from src.tabs.utils import Transition
 from src.tabs.wrappers import TABSEnemyHeuristicWrapper, TABSLogWrapper
@@ -142,7 +142,7 @@ def make_train(config):
             lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0),
             {
                 "physics_params": PhysicsParams(),
-                "heuristic_params": TABSHeuristicConfig(),
+                "heuristic_params": TABSHeuristicParam(),
             },
         ) | {
             "scenario": vscenario,

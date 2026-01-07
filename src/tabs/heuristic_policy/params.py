@@ -4,7 +4,7 @@ from flax import struct
 
 
 @struct.dataclass
-class TABSHeuristicConfig:
+class TABSHeuristicParam:
     epsilon: chex.Array = struct.field(
         default_factory=lambda: jnp.array([0.1])
     )  # Probability of taking random action inheuristic policy (0.0-1.0)

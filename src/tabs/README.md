@@ -17,7 +17,7 @@ import jax
 
 from src.tabs import TABS
 from src.tabs.scenarios import generate_scenario
-from src.tabs.config import TABSConfig, PhysicsParams, TABSHeuristicConfig
+from src.tabs.config import TABSConfig, PhysicsParams, TABSHeuristicParam
 from src.tabs.wrappers.wrappers import (
     TABSEnemyHeuristicWrapper,
     TABSAutoResetWrapper,
@@ -38,7 +38,7 @@ Some components require parameters during `env.reset()`. Create an env_params di
 env_params = {
     "scenario": scenario,
     "physics_params": PhysicsParams(),
-    "heuristic_params": TABSHeuristicConfig(),
+    "heuristic_params": TABSHeuristicParam(),
 }
 ```
 You can then pass these parameters directly during environment reset,
