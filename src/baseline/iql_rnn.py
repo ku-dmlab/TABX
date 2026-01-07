@@ -581,7 +581,11 @@ def main(config):
         state_seq = [jax.tree.map(lambda x: x[i], stacked) for i in range(num_steps)]
 
         visualizer = Visualizer(env, state_seq)
-        visualizer.animate(save_fname=os.path.join(save_path, f"{config.SCENARIO}.gif"), view=False)
+        gif_path = os.path.join(
+            save_path, f"{config.SCENARIO}_{config.HEURISTIC}_{config.SEED}.gif"
+        )
+        visualizer.animate(save_fname=gif_path, view=False)
+        wandb.log({"visualization": wandb.Video(gif_path, fps=4, format="gif")})
 
     return result
 
