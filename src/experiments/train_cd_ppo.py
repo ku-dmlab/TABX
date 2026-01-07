@@ -11,7 +11,7 @@ from src.baseline.configs.config import PPOConfig
 from tqdm import tqdm
 
 import wandb
-from src.tabs.config import TABSConfig, TABSHeuristicConfig
+from src.tabs.config import TABSConfig, TABSHeuristicParam
 from src.tabs.constants import ALL_UNIT_NAMES
 
 
@@ -20,15 +20,15 @@ class Config:
     seed: int = 42
     n_env: int = 64  # the number of environments to run in parallel
     tabs: TABSConfig = TABSConfig()
-    enemy_heuristic_config: TABSHeuristicConfig = TABSHeuristicConfig()
-    initial_ally_heuristic_config: TABSHeuristicConfig = TABSHeuristicConfig(
+    enemy_heuristic_config: TABSHeuristicParam = TABSHeuristicParam()
+    initial_ally_heuristic_config: TABSHeuristicParam = TABSHeuristicParam(
         epsilon=0.5,
         aggressive_threshold=0.1,
         rotate_noise_scale=1.0,
         healer_rotate_noise_scale=0.5,
         healer_aggressive_threshold=0.0,
     )
-    end_ally_heuristic_config: TABSHeuristicConfig = TABSHeuristicConfig(
+    end_ally_heuristic_config: TABSHeuristicParam = TABSHeuristicParam(
         epsilon=0.0,
         aggressive_threshold=0.6,
         rotate_noise_scale=0.0,
@@ -116,7 +116,7 @@ if __name__ == "__main__":
     def get_ally_heuristic_config(step):
         weight = jnp.clip(1 - 2 * step / (config.total_iter * config.iter_per_train_step), 0.0, 1.0)
 
-        return TABSHeuristicConfig(
+        return TABSHeuristicParam(
             epsilon=weight * config.initial_ally_heuristic_config.epsilon
             + (1 - weight) * config.end_ally_heuristic_config.epsilon,
             aggressive_threshold=weight * config.initial_ally_heuristic_config.aggressive_threshold

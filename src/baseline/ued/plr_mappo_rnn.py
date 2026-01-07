@@ -28,7 +28,7 @@ from src.baseline.ued.level_sampler import LevelSampler
 from src.baseline.ued.scores import compute_max_returns, max_mc, positive_value_loss
 from src.baseline.utils import batchify, get_battle_metric, save_params, unbatchify
 from src.tabs import TABS
-from src.tabs.config import PhysicsParams, TABSHeuristicConfig
+from src.tabs.config import PhysicsParams, TABSHeuristicParam
 from src.tabs.scenarios import build_batched_scenarios
 from src.tabs.utils import Transition
 from src.tabs.wrappers.wrappers import (
@@ -200,7 +200,7 @@ def make_train(config):
             lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0),
             {
                 "physics_params": PhysicsParams(),
-                "heuristic_params": TABSHeuristicConfig(),
+                "heuristic_params": TABSHeuristicParam(),
             },
         ) | {
             "scenario": vscenario,

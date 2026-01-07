@@ -6,9 +6,9 @@ import jax.numpy as jnp
 from flax import struct
 
 from src.tabs import TABS
-from src.tabs.config import TABSHeuristicConfig
 from src.tabs.heuristic_policy import LastVisibleTarget, heuristic_policy
-from src.tabs.scenarios import Scenario
+from src.tabs.heuristic_policy.params import TABSHeuristicParam
+from src.tabs.scenarios import VectorizedScenario
 
 
 class BaseWrapper:
@@ -122,7 +122,7 @@ class TABSHeuristicWrapper(BaseWrapper):
         self,
         env: TABS,
         heuristic_units: List[str] | str = "enemy",
-        heuristic_config: TABSHeuristicConfig = TABSHeuristicConfig(),
+        heuristic_config: TABSHeuristicParam = TABSHeuristicParam(),
         heuristic_obs: bool = False,
         only_ally_reward: bool = True,
     ):
@@ -153,7 +153,7 @@ class TABSHeuristicWrapper(BaseWrapper):
             target_obs[unit] = obs[unit]
         return target_obs
 
-    def reset(self, key, senario: Scenario):
+    def reset(self, key, senario: VectorizedScenario):
         obs, state = self.env.reset(key, senario)
         target_obs = self.filter_obs(obs)
         return target_obs, state

@@ -1,0 +1,17 @@
+{
+    "epsilon": [
+        0.2
+    ],
+    "aggressive_threshold": [
+        0.3
+    ],
+    "healer_aggressive_threshold": [
+        0.85
+    ],
+    "assasin_speed": [
+        1.4
+    ],
+    "ranger_attack_range": [
+        10.0
+    ]
+}

@@ -1,9 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-from src.tabs import TABS
-from src.tabs.config import PhysicsParams, TABSHeuristicConfig
-from src.tabs.scenarios import build_batched_scenarios
+from src.tabs import TABS, build_batched_env_params_and_config
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
     TABSEnemyHeuristicWrapper,
@@ -15,7 +13,7 @@ if __name__ == "__main__":
     num_steps = 10
     scenario_name = "elbow"
 
-    vscenario, zone_scenario, tabs_config = build_batched_scenarios(
+    env_params, tabs_config = build_batched_env_params_and_config(
         scenario_names=scenario_name, n_repeat=n_envs
     )
     env = TABS(cfg=tabs_config)
@@ -28,17 +26,6 @@ if __name__ == "__main__":
 
     rng = jax.random.PRNGKey(0)
     rng, _rng = jax.random.split(rng)
-
-    env_params = jax.tree.map(
-        lambda x: jnp.repeat(x[None], n_envs, axis=0),
-        {
-            "physics_params": PhysicsParams(),
-            "heuristic_params": TABSHeuristicConfig(),
-        },
-    ) | {
-        "scenario": vscenario,
-        "zone_scenario": zone_scenario,
-    }
 
     init_obs, init_state = v_reset(jax.random.split(_rng, n_envs), env_params)
 

@@ -1,5 +1,7 @@
 import math
 
+import jax.numpy as jnp
+
 UNITID2CHAR = {
     0: ".",  # Empty space
     1: "F",  # Farmer
@@ -38,3 +40,33 @@ class UnitID:
     Deadeye = 7  # D
     Healer = 8  # H
     Paladin = 9  # P
+
+
+class AttackType:
+    DEFAULT = 0
+    HEALING = 1
+
+
+class UnitAction:
+    UP = 0
+    DOWN = 1
+    LEFT = 2
+    RIGHT = 3
+    ATTACK = 4
+    TURN_LEFT = 5
+    TURN_RIGHT = 6
+    IDLE = 7
+
+
+ACTION_TABLE = jnp.array(
+    [
+        [0, 1.0, 0.0],
+        [0, -1.0, 0.0],
+        [-1.0, 0, 0.0],
+        [1.0, 0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, -TURN_ANGLE],
+        [0.0, 0.0, TURN_ANGLE],
+        [0.0, 0.0, 0.0],
+    ]
+)  # [x_move, y_move, rotate_angle]

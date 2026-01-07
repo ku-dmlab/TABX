@@ -1,95 +1,13 @@
-import functools
-import itertools
 import json
-import os
+from pathlib import Path
 from typing import List, Optional, Tuple
 
-import chex
 import jax
 import jax.numpy as jnp
-import numpy as np
-from flax import struct
 
 from src.tabs.config import TABSConfig
-
-UNIT_SCENARIOS = [f.replace(".json", "") for f in os.listdir("src/scenarios/units")]
-ZONE_SCENARIOS = [f.replace(".json", "") for f in os.listdir("src/scenarios/zones")]
-CHALLENGES = [f.replace(".json", "") for f in os.listdir("src/scenarios/challenges")]
-
-
-@struct.dataclass
-class VectorizedScenario:
-    positions: chex.Array
-    rotations: chex.Array
-    body_weights: chex.Array
-    body_radiuss: chex.Array
-    teams: chex.Array
-    pos_min: chex.Array
-    pos_max: chex.Array
-    unit_ids: chex.Array
-    healths: chex.Array
-    attack_damages: chex.Array
-    attack_ranges: chex.Array
-    attack_cooldowns: chex.Array
-    sight_angles: chex.Array
-    is_alive: chex.Array
-    attack_types: chex.Array
-    is_disabled: chex.Array
-    speeds: chex.Array
-
-
-@struct.dataclass
-class ZoneScenario:
-    n_zone: chex.Array
-    zone_type: chex.Array
-    position: chex.Array
-    axes: chex.Array
-    effect_value: chex.Array
-
-
-@struct.dataclass
-class Scenario:
-    ally_unit_comp: chex.Array
-    enemy_unit_comp: chex.Array
-    battle_field: chex.Array
-    enemy_battle_field: chex.Array
-    # unit spec
-    health: chex.Array
-    body_radius: chex.Array
-    body_weight: chex.Array
-    speed: chex.Array
-    attack_damage: chex.Array
-    attack_range: chex.Array  # WM
-    attack_cooldown: chex.Array  # sec
-    sight_angle: chex.Array
-    space_occupied: chex.Array  # area of rectangle shape
-
-
-@struct.dataclass
-class UnitScenario:
-    budget: int
-    ally_unit_comp: chex.Array
-    enemy_unit_comp: chex.Array
-    unit_comp_mask: chex.Array
-    battle_field: chex.Array
-    battle_field_mask: chex.Array
-    enemy_battle_field: chex.Array
-    enemy_battle_field_mask: chex.Array
-    # unit spec
-    price: chex.Array
-    health: chex.Array
-    body_radius: chex.Array
-    body_weight: chex.Array
-    speed: chex.Array
-    attack_damage: chex.Array
-    attack_range: chex.Array  # WM
-    attack_cooldown: chex.Array  # sec
-    sight_angle: chex.Array
-    space_occupied: chex.Array  # area of rectangle shape
-
-
-def load_challenge(challenge_name: str):
-    return load_scenario_from_json(f"src/scenarios/challenges/{challenge_name}.json")
+from src.tabs.scenarios.constants import CHALLENGES, UNIT_SCENARIOS, ZONE_SCENARIOS
+from src.tabs.scenarios.scenario import VectorizedScenario, ZoneScenario
 
 
 def load_json_to_jnp(file_path):
@@ -114,6 +32,7 @@ def load_json_to_jnp(file_path):
 
 
 def load_scenario_from_json(scenario_name: str):
+    base_path = Path(__file__).resolve().parent
     splited_scenario_name = scenario_name.split("_")
     if len(splited_scenario_name) > 1:
         scenario_name = splited_scenario_name[0]
@@ -122,25 +41,27 @@ def load_scenario_from_json(scenario_name: str):
             raise ValueError(f"Scenario name {scenario_name} not found in {UNIT_SCENARIOS}")
         if zone_name not in ZONE_SCENARIOS:
             raise ValueError(f"Zone name {zone_name} not found in {ZONE_SCENARIOS}")
-        vscenario = load_json_to_jnp(f"src/scenarios/units/{scenario_name}.json")["scenario"]
-        zone_scenario = load_json_to_jnp(f"src/scenarios/zones/{zone_name}.json")["zone_scenario"]
+        vscenario = load_json_to_jnp(str(base_path / "units" / f"{scenario_name}.json"))["scenario"]
+        zone_scenario = load_json_to_jnp(str(base_path / "zones" / f"{zone_name}.json"))[
+            "zone_scenario"
+        ]
     elif scenario_name in CHALLENGES:
-        env_params = load_json_to_jnp(f"src/scenarios/challenges/{scenario_name}.json")
+        env_params = load_json_to_jnp(str(base_path / "challenges" / f"{scenario_name}.json"))
         vscenario = env_params["scenario"]
         zone_scenario = env_params["zone_scenario"]
     else:
         if scenario_name not in UNIT_SCENARIOS:
             raise ValueError(f"Scenario name {scenario_name} not found in {UNIT_SCENARIOS}")
         zone_name = "void"
-        vscenario = load_json_to_jnp(f"src/scenarios/units/{scenario_name}.json")["scenario"]
-        zone_scenario = load_json_to_jnp(f"src/scenarios/zones/{zone_name}.json")["zone_scenario"]
+        vscenario = load_json_to_jnp(str(base_path / "units" / f"{scenario_name}.json"))["scenario"]
+        zone_scenario = load_json_to_jnp(str(base_path / "zones" / f"{zone_name}.json"))[
+            "zone_scenario"
+        ]
 
     return vscenario, zone_scenario
 
 
-def generate_padded_unit_scenario(
-    vscenario: VectorizedScenario, max_n_ally: int, max_n_enemy: int, max_n_zone: int
-):
+def generate_padded_unit_scenario(vscenario: VectorizedScenario, max_n_ally: int, max_n_enemy: int):
     padded_vsscenario = VectorizedScenario(
         positions=jnp.zeros((max_n_ally + max_n_enemy, 2)),
         rotations=jnp.zeros((max_n_ally + max_n_enemy, 1)),
@@ -203,6 +124,7 @@ def generate_padded_zone_scenario(zone_scenario: ZoneScenario, max_n_zone: int):
 def build_batched_scenarios(
     scenario_names: List[str] | str,
     n_repeat: int = 1,
+    squeeze_when_single_scenario: bool = True,
     max_n_ally: Optional[int] = None,
     max_n_enemy: Optional[int] = None,
     max_n_zone: Optional[int] = None,
@@ -221,7 +143,7 @@ def build_batched_scenarios(
         max_n_zone = max([zone_scenario.n_zone.item() for zone_scenario in zone_scenarios])
 
     vscenarios = [
-        generate_padded_unit_scenario(vscenario, max_n_ally, max_n_enemy, max_n_zone)
+        generate_padded_unit_scenario(vscenario, max_n_ally, max_n_enemy)
         for vscenario in vscenarios
     ]
     zone_scenarios = [
@@ -235,6 +157,10 @@ def build_batched_scenarios(
         lambda *args: jnp.repeat(jnp.stack(args), axis=0, repeats=n_repeat),
         *zone_scenarios,
     )
+
+    if squeeze_when_single_scenario and (len(scenario_names) * n_repeat == 1):
+        stacked_vscenario = jax.tree.map(lambda x: x.squeeze(axis=0), stacked_vscenario)
+        stacked_zone_scenario = jax.tree.map(lambda x: x.squeeze(axis=0), stacked_zone_scenario)
 
     # TABS Configuration
     tabs_config = TABSConfig(
