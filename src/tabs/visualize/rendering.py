@@ -114,16 +114,19 @@ def draw_fan_sight_range(
     end_angle = normalized_rotation + sight_angle_rad / 2
 
     start_line_end_pos = (
-        max_length * math.cos(start_angle) + pos[0],
-        max_length * math.sin(start_angle) + pos[1],
+        pos[0] + math.cos(start_angle) * max_length,
+        pos[1] - math.sin(start_angle) * max_length,
     )
     end_line_end_pos = (
-        max_length * math.cos(end_angle) + pos[0],
-        max_length * math.sin(end_angle) + pos[1],
+        pos[0] + math.cos(end_angle) * max_length,
+        pos[1] - math.sin(end_angle) * max_length,
     )
 
     points = [pos, start_line_end_pos, end_line_end_pos]
     pygame.draw.polygon(_canvas, color=COLOR_SIGHT, points=points)
+    pygame.draw.line(
+        _canvas, color=COLOR_SIGHT_BORDER, start_pos=pos, end_pos=start_line_end_pos, width=2
+    )
     pygame.draw.line(
         _canvas, color=COLOR_SIGHT_BORDER, start_pos=pos, end_pos=end_line_end_pos, width=2
     )
@@ -170,8 +173,8 @@ def draw_rectangular_attack_range(
         new_x = _x * cos_rot - _y * sin_rot
         new_y = _x * sin_rot + _y * cos_rot
 
-        _x = new_x + pos[0]
-        _y = new_y + pos[1]
+        _x = pos[0] + new_x
+        _y = pos[1] - new_y
 
         points.append((_x, _y))
 
@@ -193,7 +196,7 @@ def draw_stats_bar(
     bar_y_offset: float,
 ):
     bar_width = int(2 * radius)
-    bar_height = 5
+    bar_height = 8
 
     ratio = max(0, min(1, val / max_val))
 
@@ -315,7 +318,7 @@ def draw_unit(
             max_val=max_health,
             fg_color=COLOR_HP,
             radius=radius,
-            bar_y_offset=8,
+            bar_y_offset=12,
         )
         draw_stats_bar(
             canvas,
