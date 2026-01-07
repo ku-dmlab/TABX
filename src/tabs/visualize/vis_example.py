@@ -7,7 +7,7 @@ from src.tabs.wrappers import TABSEnemyHeuristicWrapper
 if __name__ == "__main__":
     num_steps = 120
     seed = 0
-    scenario_name = "1M1A3Hvs2K1A2H_2L2B2S"
+    scenario_name = "2F1M2Avs2S1K_2L2B2S"
 
     env_params, tabs_config = build_batched_env_params_and_config(scenario_names=scenario_name)
 
