@@ -6,7 +6,13 @@ import jax
 import jax.numpy as jnp
 
 from src.tabs.config import TABSConfig
-from src.tabs.scenarios.constants import CHALLENGES, UNIT_SCENARIOS, ZONE_SCENARIOS
+from src.tabs.scenarios.constants import (
+    CHALLENGES,
+    EVAL_UNIT_SCENARIOS,
+    EVAL_ZONE_SCENARIOS,
+    UNIT_SCENARIOS,
+    ZONE_SCENARIOS,
+)
 from src.tabs.scenarios.scenario import VectorizedScenario, ZoneScenario
 
 
@@ -34,29 +40,44 @@ def load_json_to_jnp(file_path):
 def load_scenario_from_json(scenario_name: str):
     base_path = Path(__file__).resolve().parent
     splited_scenario_name = scenario_name.split("_")
-    if len(splited_scenario_name) > 1:
-        scenario_name = splited_scenario_name[0]
-        zone_name = splited_scenario_name[1]
-        if scenario_name not in UNIT_SCENARIOS:
-            raise ValueError(f"Scenario name {scenario_name} not found in {UNIT_SCENARIOS}")
-        if zone_name not in ZONE_SCENARIOS:
-            raise ValueError(f"Zone name {zone_name} not found in {ZONE_SCENARIOS}")
-        vscenario = load_json_to_jnp(str(base_path / "units" / f"{scenario_name}.json"))["scenario"]
-        zone_scenario = load_json_to_jnp(str(base_path / "zones" / f"{zone_name}.json"))[
-            "zone_scenario"
-        ]
-    elif scenario_name in CHALLENGES:
-        env_params = load_json_to_jnp(str(base_path / "challenges" / f"{scenario_name}.json"))
-        vscenario = env_params["scenario"]
-        zone_scenario = env_params["zone_scenario"]
-    else:
-        if scenario_name not in UNIT_SCENARIOS:
-            raise ValueError(f"Scenario name {scenario_name} not found in {UNIT_SCENARIOS}")
+
+    unit_scenario_name = splited_scenario_name[0]
+    if len(splited_scenario_name) == 1:
         zone_name = "void"
-        vscenario = load_json_to_jnp(str(base_path / "units" / f"{scenario_name}.json"))["scenario"]
+    else:
+        zone_name = splited_scenario_name[1]
+
+    # Unit scenario
+    if unit_scenario_name in UNIT_SCENARIOS:
+        vscenario = load_json_to_jnp(str(base_path / "units" / f"{unit_scenario_name}.json"))[
+            "scenario"
+        ]
+    elif unit_scenario_name in CHALLENGES:
+        vscenario = load_json_to_jnp(str(base_path / "challenges" / f"{scenario_name}.json"))[
+            "scenario"
+        ]
+    elif unit_scenario_name in EVAL_UNIT_SCENARIOS:
+        vscenario = load_json_to_jnp(
+            str(base_path / "eval_scenarios/units" / f"{unit_scenario_name}.json")
+        )["scenario"]
+    else:
+        raise ValueError(
+            f"Scenario name {unit_scenario_name} not found in {UNIT_SCENARIOS + CHALLENGES + EVAL_UNIT_SCENARIOS}"
+        )
+
+    # Zone scenario
+    if zone_name in ZONE_SCENARIOS:
         zone_scenario = load_json_to_jnp(str(base_path / "zones" / f"{zone_name}.json"))[
             "zone_scenario"
         ]
+    elif zone_name in EVAL_ZONE_SCENARIOS:
+        zone_scenario = load_json_to_jnp(
+            str(base_path / "eval_scenarios/zones" / f"{zone_name}.json")
+        )["zone_scenario"]
+    else:
+        raise ValueError(
+            f"Zone scenario name {zone_name} not found in {ZONE_SCENARIOS + EVAL_ZONE_SCENARIOS}"
+        )
 
     return vscenario, zone_scenario
 
