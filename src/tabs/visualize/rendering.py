@@ -238,8 +238,7 @@ def draw_unit(
     rotation_degree = rotation * 180 / math.pi
 
     # Draw attack
-    # if show_attack and unit.is_attacking:
-    if show_attack:
+    if show_attack and unit.is_attacking:
         draw_rectangular_attack_range(
             canvas,
             width=width,
