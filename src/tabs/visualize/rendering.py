@@ -238,7 +238,8 @@ def draw_unit(
     rotation_degree = rotation * 180 / math.pi
 
     # Draw attack
-    if show_attack and unit.is_attacking:
+    # if show_attack and unit.is_attacking:
+    if show_attack:
         draw_rectangular_attack_range(
             canvas,
             width=width,
@@ -288,7 +289,7 @@ def draw_unit(
 
     if not pix_unit:
         portrait = pygame.transform.scale(portrait, (2 * radius, 2 * radius))
-        portrait = pygame.transform.rotate(portrait, 270 - rotation_degree)
+        portrait = pygame.transform.rotate(portrait, 270 + rotation_degree)
         new_rect = portrait.get_rect(center=center)
         portrait_surface.blit(portrait, new_rect.topleft)
 
