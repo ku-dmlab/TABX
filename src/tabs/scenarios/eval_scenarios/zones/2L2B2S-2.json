@@ -1,0 +1,124 @@
+{
+  "grid_info": {
+    "grid_width": 28,
+    "grid_height": 18,
+    "max_field_width": 121.0,
+    "max_field_height": 78.0,
+    "margin_width": 0.0,
+    "margin_height": 0.0
+  },
+  "scenario": {
+    "attack_cooldowns": [],
+    "attack_damages": [],
+    "attack_ranges": [],
+    "attack_types": [],
+    "body_radiuss": [],
+    "body_weights": [],
+    "healths": [],
+    "is_alive": [],
+    "is_disabled": [],
+    "pos_max": [],
+    "pos_min": [],
+    "positions": [],
+    "rotations": [],
+    "sight_angles": [],
+    "speeds": [],
+    "teams": [],
+    "unit_ids": []
+  },
+  "zone_scenario": {
+    "axes": [
+      [
+        5.0,
+        10.0
+      ],
+      [
+        5.0,
+        10.0
+      ],
+      [
+        5.0,
+        5.0
+      ],
+      [
+        5.0,
+        5.0
+      ],
+      [
+        9.5,
+        2.5
+      ],
+      [
+        9.5,
+        2.5
+      ]
+    ],
+    "effect_value": [
+      [
+        20.0
+      ],
+      [
+        20.0
+      ],
+      [
+        0.0
+      ],
+      [
+        0.0
+      ],
+      [
+        0.4
+      ],
+      [
+        0.4
+      ]
+    ],
+    "n_zone": 6,
+    "position": [
+      [
+        -20.0,
+        -5.0
+      ],
+      [
+        20.0,
+        5.0
+      ],
+      [
+        -24.0,
+        7.0
+      ],
+      [
+        24.0,
+        -7.0
+      ],
+      [
+        0.0,
+        12.0
+      ],
+      [
+        0.0,
+        -12.0
+      ]
+    ],
+    "zone_type": [
+      [
+        1
+      ],
+      [
+        1
+      ],
+      [
+        2
+      ],
+      [
+        2
+      ],
+      [
+        3
+      ],
+      [
+        3
+      ]
+    ]
+  }
+}
