@@ -47,13 +47,16 @@ def load_scenario_from_json(scenario_name: str):
     else:
         zone_name = splited_scenario_name[1]
 
+    if unit_scenario_name in CHALLENGES:
+        env_params = load_json_to_jnp(str(base_path / "challenges" / f"{scenario_name}.json"))
+        vscenario = env_params["scenario"]
+        zone_scenario = env_params["zone_scenario"]
+
+        return vscenario, zone_scenario
+
     # Unit scenario
     if unit_scenario_name in UNIT_SCENARIOS:
         vscenario = load_json_to_jnp(str(base_path / "units" / f"{unit_scenario_name}.json"))[
-            "scenario"
-        ]
-    elif unit_scenario_name in CHALLENGES:
-        vscenario = load_json_to_jnp(str(base_path / "challenges" / f"{scenario_name}.json"))[
             "scenario"
         ]
     elif unit_scenario_name in EVAL_UNIT_SCENARIOS:
