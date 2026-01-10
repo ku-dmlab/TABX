@@ -57,22 +57,16 @@ class DefaultUnit:
         next_cooldown = self.status.cooldown + config.dt
         updated_object = physics_update(config, self)
 
-        is_out_of_bounds = jnp.any(updated_object.transform.position < self.pos_min) | jnp.any(
-            updated_object.transform.position > self.pos_max
+        updated_transform = self.transform._replace(
+            position=jnp.clip(updated_object.transform.position, self.pos_min, self.pos_max),
         )
 
-        updated_object = updated_object.replace(
+        return updated_object.replace(
+            transform=updated_transform,
             status=self.status.replace(cooldown=next_cooldown),
             damage_dealt=self.damage_dealt,
             is_attacking=self.is_attacking,
         )
-        updated_object = updated_object.replace(
-            status=updated_object.on_damage(
-                self.status.max_health * 0.1 * is_out_of_bounds * config.dt
-            )
-        )
-
-        return updated_object
 
     def late_update(self, **kwargs):
         return self.replace(status=self.status.replace(speed=self.status.max_speed))
