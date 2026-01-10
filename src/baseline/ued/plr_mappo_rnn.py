@@ -20,14 +20,13 @@ from flax.training.train_state import TrainState
 
 import wandb
 from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
-from src.baseline.ued.level_generator import (
-    level_generator,
-    mutate_level_generator,
-)
+from src.baseline.ued.level_generator import level_generator, mutate_level_generator
 from src.baseline.ued.level_sampler import LevelSampler
 from src.baseline.ued.scores import compute_max_returns, max_mc, positive_value_loss
+from src.baseline.ued.utils import get_evaluation_heuristic_params, get_evaluation_scenarios
 from src.baseline.utils import batchify, get_battle_metric, save_params, unbatchify
 from src.tabs import TABS, build_batched_env_params_and_config
+from src.tabs.scenarios.constants import CHALLENGES
 from src.tabs.utils import Transition
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
@@ -56,7 +55,7 @@ class Config:
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
     # Env
-    SCENARIO: str = "elbow"
+    SCENARIO: str = "1F1M3A1Hvs2F1S1K1A1H_2L"
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
     FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
@@ -76,7 +75,7 @@ class Config:
     NUM_EDITS: int = 5
     # Eval.
     EVAL_STEPS: int = 256
-    NUM_EVAL: int = 10
+    NUM_EVAL: int = 10  # The number of episodes to evaluate
     # Misc.
     SEED: int = 0
     PROJECT_NAME: str = "plr_mappo_rnn"  # wandb project name
@@ -121,6 +120,8 @@ def make_train(config):
     config["CLIP_EPS"] = (
         config["CLIP_EPS"] / env.num_agents if config["SCALE_CLIP_EPS"] else config["CLIP_EPS"]
     )
+
+    config["EVAL_STEPS"] = max(config["EVAL_STEPS"], env.max_episode_steps)
 
     def linear_schedule(count):
         frac = (
@@ -220,15 +221,32 @@ def make_train(config):
         reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
 
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, 0))(reset_rng, pholder_level_batch)
-        ac_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], 128)
-        cr_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], 128)
+        ac_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], config["GRU_HIDDEN_DIM"])
+        cr_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], config["GRU_HIDDEN_DIM"])
 
         # For evaluation
         rng, _rng, _rng_reset = jax.random.split(rng, 3)
-        sample_rngs = jax.random.split(_rng, config["NUM_EVAL"])
-        eval_levels = jax.vmap(sample_random_level, in_axes=(None, 0))(init_env_params, sample_rngs)
-        reset_rngs = jax.random.split(_rng_reset, config["NUM_EVAL"])
-        eval_obsv, eval_env_state = jax.vmap(env.reset, in_axes=(0, 0))(reset_rngs, eval_levels)
+        eval_scenarios = get_evaluation_scenarios(
+            config["SCENARIO"], list(config["FREE_PARAM_TYPE"])
+        )
+        n_eval_scenarios = len(eval_scenarios)
+        heuristic_params = get_evaluation_heuristic_params(
+            config["HEURISTIC"], list(config["FREE_PARAM_TYPE"])
+        )
+        eval_levels, tabs_config = build_batched_env_params_and_config(
+            scenario_names=eval_scenarios,
+            physics_param_names=[config["PHYSICS"]] * n_eval_scenarios,
+            heuristic_param_names=heuristic_params * n_eval_scenarios,
+            n_repeat=config["NUM_EVAL"],
+        )
+        eval_env = TABS(cfg=tabs_config)
+        eval_env = TABSLogWrapper(eval_env)
+        eval_env = TABSEnemyHeuristicWrapper(eval_env)
+        eval_env = TABSAutoResetWrapper(eval_env)
+        reset_rngs = jax.random.split(_rng_reset, config["NUM_EVAL"] * n_eval_scenarios)
+        eval_obsv, eval_env_state = jax.vmap(eval_env.reset, in_axes=(0, 0))(
+            reset_rngs, eval_levels
+        )
 
         # # TRAIN LOOP
         def _update_step(update_runner_state, unused):
@@ -845,7 +863,8 @@ def make_train(config):
             )
 
             def evaluate(actor_train_state, rng):
-                BATCH_ACTORS = config["NUM_EVAL"] * env.num_agents
+                BATCH_SIZE = n_eval_scenarios * config["NUM_EVAL"]
+                BATCH_ACTORS = BATCH_SIZE * env.num_agents
 
                 def _rollout(carry, unused):
                     actor_train_state, env_state, last_obs, last_done, ac_hstate, levels, rng = (
@@ -854,11 +873,11 @@ def make_train(config):
 
                     # SELECT ACTION
                     rng, _rng = jax.random.split(rng)
-                    avail_actions = jax.vmap(env.get_avail_actions)(env_state)
+                    avail_actions = jax.vmap(eval_env.get_avail_actions)(env_state)
                     avail_actions = jax.lax.stop_gradient(
-                        batchify(avail_actions, env.agents, BATCH_ACTORS)
+                        batchify(avail_actions, eval_env.agents, BATCH_ACTORS)
                     )
-                    obs_batch = batchify(last_obs, env.agents, BATCH_ACTORS)
+                    obs_batch = batchify(last_obs, eval_env.agents, BATCH_ACTORS)
                     ac_in = (
                         obs_batch[np.newaxis, :],
                         last_done[np.newaxis, :],
@@ -866,16 +885,16 @@ def make_train(config):
                     )
                     ac_hstate, pi = actor_network.apply(actor_train_state.params, ac_hstate, ac_in)
                     action = pi.sample(seed=_rng)
-                    env_act = unbatchify(action, env.agents, config["NUM_EVAL"], env.num_agents)
+                    env_act = unbatchify(action, eval_env.agents, BATCH_SIZE, eval_env.num_agents)
                     env_act = {k: v.squeeze() for k, v in env_act.items()}
 
                     # STEP ENV
                     rng, _rng = jax.random.split(rng)
-                    rng_step = jax.random.split(_rng, config["NUM_EVAL"])
-                    obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, 0))(
-                        rng_step, env_state, env_act, levels
-                    )
-                    done_batch = batchify(done, env.agents, BATCH_ACTORS).squeeze()
+                    rng_step = jax.random.split(_rng, BATCH_SIZE)
+                    obsv, env_state, reward, done, info = jax.vmap(
+                        eval_env.step, in_axes=(0, 0, 0, 0)
+                    )(rng_step, env_state, env_act, levels)
+                    done_batch = batchify(done, eval_env.agents, BATCH_ACTORS).squeeze()
 
                     carry = (actor_train_state, env_state, obsv, done_batch, ac_hstate, levels, rng)
 
@@ -886,16 +905,21 @@ def make_train(config):
                     eval_env_state,
                     eval_obsv,
                     jnp.zeros((BATCH_ACTORS), dtype=bool),
-                    ScannedRNN.initialize_carry(BATCH_ACTORS, 128),
+                    ScannedRNN.initialize_carry(BATCH_ACTORS, config["GRU_HIDDEN_DIM"]),
                     eval_levels,
                     rng,
                 )
                 carry, _ = jax.lax.scan(_rollout, carry, None, config["EVAL_STEPS"])
-                metric = get_battle_metric(env, carry[1])
+                _env_state = jax.tree.map(
+                    lambda x: x.reshape((n_eval_scenarios, config["NUM_EVAL"]) + x.shape[1:]),
+                    carry[1],
+                )
+                metric = jax.vmap(get_battle_metric, in_axes=(None, 0))(eval_env, _env_state)
 
                 eval_metric = {}
                 for key in metric.keys():
-                    eval_metric[f"eval/{key}"] = metric[key]
+                    for s in range(n_eval_scenarios):
+                        eval_metric[f"eval/{eval_scenarios[s]}/{key}"] = metric[key][s]
 
                 return eval_metric
 
@@ -924,6 +948,9 @@ def make_train(config):
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
+    if config.SCENARIO in CHALLENGES:
+        raise ValueError(f"{config.SCENARIO} is not supported in the UED setting.")
+
     wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
     train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
