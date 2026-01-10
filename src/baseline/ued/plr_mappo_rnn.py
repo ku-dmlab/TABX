@@ -121,6 +121,8 @@ def make_train(config):
         config["CLIP_EPS"] / env.num_agents if config["SCALE_CLIP_EPS"] else config["CLIP_EPS"]
     )
 
+    config["EVAL_STEPS"] = max(config["EVAL_STEPS"], env.max_episode_steps)
+
     def linear_schedule(count):
         frac = (
             1.0

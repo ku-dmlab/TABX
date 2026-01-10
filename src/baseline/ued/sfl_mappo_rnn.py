@@ -96,6 +96,8 @@ def make_train(config):
 
     config["NUM_ENVS_FROM_SAMPLED"] = config["NUM_ENVS"] - config["NUM_ENVS_TO_GENERATE"]
 
+    config["EVAL_STEPS"] = max(config["EVAL_STEPS"], env.max_episode_steps)
+
     def linear_schedule(count):
         frac = 1.0 - (count // (config["NUM_MINIBATCHES"] * config["UPDATE_EPOCHS"])) / (
             config["NUM_UPDATES"] * config["UPDATE_FREQ"]
