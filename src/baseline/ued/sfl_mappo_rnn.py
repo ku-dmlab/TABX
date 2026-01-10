@@ -96,6 +96,8 @@ def make_train(config):
 
     config["NUM_ENVS_FROM_SAMPLED"] = config["NUM_ENVS"] - config["NUM_ENVS_TO_GENERATE"]
 
+    config["NUM_EVAL"] = max(config["NUM_EVAL"], env.max_episode_steps)
+
     def linear_schedule(count):
         frac = 1.0 - (count // (config["NUM_MINIBATCHES"] * config["UPDATE_EPOCHS"])) / (
             config["NUM_UPDATES"] * config["UPDATE_FREQ"]
@@ -158,8 +160,8 @@ def make_train(config):
         rng, _rng = jax.random.split(rng)
         reset_rng = jax.random.split(_rng, config["NUM_ENVS"])
         obsv, env_state = jax.vmap(env.reset, in_axes=(0, 0))(reset_rng, env_params)
-        ac_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], 128)
-        cr_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], 128)
+        ac_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], config["GRU_HIDDEN_DIM"])
+        cr_init_hstate = ScannedRNN.initialize_carry(config["NUM_ACTORS"], config["GRU_HIDDEN_DIM"])
 
         # For evaluation
         rng, _rng, _rng_reset = jax.random.split(rng, 3)
@@ -238,7 +240,7 @@ def make_train(config):
                     env_state,
                     obsv,
                     jnp.zeros((BATCH_ACTORS), dtype=bool),
-                    ScannedRNN.initialize_carry(BATCH_ACTORS, 128),
+                    ScannedRNN.initialize_carry(BATCH_ACTORS, config["GRU_HIDDEN_DIM"]),
                     levels,
                     rng,
                 )
@@ -608,7 +610,7 @@ def make_train(config):
                         eval_env_state,
                         eval_obsv,
                         jnp.zeros((BATCH_ACTORS), dtype=bool),
-                        ScannedRNN.initialize_carry(BATCH_ACTORS, 128),
+                        ScannedRNN.initialize_carry(BATCH_ACTORS, config["GRU_HIDDEN_DIM"]),
                         eval_levels,
                         rng,
                     )
