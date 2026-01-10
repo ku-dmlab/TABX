@@ -79,7 +79,7 @@ class DefaultUnit:
         target_attackable = game_manager.attackable_matrix[self.status.id.reshape()]
         action_able = ~self.status.is_disabled & self.status.is_alive
         can_attack = (
-            self.status.cooldown > self.status.attack_cooldown
+            self.status.cooldown >= self.status.attack_cooldown
         ) & action_able  # if unit is dead, do not attack
 
         notify(objects, "hit", (self, is_attack, target_id, target_attackable, can_attack))
@@ -1003,8 +1003,14 @@ class TABS(BaseMAEnv):
             14 * self.num_agents + len(self.zone_keys) * 6
         )  # n_features * n_agents + n_zones * n_features
 
-    def get_avail_actions(self, state):
-        return {agent: jnp.ones((self.action_spaces[agent].n,)) for agent in self.unit_keys}
+    def get_avail_actions(self, env_state):
+        state = env_state["state"]
+        return {
+            agent: jnp.ones((self.action_spaces[agent].n,))
+            .at[UnitAction.ATTACK]
+            .set((state[agent].status.cooldown >= state[agent].status.attack_cooldown).reshape())
+            for agent in self.unit_keys
+        }
 
     def init_render(self, ax, state: Dict):
         from src.tabs.visualize.rendering import HEIGHT, WIDTH, get_tabs_render

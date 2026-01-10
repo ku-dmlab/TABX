@@ -90,7 +90,8 @@ class TABSEnemyHeuristicWrapper(BaseWrapper):
         )
 
     def get_avail_actions(self, state):
-        return {agent: jnp.ones((self.env.action_spaces[agent].n,)) for agent in self.env.ally_keys}
+        avail_actions = self.env.get_avail_actions(state)
+        return {agent: avail_actions[agent] for agent in self.env.ally_keys}
 
 
 class TABSHeuristicWrapper(BaseWrapper):
