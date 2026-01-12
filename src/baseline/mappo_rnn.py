@@ -4,6 +4,7 @@ Based on JaxMARL Implementation of MAPPO
 
 import os
 from dataclasses import dataclass
+from typing import Tuple
 
 import jax
 import jax.numpy as jnp
@@ -48,7 +49,7 @@ class Config:
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
     # Misc.
-    SEED: int = 0
+    SEED: int | Tuple[int, ...] = 0
     PROJECT_NAME: str = "mappo_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
@@ -84,6 +85,7 @@ def make_train(config):
         return config["LR"] * frac
 
     def train(rng):
+        init_rng = rng
         # INIT NETWORK
         actor_network = ActorRNN(env.action_space(env.agents[0]).n, config=config)
         critic_network = CriticRNN(config=config)
@@ -407,11 +409,24 @@ def make_train(config):
             metric = loss_info | get_battle_metric(env, env_state)
             rng = update_state[-1]
 
-            def callback(metric):
-                wandb.log(metric)
+            def callback(metric, init_rng, update_steps):
+                seed = jax.random.key_data(init_rng)[-1].item()
+                metric_plus_seed = {
+                    f"{k}_seed{seed}" if isinstance(config["SEED"], tuple) else k: v
+                    for k, v in metric.items()
+                }
+                metric_plus_seed[
+                    f"update_steps_seed{seed}"
+                    if isinstance(config["SEED"], tuple)
+                    else "update_steps"
+                ] = update_steps
+                metric_plus_seed[
+                    f"env_step_seed{seed}" if isinstance(config["SEED"], tuple) else "env_step"
+                ] = update_steps * config["NUM_ENVS"] * config["NUM_STEPS"]
+                wandb.log(metric_plus_seed)
 
             update_steps = update_steps + 1
-            jax.experimental.io_callback(callback, None, metric)
+            jax.experimental.io_callback(callback, None, metric, init_rng, update_steps)
             runner_state = (train_states, env_state, last_obs, last_done, hstates, rng)
             return (runner_state, update_steps), metric
 
@@ -437,7 +452,10 @@ if __name__ == "__main__":
     wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
     train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
-        result = train_fn(jax.random.key(config.SEED))
+        if isinstance(config.SEED, int):
+            result = train_fn(jax.random.key(config.SEED))
+        else:
+            result = jax.vmap(train_fn)(jax.vmap(jax.random.key)(jnp.array(config.SEED)))
 
     # Save trained model
     save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME)
@@ -450,6 +468,8 @@ if __name__ == "__main__":
             f"{config.SCENARIO}_seed{config.SEED}_actor.safetensors",
         ),
     )
+    if isinstance(config.SEED, tuple):
+        runner_state = jax.tree.map(lambda x: x[0], runner_state)
 
     if config.SAVE_VIDEO:
         # Visualize
@@ -468,7 +488,7 @@ if __name__ == "__main__":
         ac_init_hstate = ScannedRNN.initialize_carry(1, config.GRU_HIDDEN_DIM)
         actor_network = ActorRNN(env.action_space(env.agents[0]).n, config=config.__dict__)
 
-        rng = jax.random.PRNGKey(config.SEED)
+        rng = jax.random.PRNGKey(config.SEED[0] if isinstance(config.SEED, tuple) else config.SEED)
         rng, _rng = jax.random.split(rng)
         obs, env_state = env.reset(_rng, env_params)
 
