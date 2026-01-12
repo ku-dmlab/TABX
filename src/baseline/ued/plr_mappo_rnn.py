@@ -5,7 +5,7 @@ Based on JaxMARL Implementation of MAPPO and JaxUED Implementation of PLR
 import os
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Literal
+from typing import Literal, Tuple
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
@@ -78,7 +78,7 @@ class Config:
     EVAL_STEPS: int = 256
     NUM_EVAL: int = 10  # The number of episodes to evaluate
     # Misc.
-    SEED: int = 0
+    SEED: int | Tuple[int, ...] = 0
     PROJECT_NAME: str = "plr_mappo_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
@@ -141,6 +141,7 @@ def make_train(config):
             raise ValueError(f"Unknown score function: {config['SCORE_FUNC']}")
 
     def train(rng):
+        init_rng = rng
         # INIT NETWORK
         actor_network = ActorRNN(env.action_space(env.agents[0]).n, config=config)
         critic_network = CriticRNN(config=config)
@@ -929,11 +930,24 @@ def make_train(config):
 
             metric |= eval_metric
 
-            def callback(metric):
-                wandb.log(metric)
+            def callback(metric, init_rng, update_steps):
+                seed = jax.random.key_data(init_rng)[-1].item()
+                metric_plus_seed = {
+                    f"{k}_seed{seed}" if isinstance(config["SEED"], tuple) else k: v
+                    for k, v in metric.items()
+                }
+                metric_plus_seed[
+                    f"update_steps_seed{seed}"
+                    if isinstance(config["SEED"], tuple)
+                    else "update_steps"
+                ] = update_steps
+                metric_plus_seed[
+                    f"env_step_seed{seed}" if isinstance(config["SEED"], tuple) else "env_step"
+                ] = update_steps * config["NUM_ENVS"] * config["NUM_STEPS"]
+                wandb.log(metric_plus_seed)
 
             update_steps = update_steps + 1
-            jax.experimental.io_callback(callback, None, metric)
+            jax.experimental.io_callback(callback, None, metric, init_rng, update_steps)
             runner_state = (train_states, sample_state, env_state, rng)
             return (runner_state, update_steps), metric
 
@@ -955,7 +969,10 @@ if __name__ == "__main__":
     wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
     train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
-        result = train_fn(jax.random.key(config.SEED))
+        if isinstance(config.SEED, int):
+            result = train_fn(jax.random.key(config.SEED))
+        else:
+            result = jax.vmap(train_fn)(jax.vmap(jax.random.key)(jnp.array(config.SEED)))
 
     # Save trained model
     save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME)

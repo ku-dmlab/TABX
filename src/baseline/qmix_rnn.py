@@ -4,7 +4,7 @@ Based on JaxMARL Implementation of QMIX
 
 import os
 from dataclasses import dataclass
-from typing import Literal
+from typing import NamedTuple, Tuple, Literal
 
 import flashbax as fbx
 import jax
@@ -57,7 +57,7 @@ class Config:
     HEURISTIC: str = "easy"
     WORLD_STATE_TYPE: Literal["concat", "global"] = "concat"
     # Misc.
-    SEED: int = 0
+    SEED: int | Tuple[int, ...] = 0
     PROJECT_NAME: str = "qmix_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
@@ -113,6 +113,7 @@ def make_train(config, env, env_params, test_env_params):
 
     def train(rng):
         # INIT ENV
+        init_rng = rng
         rng, _rng = jax.random.split(rng)
 
         # to initalize some variables is necessary to sample a trajectory to know its strucutre
@@ -425,6 +426,7 @@ def make_train(config, env, env_params, test_env_params):
             metrics = {
                 "env_step": train_state.timesteps,
                 "update_steps": train_state.n_updates,
+                "env_steps": train_state.n_updates * config["NUM_ENVS"] * config["NUM_STEPS"],
                 "grad_steps": train_state.grad_steps,
                 "loss": loss.mean(),
                 "qvals": qvals.mean(),
@@ -443,10 +445,15 @@ def make_train(config, env, env_params, test_env_params):
                 )
                 metrics.update({"test_" + k: v for k, v in test_state.items()})
 
-            def callback(metrics):
-                wandb.log(metrics)
+            def callback(metric, init_rng):
+                seed = jax.random.key_data(init_rng)[-1].item()
+                metric_plus_seed = {
+                    f"{k}_seed{seed}" if isinstance(config["SEED"], tuple) else k: v
+                    for k, v in metric.items()
+                }
+                wandb.log(metric_plus_seed)
 
-            jax.debug.callback(callback, metrics)
+            jax.experimental.io_callback(callback, None, metrics, init_rng)
 
             runner_state = (train_state, buffer_state, test_state, rng)
 
@@ -548,7 +555,10 @@ def main(config):
 
     train_fn = jax.jit(make_train(config.__dict__, env, train_env_params, test_env_params))
     with jax.disable_jit(False):
-        result = train_fn(jax.random.key(config.SEED))
+        if isinstance(config.SEED, int):
+            result = train_fn(jax.random.key(config.SEED))
+        else:
+            result = jax.vmap(train_fn)(jax.vmap(jax.random.key)(jnp.array(config.SEED)))
 
     # Save trained model
     save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME)
@@ -561,6 +571,9 @@ def main(config):
             f"{config.SCENARIO}_seed{config.SEED}_qf.safetensors",
         ),
     )
+
+    if isinstance(config.SEED, tuple):
+        runner_state = jax.tree.map(lambda x: x[0], runner_state)
 
     if config.SAVE_VIDEO:
         # Visualize
@@ -589,7 +602,7 @@ def main(config):
             hidden_dim=config.HIDDEN_SIZE,
         )
 
-        rng = jax.random.PRNGKey(config.SEED)
+        rng = jax.random.PRNGKey(config.SEED[0] if isinstance(config.SEED, tuple) else config.SEED)
         rng, _rng = jax.random.split(rng)
 
         obs, env_state = env.reset(_rng, env_params)
