@@ -498,7 +498,7 @@ class TABS(BaseMAEnv):
     def __init__(
         self,
         cfg: TABSConfig,
-        obs_type: str = "unit_spec",
+        world_state_type: str = "concat",
         max_episode_steps: int = 512,
     ):
         max_n_ally = cfg.max_n_ally
@@ -506,7 +506,7 @@ class TABS(BaseMAEnv):
         max_n_zone = cfg.max_n_zone
 
         super().__init__(max_n_ally + max_n_enemy)
-        self.obs_type = obs_type
+        self.world_state_type = world_state_type
         self.ally_keys = [f"unit_{i:02d}" for i in range(max_n_ally)]
         self.enemy_keys = [f"unit_{i:02d}" for i in range(max_n_ally, max_n_ally + max_n_enemy)]
         self.unit_keys = self.ally_keys + self.enemy_keys
@@ -600,89 +600,9 @@ class TABS(BaseMAEnv):
             raise ValueError(f"Invalid observation type: {self.obs_type}")
 
     def get_obs(self, state):
-        if self.obs_type == "unit_spec":
-            return self.get_spec_obs(state)
-        elif self.obs_type == "unit_id":
-            return self.get_id_obs(state)
-        else:
-            raise ValueError(f"Invalid observation type: {self.obs_type}")
+        return self._get_obs(state)
 
-    def get_id_obs(self, state):
-        """
-        own_feature : [unit_id, health, absolute_x, absolute_y, rotation / 2pi, cooldown, is_alive]
-        other_feature : [unit_id, health, relative_x, relative_y, rotation / 2pi, is_alive, is_enemy, is_visible, is_attackable]
-        """
-        keys = self.unit_keys
-
-        healths = jnp.stack([state[unit].status.health for unit in keys])
-        positions = jnp.stack([state[unit].transform.position for unit in keys])
-        rotations = jnp.stack([state[unit].transform.rotation for unit in keys]) / (jnp.pi * 2)
-        cooldowns = jnp.stack([state[unit].status.cooldown for unit in keys])
-
-        teams = jnp.stack([state[unit].team for unit in keys])
-        is_alives = jnp.stack([state[unit].status.is_alive for unit in keys])
-
-        is_teams = teams[None] == teams[:, None]
-
-        n_unit = state["game_manager"].attackable_matrix.shape[0]
-
-        roll_shifts = jnp.arange(0, -n_unit, step=-1)
-        v_roll = jax.vmap(lambda array, shift: jnp.roll(array, shift))
-
-        rolled_attackable_matrix = v_roll(state["game_manager"].attackable_matrix, roll_shifts)[
-            :, 1:, None
-        ]
-        rolled_visible_matrix = v_roll(state["game_manager"].visible_matrix, roll_shifts)[
-            :, 1:, None
-        ]
-        rolled_distnace_matrix = v_roll(state["game_manager"].distance_matrix, roll_shifts)[:, 1:]
-        rolled_is_teams = v_roll(is_teams, roll_shifts)[:, 1:]
-
-        repeated_health = jnp.repeat(healths[None], repeats=n_unit, axis=0)
-        repeated_rotation = jnp.repeat(rotations[None], repeats=n_unit, axis=0)
-        repeated_is_alive = jnp.repeat(is_alives[None], repeats=n_unit, axis=0)
-        repeated_cooldown = jnp.repeat(cooldowns[None], repeats=n_unit, axis=0)
-
-        rolled_health = v_roll(repeated_health, roll_shifts)[:, 1:]
-        rolled_rotation = v_roll(repeated_rotation, roll_shifts)[:, 1:]
-        rolled_is_alive = v_roll(repeated_is_alive, roll_shifts)[:, 1:]
-        rolled_cooldown = v_roll(repeated_cooldown, roll_shifts)[:, 1:]
-
-        own_feature = jnp.concatenate(
-            (
-                healths,
-                positions,
-                rotations,
-                cooldowns,
-                is_alives,
-            ),
-            axis=1,
-        )
-
-        other_feature = (
-            jnp.concatenate(
-                (
-                    rolled_health,
-                    rolled_distnace_matrix,
-                    rolled_rotation,
-                    rolled_cooldown,
-                    rolled_is_alive,
-                    rolled_is_teams,
-                    rolled_visible_matrix,
-                    rolled_attackable_matrix,
-                ),
-                axis=2,
-            )
-            * rolled_visible_matrix
-        ).reshape(n_unit, -1)
-
-        concated_obs = jnp.concatenate((own_feature, other_feature), axis=1)
-        observations = {key: concated_obs[i] for i, key in enumerate(keys)}
-
-        return observations
-        # return {key: state[key].status.id for key in self.unit_keys}
-
-    def get_spec_obs(self, state):
+    def _get_obs(self, state):
         """
         own_feature : [health, max_health, absolute_x, absolute_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive, speed]
         other_feature : [health, max_health, relative_x, relative_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive, is_ally, is_attackable, speed]
