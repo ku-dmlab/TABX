@@ -579,25 +579,15 @@ class TABS(BaseMAEnv):
         self.action_spaces = {
             agent: Discrete(num_categories=ACTION_TABLE.shape[0]) for agent in self.unit_keys
         }
-        if self.obs_type == "unit_spec":
-            self.observation_spaces = {
-                agent: Box(
-                    low=0,
-                    high=1,
-                    shape=(14 + 16 * (len(self.unit_keys) - 1) + len(self.zone_keys) * 6,),
-                    dtype=jnp.float32,
-                )
-                for agent in self.unit_keys
-            }
-        elif self.obs_type == "unit_id":
-            self.observation_spaces = {
-                agent: Box(
-                    low=0, high=1, shape=(6 + 9 * (len(self.unit_keys) - 1),), dtype=jnp.float32
-                )
-                for agent in self.unit_keys
-            }
-        else:
-            raise ValueError(f"Invalid observation type: {self.obs_type}")
+        self.observation_spaces = {
+            agent: Box(
+                low=0,
+                high=1,
+                shape=(14 + 16 * (len(self.unit_keys) - 1) + len(self.zone_keys) * 6,),
+                dtype=jnp.float32,
+            )
+            for agent in self.unit_keys
+        }
 
     def get_obs(self, state):
         return self._get_obs(state)
@@ -726,29 +716,41 @@ class TABS(BaseMAEnv):
             concated_obs = jnp.concatenate((own_feature, other_feature, zone_feature), axis=1)
         else:
             concated_obs = jnp.concatenate((own_feature, other_feature), axis=1)
-        observations = {key: concated_obs[i] for i, key in enumerate(keys)}
-        unit_world_state = jnp.concatenate(
-            (
-                parsed_state.healths,
-                parsed_state.max_healths,
-                parsed_state.positions,
-                parsed_state.rotations,
-                parsed_state.attack_ranges,
-                parsed_state.attack_damages,
-                parsed_state.cooldowns,
-                parsed_state.attack_cooldowns,
-                parsed_state.body_radiuss,
-                parsed_state.body_weights,
-                parsed_state.sight_angles,
-                parsed_state.is_alives,
-                parsed_state.speeds,
-            ),
-            axis=-1,
-        ).flatten()
-        if self.max_n_zone > 0:
-            observations["world_state"] = jnp.concatenate([unit_world_state, zone_world_feature])
+        observations = {key: concated_obs[i] for i, key in enumerate(self.ally_keys)}
+
+        if self.world_state_type == "concat":
+            unit_world_state = jax.tree.map(
+                lambda *args: jnp.concatenate(args), *observations.values()
+            )
+        elif self.world_state_type == "global":
+            unit_world_state = jnp.concatenate(
+                (
+                    parsed_state.healths,
+                    parsed_state.max_healths,
+                    parsed_state.positions,
+                    parsed_state.rotations,
+                    parsed_state.attack_ranges,
+                    parsed_state.attack_damages,
+                    parsed_state.cooldowns,
+                    parsed_state.attack_cooldowns,
+                    parsed_state.body_radiuss,
+                    parsed_state.body_weights,
+                    parsed_state.sight_angles,
+                    parsed_state.is_alives,
+                    parsed_state.speeds,
+                ),
+                axis=-1,
+            ).flatten()
+            if self.max_n_zone > 0:
+                unit_world_state = jnp.concatenate([unit_world_state, zone_world_feature])
         else:
-            observations["world_state"] = unit_world_state
+            raise ValueError(f"Invalid world state type: {self.world_state_type}.")
+
+        # Add enemy observations
+        observations |= {key: concated_obs[i] for i, key in enumerate(self.enemy_keys)}
+
+        observations["world_state"] = unit_world_state
+
         return observations
 
     def reset(self, key, env_params):
@@ -931,9 +933,18 @@ class TABS(BaseMAEnv):
         )
 
     def world_state_size(self):
-        return (
-            14 * self.num_agents + len(self.zone_keys) * 6
-        )  # n_features * n_agents + n_zones * n_features
+        if self.world_state_type == "concat":
+            state_size = (14 + 16 * (self.num_agents - 1) + len(self.zone_keys) * 6) * len(
+                self.ally_keys
+            )
+        elif self.world_state_type == "global":
+            state_size = (
+                14 * self.num_agents + len(self.zone_keys) * 6
+            )  # n_features * n_agents + n_zones * n_features
+        else:
+            raise ValueError(f"Invalid world state type: {self.world_state_type}.")
+
+        return state_size
 
     def get_avail_actions(self, env_state):
         state = env_state["state"]
