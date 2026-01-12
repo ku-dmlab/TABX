@@ -4,7 +4,7 @@ Based on JaxMARL Implementation of QMIX
 
 import os
 from dataclasses import dataclass
-from typing import Tuple
+from typing import NamedTuple, Tuple, Literal
 
 import flashbax as fbx
 import jax
@@ -55,6 +55,7 @@ class Config:
     SCENARIO: str = "elbow"
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
+    WORLD_STATE_TYPE: Literal["concat", "global"] = "concat"
     # Misc.
     SEED: int | Tuple[int, ...] = 0
     PROJECT_NAME: str = "qmix_rnn"  # wandb project name
@@ -547,7 +548,7 @@ def main(config):
         n_repeat=config.TEST_NUM_ENVS,
     )
 
-    env = TABS(cfg=tabs_config)
+    env = TABS(cfg=tabs_config, world_state_type=config["WORLD_STATE_TYPE"])
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
     env = TABSAutoResetWrapper(env)

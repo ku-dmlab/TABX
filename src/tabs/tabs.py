@@ -498,7 +498,7 @@ class TABS(BaseMAEnv):
     def __init__(
         self,
         cfg: TABSConfig,
-        obs_type: str = "unit_spec",
+        world_state_type: str = "concat",
         max_episode_steps: int = 512,
     ):
         max_n_ally = cfg.max_n_ally
@@ -506,7 +506,7 @@ class TABS(BaseMAEnv):
         max_n_zone = cfg.max_n_zone
 
         super().__init__(max_n_ally + max_n_enemy)
-        self.obs_type = obs_type
+        self.world_state_type = world_state_type
         self.ally_keys = [f"unit_{i:02d}" for i in range(max_n_ally)]
         self.enemy_keys = [f"unit_{i:02d}" for i in range(max_n_ally, max_n_ally + max_n_enemy)]
         self.unit_keys = self.ally_keys + self.enemy_keys
@@ -579,110 +579,20 @@ class TABS(BaseMAEnv):
         self.action_spaces = {
             agent: Discrete(num_categories=ACTION_TABLE.shape[0]) for agent in self.unit_keys
         }
-        if self.obs_type == "unit_spec":
-            self.observation_spaces = {
-                agent: Box(
-                    low=0,
-                    high=1,
-                    shape=(14 + 16 * (len(self.unit_keys) - 1) + len(self.zone_keys) * 6,),
-                    dtype=jnp.float32,
-                )
-                for agent in self.unit_keys
-            }
-        elif self.obs_type == "unit_id":
-            self.observation_spaces = {
-                agent: Box(
-                    low=0, high=1, shape=(6 + 9 * (len(self.unit_keys) - 1),), dtype=jnp.float32
-                )
-                for agent in self.unit_keys
-            }
-        else:
-            raise ValueError(f"Invalid observation type: {self.obs_type}")
+        self.observation_spaces = {
+            agent: Box(
+                low=0,
+                high=1,
+                shape=(14 + 16 * (len(self.unit_keys) - 1) + len(self.zone_keys) * 6,),
+                dtype=jnp.float32,
+            )
+            for agent in self.unit_keys
+        }
 
     def get_obs(self, state):
-        if self.obs_type == "unit_spec":
-            return self.get_spec_obs(state)
-        elif self.obs_type == "unit_id":
-            return self.get_id_obs(state)
-        else:
-            raise ValueError(f"Invalid observation type: {self.obs_type}")
+        return self._get_obs(state)
 
-    def get_id_obs(self, state):
-        """
-        own_feature : [unit_id, health, absolute_x, absolute_y, rotation / 2pi, cooldown, is_alive]
-        other_feature : [unit_id, health, relative_x, relative_y, rotation / 2pi, is_alive, is_enemy, is_visible, is_attackable]
-        """
-        keys = self.unit_keys
-
-        healths = jnp.stack([state[unit].status.health for unit in keys])
-        positions = jnp.stack([state[unit].transform.position for unit in keys])
-        rotations = jnp.stack([state[unit].transform.rotation for unit in keys]) / (jnp.pi * 2)
-        cooldowns = jnp.stack([state[unit].status.cooldown for unit in keys])
-
-        teams = jnp.stack([state[unit].team for unit in keys])
-        is_alives = jnp.stack([state[unit].status.is_alive for unit in keys])
-
-        is_teams = teams[None] == teams[:, None]
-
-        n_unit = state["game_manager"].attackable_matrix.shape[0]
-
-        roll_shifts = jnp.arange(0, -n_unit, step=-1)
-        v_roll = jax.vmap(lambda array, shift: jnp.roll(array, shift))
-
-        rolled_attackable_matrix = v_roll(state["game_manager"].attackable_matrix, roll_shifts)[
-            :, 1:, None
-        ]
-        rolled_visible_matrix = v_roll(state["game_manager"].visible_matrix, roll_shifts)[
-            :, 1:, None
-        ]
-        rolled_distnace_matrix = v_roll(state["game_manager"].distance_matrix, roll_shifts)[:, 1:]
-        rolled_is_teams = v_roll(is_teams, roll_shifts)[:, 1:]
-
-        repeated_health = jnp.repeat(healths[None], repeats=n_unit, axis=0)
-        repeated_rotation = jnp.repeat(rotations[None], repeats=n_unit, axis=0)
-        repeated_is_alive = jnp.repeat(is_alives[None], repeats=n_unit, axis=0)
-        repeated_cooldown = jnp.repeat(cooldowns[None], repeats=n_unit, axis=0)
-
-        rolled_health = v_roll(repeated_health, roll_shifts)[:, 1:]
-        rolled_rotation = v_roll(repeated_rotation, roll_shifts)[:, 1:]
-        rolled_is_alive = v_roll(repeated_is_alive, roll_shifts)[:, 1:]
-        rolled_cooldown = v_roll(repeated_cooldown, roll_shifts)[:, 1:]
-
-        own_feature = jnp.concatenate(
-            (
-                healths,
-                positions,
-                rotations,
-                cooldowns,
-                is_alives,
-            ),
-            axis=1,
-        )
-
-        other_feature = (
-            jnp.concatenate(
-                (
-                    rolled_health,
-                    rolled_distnace_matrix,
-                    rolled_rotation,
-                    rolled_cooldown,
-                    rolled_is_alive,
-                    rolled_is_teams,
-                    rolled_visible_matrix,
-                    rolled_attackable_matrix,
-                ),
-                axis=2,
-            )
-            * rolled_visible_matrix
-        ).reshape(n_unit, -1)
-
-        concated_obs = jnp.concatenate((own_feature, other_feature), axis=1)
-        observations = {key: concated_obs[i] for i, key in enumerate(keys)}
-
-        return observations
-        # return {key: state[key].status.id for key in self.unit_keys}
-
-    def get_spec_obs(self, state):
+    def _get_obs(self, state):
         """
         own_feature : [health, max_health, absolute_x, absolute_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive, speed]
         other_feature : [health, max_health, relative_x, relative_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive, is_ally, is_attackable, speed]
@@ -806,29 +716,41 @@ class TABS(BaseMAEnv):
             concated_obs = jnp.concatenate((own_feature, other_feature, zone_feature), axis=1)
         else:
             concated_obs = jnp.concatenate((own_feature, other_feature), axis=1)
-        observations = {key: concated_obs[i] for i, key in enumerate(keys)}
-        unit_world_state = jnp.concatenate(
-            (
-                parsed_state.healths,
-                parsed_state.max_healths,
-                parsed_state.positions,
-                parsed_state.rotations,
-                parsed_state.attack_ranges,
-                parsed_state.attack_damages,
-                parsed_state.cooldowns,
-                parsed_state.attack_cooldowns,
-                parsed_state.body_radiuss,
-                parsed_state.body_weights,
-                parsed_state.sight_angles,
-                parsed_state.is_alives,
-                parsed_state.speeds,
-            ),
-            axis=-1,
-        ).flatten()
-        if self.max_n_zone > 0:
-            observations["world_state"] = jnp.concatenate([unit_world_state, zone_world_feature])
+        observations = {key: concated_obs[i] for i, key in enumerate(self.ally_keys)}
+
+        if self.world_state_type == "concat":
+            unit_world_state = jax.tree.map(
+                lambda *args: jnp.concatenate(args), *observations.values()
+            )
+        elif self.world_state_type == "global":
+            unit_world_state = jnp.concatenate(
+                (
+                    parsed_state.healths,
+                    parsed_state.max_healths,
+                    parsed_state.positions,
+                    parsed_state.rotations,
+                    parsed_state.attack_ranges,
+                    parsed_state.attack_damages,
+                    parsed_state.cooldowns,
+                    parsed_state.attack_cooldowns,
+                    parsed_state.body_radiuss,
+                    parsed_state.body_weights,
+                    parsed_state.sight_angles,
+                    parsed_state.is_alives,
+                    parsed_state.speeds,
+                ),
+                axis=-1,
+            ).flatten()
+            if self.max_n_zone > 0:
+                unit_world_state = jnp.concatenate([unit_world_state, zone_world_feature])
         else:
-            observations["world_state"] = unit_world_state
+            raise ValueError(f"Invalid world state type: {self.world_state_type}.")
+
+        # Add enemy observations
+        observations |= {key: concated_obs[i] for i, key in enumerate(self.enemy_keys)}
+
+        observations["world_state"] = unit_world_state
+
         return observations
 
     def reset(self, key, env_params):
@@ -1011,9 +933,18 @@ class TABS(BaseMAEnv):
         )
 
     def world_state_size(self):
-        return (
-            14 * self.num_agents + len(self.zone_keys) * 6
-        )  # n_features * n_agents + n_zones * n_features
+        if self.world_state_type == "concat":
+            state_size = (14 + 16 * (self.num_agents - 1) + len(self.zone_keys) * 6) * len(
+                self.ally_keys
+            )
+        elif self.world_state_type == "global":
+            state_size = (
+                14 * self.num_agents + len(self.zone_keys) * 6
+            )  # n_features * n_agents + n_zones * n_features
+        else:
+            raise ValueError(f"Invalid world state type: {self.world_state_type}.")
+
+        return state_size
 
     def get_avail_actions(self, env_state):
         state = env_state["state"]

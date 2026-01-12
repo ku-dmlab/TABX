@@ -51,6 +51,7 @@ class Config:
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
     FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
+    WORLD_STATE_TYPE: Literal["concat", "global"] = "concat"
     # Eval.
     EVAL_STEPS: int = 256
     NUM_EVAL: int = 10  # The number of episodes to evaluate
@@ -67,7 +68,7 @@ def make_train(config):
         physics_param_names=config["PHYSICS"],
         heuristic_param_names=config["HEURISTIC"],
     )
-    env = TABS(cfg=tabs_config)
+    env = TABS(cfg=tabs_config, world_state_type=config["WORLD_STATE_TYPE"])
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
     sample_random_level = level_generator(config["FREE_PARAM_TYPE"])
