@@ -4,6 +4,7 @@ Based on JaxMARL Implementation of MAPPO
 
 import os
 from dataclasses import dataclass
+from typing import Literal
 
 import jax
 import jax.numpy as jnp
@@ -47,6 +48,7 @@ class Config:
     SCENARIO: str = "elbow"
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
+    WORLD_STATE_TYPE: Literal["concat", "global"] = "concat"
     # Misc.
     SEED: int = 0
     PROJECT_NAME: str = "mappo_rnn"  # wandb project name
@@ -61,7 +63,7 @@ def make_train(config):
         heuristic_param_names=config["HEURISTIC"],
         n_repeat=config["NUM_ENVS"],
     )
-    env = TABS(cfg=tabs_config)
+    env = TABS(cfg=tabs_config, world_state_type=config["WORLD_STATE_TYPE"])
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
     env = TABSAutoResetWrapper(env)
