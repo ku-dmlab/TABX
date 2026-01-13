@@ -512,7 +512,7 @@ def main(config):
         heuristic_param_names=config.HEURISTIC,
         n_repeat=config.TEST_NUM_ENVS,
     )
-    env = TABS(cfg=tabs_config, world_state_type=config["WORLD_STATE_TYPE"])
+    env = TABS(cfg=tabs_config, world_state_type=config.WORLD_STATE_TYPE)
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
     env = TABSAutoResetWrapper(env)
