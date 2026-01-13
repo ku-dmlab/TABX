@@ -716,12 +716,11 @@ class TABS(BaseMAEnv):
             concated_obs = jnp.concatenate((own_feature, other_feature, zone_feature), axis=1)
         else:
             concated_obs = jnp.concatenate((own_feature, other_feature), axis=1)
-        observations = {key: concated_obs[i] for i, key in enumerate(self.ally_keys)}
+        observations = {key: concated_obs[i] for i, key in enumerate(keys)}
 
+        ally_obs = concated_obs[: len(self.ally_keys)]
         if self.world_state_type == "concat":
-            unit_world_state = jax.tree.map(
-                lambda *args: jnp.concatenate(args), *observations.values()
-            )
+            unit_world_state = jax.tree.map(lambda *args: jnp.concatenate(args), *ally_obs)
         elif self.world_state_type == "global":
             unit_world_state = jnp.concatenate(
                 (
@@ -745,9 +744,6 @@ class TABS(BaseMAEnv):
                 unit_world_state = jnp.concatenate([unit_world_state, zone_world_feature])
         else:
             raise ValueError(f"Invalid world state type: {self.world_state_type}.")
-
-        # Add enemy observations
-        observations |= {key: concated_obs[i] for i, key in enumerate(self.enemy_keys)}
 
         observations["world_state"] = unit_world_state
 
