@@ -4,7 +4,7 @@ Based on JaxMARL Implementation of QMIX
 
 import os
 from dataclasses import dataclass
-from typing import NamedTuple, Tuple, Literal
+from typing import Literal, Tuple
 
 import flashbax as fbx
 import jax
@@ -579,13 +579,14 @@ def main(config):
         # Visualize
         from src.tabs.visualize import Visualizer
 
+        vis_num_envs = 1
         env_params, tabs_config = build_batched_env_params_and_config(
             scenario_names=config.SCENARIO,
             physics_param_names=config.PHYSICS,
             heuristic_param_names=config.HEURISTIC,
-            n_repeat=1,
+            n_repeat=vis_num_envs,
+            squeeze_when_single_scenario=False,
         )
-
         env = TABS(cfg=tabs_config)
         env = TABSEnemyHeuristicWrapper(env)
         num_steps = env.max_episode_steps
@@ -596,41 +597,48 @@ def main(config):
         def unbatchify(x: jnp.ndarray):
             return {agent: x[i] for i, agent in enumerate(env.agents)}
 
-        init_hs = QScannedRNN.initialize_carry(config.HIDDEN_SIZE, 1)
         network = RNNQNetwork(
             action_dim=env.action_space(env.agents[0]).n,
             hidden_dim=config.HIDDEN_SIZE,
         )
 
         rng = jax.random.PRNGKey(config.SEED[0] if isinstance(config.SEED, tuple) else config.SEED)
-        rng, _rng = jax.random.split(rng)
 
-        obs, env_state = env.reset(_rng, env_params)
+        rng, _rng = jax.random.split(rng)
+        init_obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(
+            jax.random.split(_rng, vis_num_envs), env_params
+        )
+        init_dones = {
+            agent: jnp.zeros((vis_num_envs), dtype=bool) for agent in env.agents + ["__all__"]
+        }
+        hstate = QScannedRNN.initialize_carry(config.HIDDEN_SIZE, len(env.agents), vis_num_envs)
 
         def rollout_body(carry, _):
-            (obs, env_state, done, hs, rng) = carry
-            # Random policy
-            rng, step_rng = jax.random.split(rng)
-            avail_actions = env.get_avail_actions(env_state)
-
-            new_hs, q_vals = network.apply(
-                runner_state[0].params["agent"], hs, batchify(obs)[:, np.newaxis], done
+            params, env_state, last_obs, last_dones, hstate, rng = carry
+            rng, rng_step = jax.random.split(rng)
+            hstate, q_vals = jax.vmap(network.apply, in_axes=(None, 0, 0, 0))(
+                params,
+                hstate,
+                batchify(last_obs)[:, np.newaxis],
+                batchify(last_dones)[:, np.newaxis],
             )
             q_vals = q_vals.squeeze(axis=1)
-
-            actions = get_greedy_actions(q_vals, batchify(avail_actions))
+            valid_actions = jax.vmap(env.get_avail_actions)(env_state)
+            actions = get_greedy_actions(q_vals, batchify(valid_actions))
             actions = unbatchify(actions)
-            obs, next_state, reward, done, info = env.step(step_rng, env_state, actions)
+            obs, env_state, rewards, dones, infos = jax.vmap(env.step, in_axes=(0, 0, 0))(
+                jax.random.split(rng_step, vis_num_envs), env_state, actions
+            )
+            return (params, env_state, obs, dones, hstate, rng), env_state
 
-            return (obs, next_state, batchify(done)[:, np.newaxis], new_hs, rng), next_state
-
+        rng, _rng = jax.random.split(rng)
         _, stacked = jax.lax.scan(
             rollout_body,
-            (obs, env_state, jnp.zeros((env.num_agents, 1), dtype=jnp.bool), init_hs, rng),
+            (runner_state[0].params["agent"], env_state, init_obs, init_dones, hstate, _rng),
             None,
             num_steps,
         )
-        state_seq = [jax.tree.map(lambda x: x[i], stacked) for i in range(num_steps)]
+        state_seq = [jax.tree.map(lambda x: x[i].squeeze(), stacked) for i in range(num_steps)]
 
         visualizer = Visualizer(env, state_seq)
         gif_path = os.path.join(
