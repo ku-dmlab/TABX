@@ -23,6 +23,7 @@ dependencies = [
     "nvitop>=1.5.3",
     "distrax>=0.1.5",
     "ruff>=0.14.10",
+    "safetensors>=0.7.0",
 ]
 
 [project.scripts]
