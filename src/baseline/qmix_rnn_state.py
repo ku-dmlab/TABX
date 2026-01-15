@@ -12,8 +12,8 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tyro
-import wandb
 
+import wandb
 from src.baseline.layers import MixingNetwork, QScannedRNN, RNNQNetwork
 from src.baseline.utils import CustomTrainState, Timestep, get_battle_metric, save_params
 from src.tabs import TABS, build_batched_env_params_and_config
@@ -607,7 +607,7 @@ def main(config):
             hstate, q_vals = jax.vmap(network.apply, in_axes=(None, 0, 0, 0))(
                 params,
                 hstate,
-                jnp.tile(last_obs["world_state"], (env.num_agents, 1, 1))[:, np.newaxis],
+                jnp.tile(last_obs["world_state"], (env.num_agents, 1, 1, 1))[:, np.newaxis],
                 batchify(last_dones)[:, np.newaxis],
             )
             q_vals = q_vals.squeeze(axis=1)
