@@ -4,7 +4,7 @@ Based on JaxMARL Implementation of MAPPO
 
 import os
 from dataclasses import dataclass
-from typing import NamedTuple, Tuple, Literal
+from typing import Literal, NamedTuple, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -179,7 +179,7 @@ def make_train(config):
                 # world_state is (num_envs, world_state_size)
                 # repeat for each agent to get (num_actors, world_state_size)
                 world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-                world_state = jnp.repeat(world_state, env.num_agents, axis=0)  # (NUM_ACTORS, 280)
+                world_state = jnp.tile(world_state, (env.num_agents, 1))  # (NUM_ACTORS, 280)
 
                 cr_in = (
                     world_state[None, :],
