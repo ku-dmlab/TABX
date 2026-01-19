@@ -52,6 +52,7 @@ class Config:
     WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # Misc.
     SEED: int | Tuple[int, ...] = 0
+    ALGORITHM: str = "mappo"  # for distinguishing wandb runs
     PROJECT_NAME: str = "mappo_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False

@@ -80,6 +80,7 @@ class Config:
     NUM_EVAL: int = 10  # The number of episodes to evaluate
     # Misc.
     SEED: int | Tuple[int, ...] = 0
+    ALGORITHM: str = "robust_plr_mappo"  # for distinguishing wandb runs
     PROJECT_NAME: str = "plr_mappo_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
@@ -960,6 +961,11 @@ if __name__ == "__main__":
     config = tyro.cli(Config)
     if config.SCENARIO in CHALLENGES:
         raise ValueError(f"{config.SCENARIO} is not supported in the UED setting.")
+
+    if config.USE_ACCEL:
+        config.ALGORITHM = "accel_mappo"
+    elif config.EXPLORATORY_GRAD_UPDATES:
+        config.ALGORITHM = "plr_mappo"
 
     wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
     train_fn = make_train(config.__dict__)

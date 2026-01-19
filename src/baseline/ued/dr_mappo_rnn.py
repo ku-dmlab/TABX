@@ -58,6 +58,7 @@ class Config:
     NUM_EVAL: int = 10  # The number of episodes to evaluate
     # Misc.
     SEED: int | Tuple[int, ...] = 0
+    ALGORITHM: str = "dr_mappo"  # for distinguishing wandb runs
     PROJECT_NAME: str = "dr_mappo_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False

@@ -56,6 +56,7 @@ class Config:
     WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # Misc.
     SEED: int | Tuple[int, ...] = 0
+    ALGORITHM: str = "iql"  # for distinguishing wandb runs
     PROJECT_NAME: str = "iql_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
