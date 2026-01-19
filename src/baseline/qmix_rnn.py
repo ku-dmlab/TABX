@@ -46,7 +46,8 @@ class Config:
     LEARNING_STARTS: int = 10000  # timesteps
     LR_LINEAR_DECAY: bool = False
     GAMMA: float = 0.99
-    REW_SCALE: float = 10.0  # scale the reward to the original scale of SMAC
+    LN_EPS: float = 1e-6
+    REW_SCALE: float = 10.0  # scale the reward to the original scale of TABS
     TEST_DURING_TRAINING: bool = True
     TEST_INTERVAL: float = 0.05  # as a fraction of updates, i.e. log every 5% of training process
     TEST_NUM_STEPS: int = 512
@@ -55,7 +56,7 @@ class Config:
     SCENARIO: str = "elbow"
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
-    WORLD_STATE_TYPE: Literal["concat", "global"] = "concat"
+    WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # Misc.
     SEED: int | Tuple[int, ...] = 0
     PROJECT_NAME: str = "qmix_rnn"  # wandb project name
@@ -151,12 +152,14 @@ def make_train(config, env, env_params, test_env_params):
         network = RNNQNetwork(
             action_dim=env.action_space(env.agents[0]).n,
             hidden_dim=config["HIDDEN_SIZE"],
+            ln_eps=config["LN_EPS"],
         )
 
         mixer = MixingNetwork(
-            config["MIXER_EMBEDDING_DIM"],
-            config["MIXER_HYPERNET_HIDDEN_DIM"],
-            config["MIXER_INIT_SCALE"],
+            embedding_dim=config["MIXER_EMBEDDING_DIM"],
+            hypernet_hidden_dim=config["MIXER_HYPERNET_HIDDEN_DIM"],
+            init_scale=config["MIXER_INIT_SCALE"],
+            ln_eps=config["LN_EPS"],
         )
 
         def create_agent(rng):

@@ -54,12 +54,13 @@ class Config:
     MAX_GRAD_NORM: float = 0.25
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
+    LN_EPS: float = 1e-6
     # Env
     SCENARIO: str = "1F1M3A1Hvs2F1S1K1A1H_2L"
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
     FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
-    WORLD_STATE_TYPE: Literal["concat", "global"] = "concat"
+    WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # PLR
     SCORE_FUNC: str = "MaxMC"  # MaxMC, pvl
     EXPLORATORY_GRAD_UPDATES: bool = False  # False if Robust PLR or ACCEL
