@@ -77,9 +77,25 @@ class MapEditor:
             (self.grid_height, self.grid_width), dtype=float
         )  # rotation in radians
 
+        # Custom unit stats grids (initialized with default values from unit specs)
+        self.sight_angle_grid = np.full(
+            (self.grid_height, self.grid_width), SIGHT_ANGLE, dtype=float
+        )  # sight angle in radians (default π/2)
+        self.health_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+        self.attack_damage_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+        self.attack_range_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+        self.attack_cooldown_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+        self.speed_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+        self.body_radius_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+
         # Currently selected unit
         self.selected_unit_id = 0  # 0 = erase, 1-9 = units
         self.selected_team = 0  # 0 = ally, 1 = enemy
+
+        # Default unit stats for palette placement (will be set per unit type)
+        self.default_sight_angle = SIGHT_ANGLE  # Default sight angle for new units
+        self.use_custom_defaults = {}  # unit_id -> bool (whether to use custom defaults)
+        self.custom_defaults = {}  # unit_id -> {stat_name: value}
 
         # Edit mode: 'unit' or 'zone'
         self.edit_mode = "unit"
@@ -107,21 +123,21 @@ class MapEditor:
         self.battlefield_center_y = 450
 
         # Fixed x position for right panels (20px from right edge of screen)
-        right_panel_x = SCREEN_WIDTH - 370 - 20  # 1400 - 370 - 20 = 1010
+        right_panel_x = SCREEN_WIDTH - 360 - 20  # 1400 - 370 - 20 = 1010
 
         # Toolbar (TABS SCENARIO GENERATOR) - top
-        self.toolbar_x = right_panel_x
+        self.toolbar_x = right_panel_x - 400
         self.toolbar_y = 20
         self.toolbar_width = 370
-        self.toolbar_height = 90
+        self.toolbar_height = 120  # Increased for 3 rows
         self.toolbar_dragging = False
         self.toolbar_drag_offset = (0, 0)
 
         # Unit palette window - below Toolbar
         self.unit_panel_x = right_panel_x
-        self.unit_panel_y = self.toolbar_y + self.toolbar_height + 10  # 120
+        self.unit_panel_y = self.toolbar_y  # 120
         self.unit_panel_width = 370
-        self.unit_panel_height = 460
+        self.unit_panel_height = 500  # Compact to fit all units + settings
         self.unit_panel_dragging = False
         self.unit_panel_drag_offset = (0, 0)
 
@@ -170,6 +186,23 @@ class MapEditor:
         self.last_zone_click_time = 0
         self.double_click_threshold = 0.3  # seconds
 
+        # Unit detail editing (double-click unit to edit)
+        self.selected_unit_info = None  # Pinned unit info {grid_pos: (i,j), ...}
+        self.last_unit_click_time = 0
+        self.editing_unit = False
+        self.unit_edit_field = None  # 'sight_angle'
+        self.unit_edit_input = ""
+
+        # Palette unit config (double-click palette to set default)
+        self.show_palette_config = False
+        self.palette_config_unit_id = 0  # Which unit is being configured
+        self.palette_config_inputs = {}  # field_name -> input string
+        self.palette_config_active_field = "health"  # Currently active field
+
+        # Bulk sight angle adjustment
+        self.show_bulk_sight_angle_dialog = False
+        self.bulk_sight_angle_input = ""
+
         # Undo/Redo system
         self.history = []  # List of states for undo
         self.history_index = -1  # Current position in history
@@ -209,6 +242,37 @@ class MapEditor:
         # Calculate field boundaries
         self.calculate_field_boundaries()
 
+    def get_default_stats_for_unit(self, unit_id):
+        """Get default stats for a unit (from spec or custom defaults)"""
+        idx = unit_id - 1
+
+        # Check if using custom defaults
+        if self.use_custom_defaults.get(unit_id, False) and unit_id in self.custom_defaults:
+            return self.custom_defaults[unit_id]
+
+        # Otherwise use unit spec defaults
+        if idx < len(self.all_spec["healths"]):
+            return {
+                "health": float(self.all_spec["healths"][idx]),
+                "attack_damage": float(self.all_spec["attack_damages"][idx]),
+                "attack_range": float(self.all_spec["attack_ranges"][idx]),
+                "attack_cooldown": float(self.all_spec["attack_cooldown"][idx]),
+                "speed": float(self.all_spec["speeds"][idx]),
+                "body_radius": float(self.all_spec["body_radiuses"][idx]),
+                "sight_angle": float(self.all_spec["sight_angles"][idx]),
+            }
+        else:
+            # Fallback defaults
+            return {
+                "health": 100.0,
+                "attack_damage": 10.0,
+                "attack_range": 5.0,
+                "attack_cooldown": 1.0,
+                "speed": 1.0,
+                "body_radius": 1.0,
+                "sight_angle": SIGHT_ANGLE,
+            }
+
     def calculate_field_boundaries(self):
         """Calculate the battlefield boundaries based on field size"""
         # World size is the max field size plus margins
@@ -236,6 +300,13 @@ class MapEditor:
             "grid": self.grid.copy(),
             "team_grid": self.team_grid.copy(),
             "rotation_grid": self.rotation_grid.copy(),
+            "sight_angle_grid": self.sight_angle_grid.copy(),
+            "health_grid": self.health_grid.copy(),
+            "attack_damage_grid": self.attack_damage_grid.copy(),
+            "attack_range_grid": self.attack_range_grid.copy(),
+            "attack_cooldown_grid": self.attack_cooldown_grid.copy(),
+            "speed_grid": self.speed_grid.copy(),
+            "body_radius_grid": self.body_radius_grid.copy(),
             "zones": [zone.copy() for zone in self.zones],
         }
 
@@ -268,6 +339,28 @@ class MapEditor:
         self.grid = state["grid"].copy()
         self.team_grid = state["team_grid"].copy()
         self.rotation_grid = state["rotation_grid"].copy()
+        self.sight_angle_grid = state.get(
+            "sight_angle_grid",
+            np.full((self.grid_height, self.grid_width), SIGHT_ANGLE, dtype=float),
+        ).copy()
+        self.health_grid = state.get(
+            "health_grid", np.zeros((self.grid_height, self.grid_width), dtype=float)
+        ).copy()
+        self.attack_damage_grid = state.get(
+            "attack_damage_grid", np.zeros((self.grid_height, self.grid_width), dtype=float)
+        ).copy()
+        self.attack_range_grid = state.get(
+            "attack_range_grid", np.zeros((self.grid_height, self.grid_width), dtype=float)
+        ).copy()
+        self.attack_cooldown_grid = state.get(
+            "attack_cooldown_grid", np.zeros((self.grid_height, self.grid_width), dtype=float)
+        ).copy()
+        self.speed_grid = state.get(
+            "speed_grid", np.zeros((self.grid_height, self.grid_width), dtype=float)
+        ).copy()
+        self.body_radius_grid = state.get(
+            "body_radius_grid", np.zeros((self.grid_height, self.grid_width), dtype=float)
+        ).copy()
         self.zones = [zone.copy() for zone in state["zones"]]
 
     def world_to_screen(self, world_x, world_y):
@@ -461,6 +554,7 @@ class MapEditor:
                         team = self.team_grid[i, j]
                         is_ally = team == 0
                         rotation = self.rotation_grid[i, j]
+                        sight_angle = self.sight_angle_grid[i, j]
 
                         # Get screen position
                         screen_x, screen_y = self.world_to_screen(cell_world_x, cell_world_y)
@@ -484,8 +578,8 @@ class MapEditor:
                                 mammoth_world_x, mammoth_world_y
                             )
 
-                        # Draw sight range
-                        self.draw_sight_range((screen_x, screen_y), rotation, is_ally)
+                        # Draw sight range with custom sight angle
+                        self.draw_sight_range((screen_x, screen_y), rotation, is_ally, sight_angle)
 
                         # Draw attack range
                         self.draw_attack_range((screen_x, screen_y), rotation, unit_id, is_ally)
@@ -628,13 +722,14 @@ class MapEditor:
                         )
                     return
 
-    def draw_sight_range(self, screen_pos, rotation, is_ally):
+    def draw_sight_range(self, screen_pos, rotation, is_ally, sight_angle=None):
         """Draw unit sight range perfectly aligned with pygame-rotated unit"""
 
         # pygame rotates image by (-rotation)
         screen_angle = -rotation
 
-        sight_angle = SIGHT_ANGLE
+        if sight_angle is None:
+            sight_angle = SIGHT_ANGLE
 
         if is_ally:
             sight_color = (0, 255, 255, 40)
@@ -1080,6 +1175,121 @@ class MapEditor:
                 self.screen.blit(detail_text, (box_x + 15, field_y))
                 field_y += 28
 
+    def draw_unit_info(self):
+        """Draw info box for selected unit in bottom right corner"""
+        if not self.selected_unit_info:
+            return
+
+        i, j = self.selected_unit_info["grid_pos"]
+        if not (0 <= i < self.grid_height and 0 <= j < self.grid_width):
+            return
+
+        unit_id = self.grid[i, j]
+        if unit_id <= 0:
+            return
+
+        team = self.team_grid[i, j]
+        rotation = self.rotation_grid[i, j]
+        sight_angle = self.sight_angle_grid[i, j]
+        health = self.health_grid[i, j]
+        attack_damage = self.attack_damage_grid[i, j]
+        attack_range = self.attack_range_grid[i, j]
+        attack_cooldown = self.attack_cooldown_grid[i, j]
+        speed = self.speed_grid[i, j]
+        body_radius = self.body_radius_grid[i, j]
+
+        # Bottom right corner - compact spacing
+        box_width = 300
+        box_height = 298
+        box_x = SCREEN_WIDTH - box_width - 20
+        box_y = SCREEN_HEIGHT - box_height - 20
+
+        # Draw background box
+        info_surface = pygame.Surface((box_width, box_height), pygame.SRCALPHA)
+        info_surface.fill((80, 80, 80, 240))  # Dark gray
+        self.screen.blit(info_surface, (box_x, box_y))
+
+        # Black border
+        pygame.draw.rect(self.screen, BLACK, (box_x, box_y, box_width, box_height), 2)
+
+        # Title bar (compact spacing)
+        title_bar_height = 24
+        pygame.draw.rect(self.screen, (50, 50, 50), (box_x, box_y, box_width, title_bar_height))
+        pygame.draw.rect(self.screen, BLACK, (box_x, box_y, box_width, title_bar_height), 2)
+
+        # Draw title
+        unit_name = (
+            self.unit_names[unit_id - 1]
+            if unit_id - 1 < len(self.unit_names)
+            else f"Unit {unit_id}"
+        )
+        team_name = "ALLY" if team == 0 else "ENEMY"
+        unit_title = self.small_font.render(f"{unit_name.upper()} ({team_name})", True, WHITE)
+        title_x = box_x + (box_width - unit_title.get_width()) // 2
+        self.screen.blit(unit_title, (title_x, box_y + 5))
+
+        field_y = box_y + title_bar_height + 3
+
+        # Hint text (compact spacing)
+        hint_text = self.tiny_font.render(
+            "Click field to edit | Click outside to close", True, LIGHT_GRAY
+        )
+        hint_x = box_x + (box_width - hint_text.get_width()) // 2
+        self.screen.blit(hint_text, (hint_x, field_y))
+        field_y += 19
+
+        # Editable fields (compact spacing)
+        fields = [
+            ("health", "Health:", health),
+            ("attack_damage", "Attack Damage:", attack_damage),
+            ("attack_range", "Attack Range:", attack_range),
+            ("attack_cooldown", "Attack Cooldown:", attack_cooldown),
+            ("speed", "Speed:", speed),
+            ("body_radius", "Body Radius:", body_radius),
+            ("sight_angle", "Sight Angle (rad):", sight_angle),
+        ]
+
+        for field_name, label, value in fields:
+            # Label
+            label_text = self.small_font.render(label, True, WHITE)
+            self.screen.blit(label_text, (box_x + 10, field_y))
+
+            # Input box
+            input_x = box_x + 145
+            input_width = 145
+            input_height = 24
+            input_rect = pygame.Rect(input_x, field_y - 2, input_width, input_height)
+
+            is_active = self.editing_unit and self.unit_edit_field == field_name
+            box_color = YELLOW if is_active else LIGHT_GRAY
+            pygame.draw.rect(self.screen, box_color, input_rect)
+            pygame.draw.rect(self.screen, BLACK, input_rect, 2)
+
+            # Display value
+            if is_active:
+                display_text = self.unit_edit_input + "|"
+            else:
+                display_text = f"{value:.4f}"
+
+            value_text = self.small_font.render(display_text, True, BLACK)
+            value_x = input_x + 5
+            value_y = field_y - 2 + (input_height - value_text.get_height()) // 2
+            self.screen.blit(value_text, (value_x, value_y))
+
+            field_y += 26
+
+        # Show additional info (read-only)
+        field_y += 2
+        info_lines = [
+            f"Rotation: {rotation:.4f} rad ({rotation * 180 / np.pi:.1f}°)",
+            f"Position: Grid ({i}, {j})",
+        ]
+
+        for line in info_lines:
+            line_text = self.small_font.render(line, True, LIGHT_GRAY)
+            self.screen.blit(line_text, (box_x + 10, field_y))
+            field_y += 19
+
     def draw_unit_palette(self):
         """Draw unit selection palette - draggable window"""
         # Only show in unit mode
@@ -1156,6 +1366,229 @@ class MapEditor:
             text_width = name_text.get_width()
             text_x = x + (110 - text_width) // 2  # Center of button width 110
             self.screen.blit(name_text, (text_x, y + 75))
+
+        # Default settings display at bottom (compact)
+        settings_y = panel_y + panel_height - 48
+        pygame.draw.line(
+            self.screen,
+            LIGHT_GRAY,
+            (panel_x + 10, settings_y - 3),
+            (panel_x + panel_width - 10, settings_y - 3),
+            1,
+        )
+
+        settings_title = self.small_font.render(
+            "Default Settings (Double-click unit to edit):", True, LIGHT_GRAY
+        )
+        self.screen.blit(settings_title, (panel_x + 10, settings_y))
+
+        # Show if current unit has custom defaults
+        if self.selected_unit_id > 0:
+            has_custom = self.use_custom_defaults.get(self.selected_unit_id, False)
+            if has_custom:
+                custom_text = self.small_font.render(
+                    f"{self.unit_names[self.selected_unit_id - 1].title()}: Using Custom Defaults",
+                    True,
+                    YELLOW,
+                )
+            else:
+                custom_text = self.small_font.render(
+                    f"{self.unit_names[self.selected_unit_id - 1].title()}: Using Unit Spec",
+                    True,
+                    LIGHT_GRAY,
+                )
+            self.screen.blit(custom_text, (panel_x + 10, settings_y + 20))
+
+        # Show palette config dialog if active
+        if self.show_palette_config:
+            self.draw_palette_config_dialog()
+
+        # Show bulk sight angle dialog if active
+        if self.show_bulk_sight_angle_dialog:
+            self.draw_bulk_sight_angle_dialog()
+
+    def draw_palette_config_dialog(self):
+        """Draw dialog for configuring default unit stats"""
+        dialog_width = 450
+        dialog_height = 420
+        dialog_x = (SCREEN_WIDTH - dialog_width) // 2
+        dialog_y = (SCREEN_HEIGHT - dialog_height) // 2
+
+        # Background
+        dialog_surface = pygame.Surface((dialog_width, dialog_height), pygame.SRCALPHA)
+        dialog_surface.fill((60, 60, 60, 250))
+        self.screen.blit(dialog_surface, (dialog_x, dialog_y))
+        pygame.draw.rect(self.screen, YELLOW, (dialog_x, dialog_y, dialog_width, dialog_height), 3)
+
+        # Title
+        unit_name = (
+            self.unit_names[self.palette_config_unit_id - 1]
+            if self.palette_config_unit_id > 0
+            else "Unit"
+        )
+        title_text = self.font.render(f"Configure {unit_name.title()} Defaults", True, YELLOW)
+        title_x = dialog_x + (dialog_width - title_text.get_width()) // 2
+        self.screen.blit(title_text, (title_x, dialog_y + 15))
+
+        # Hint
+        hint_text = self.tiny_font.render("Click field to edit | Tab to next", True, LIGHT_GRAY)
+        hint_x = dialog_x + (dialog_width - hint_text.get_width()) // 2
+        self.screen.blit(hint_text, (hint_x, dialog_y + 45))
+
+        # Input fields
+        field_y = dialog_y + 75
+        fields = [
+            ("health", "Health:"),
+            ("attack_damage", "Attack Damage:"),
+            ("attack_range", "Attack Range:"),
+            ("attack_cooldown", "Attack Cooldown:"),
+            ("speed", "Speed:"),
+            ("body_radius", "Body Radius:"),
+            ("sight_angle", "Sight Angle (rad):"),
+        ]
+
+        for field_name, label in fields:
+            # Label
+            label_text = self.small_font.render(label, True, WHITE)
+            self.screen.blit(label_text, (dialog_x + 20, field_y))
+
+            # Input box
+            input_x = dialog_x + 200
+            input_width = 230
+            input_height = 28
+            input_rect = pygame.Rect(input_x, field_y - 2, input_width, input_height)
+
+            is_active = self.palette_config_active_field == field_name
+            box_color = YELLOW if is_active else LIGHT_GRAY
+            pygame.draw.rect(self.screen, box_color, input_rect)
+            pygame.draw.rect(self.screen, BLACK, input_rect, 2)
+
+            # Display value
+            display_text = self.palette_config_inputs.get(field_name, "")
+            if is_active:
+                display_text += "|"
+
+            input_text = self.small_font.render(display_text, True, BLACK)
+            text_x = input_x + 5
+            text_y = field_y - 2 + (input_height - input_text.get_height()) // 2
+            self.screen.blit(input_text, (text_x, text_y))
+
+            field_y += 35
+
+        # Buttons (3 buttons evenly spaced)
+        button_y = dialog_y + dialog_height - 50
+        button_width = 120
+        button_height = 35
+        button_spacing = 15
+
+        total_width = button_width * 3 + button_spacing * 2
+        start_x = dialog_x + (dialog_width - total_width) // 2
+
+        reset_btn_x = start_x
+        save_btn_x = start_x + button_width + button_spacing
+        cancel_btn_x = start_x + (button_width + button_spacing) * 2
+
+        # Reset to defaults button
+        pygame.draw.rect(self.screen, ORANGE, (reset_btn_x, button_y, button_width, button_height))
+        pygame.draw.rect(
+            self.screen, BLACK, (reset_btn_x, button_y, button_width, button_height), 2
+        )
+        reset_text = self.small_font.render("RESET", True, BLACK)
+        reset_text_x = reset_btn_x + (button_width - reset_text.get_width()) // 2
+        reset_text_y = button_y + (button_height - reset_text.get_height()) // 2
+        self.screen.blit(reset_text, (reset_text_x, reset_text_y))
+
+        # Save button
+        pygame.draw.rect(self.screen, GREEN, (save_btn_x, button_y, button_width, button_height))
+        pygame.draw.rect(self.screen, BLACK, (save_btn_x, button_y, button_width, button_height), 2)
+        save_text = self.small_font.render("SAVE", True, BLACK)
+        save_text_x = save_btn_x + (button_width - save_text.get_width()) // 2
+        save_text_y = button_y + (button_height - save_text.get_height()) // 2
+        self.screen.blit(save_text, (save_text_x, save_text_y))
+
+        # Cancel button
+        pygame.draw.rect(self.screen, RED, (cancel_btn_x, button_y, button_width, button_height))
+        pygame.draw.rect(
+            self.screen, BLACK, (cancel_btn_x, button_y, button_width, button_height), 2
+        )
+        cancel_text = self.small_font.render("CANCEL", True, BLACK)
+        cancel_text_x = cancel_btn_x + (button_width - cancel_text.get_width()) // 2
+        cancel_text_y = button_y + (button_height - cancel_text.get_height()) // 2
+        self.screen.blit(cancel_text, (cancel_text_x, cancel_text_y))
+
+    def draw_bulk_sight_angle_dialog(self):
+        """Draw dialog for bulk sight angle adjustment for palette defaults"""
+        dialog_width = 420
+        dialog_height = 180
+        dialog_x = (SCREEN_WIDTH - dialog_width) // 2
+        dialog_y = (SCREEN_HEIGHT - dialog_height) // 2
+
+        # Background
+        dialog_surface = pygame.Surface((dialog_width, dialog_height), pygame.SRCALPHA)
+        dialog_surface.fill((60, 60, 60, 250))
+        self.screen.blit(dialog_surface, (dialog_x, dialog_y))
+        pygame.draw.rect(self.screen, YELLOW, (dialog_x, dialog_y, dialog_width, dialog_height), 3)
+
+        # Title
+        title_text = self.font.render("Bulk Adjust Palette Sight Angle", True, YELLOW)
+        title_x = dialog_x + (dialog_width - title_text.get_width()) // 2
+        self.screen.blit(title_text, (title_x, dialog_y + 15))
+
+        # Description
+        desc_y = dialog_y + 50
+        desc_text = self.small_font.render(
+            "Set default sight angle for all units in palette:", True, WHITE
+        )
+        desc_x = dialog_x + (dialog_width - desc_text.get_width()) // 2
+        self.screen.blit(desc_text, (desc_x, desc_y))
+
+        # Input field
+        input_y = desc_y + 30
+        input_width = 200
+        input_height = 30
+        input_x = dialog_x + (dialog_width - input_width) // 2
+        input_rect = pygame.Rect(input_x, input_y, input_width, input_height)
+
+        pygame.draw.rect(self.screen, LIGHT_GRAY, input_rect)
+        pygame.draw.rect(self.screen, BLACK, input_rect, 2)
+
+        display_text = self.bulk_sight_angle_input + "|"
+        input_text = self.small_font.render(display_text, True, BLACK)
+        text_x = input_x + (input_width - input_text.get_width()) // 2
+        text_y = input_y + (input_height - input_text.get_height()) // 2
+        self.screen.blit(input_text, (text_x, text_y))
+
+        # Buttons
+        button_y = dialog_y + dialog_height - 50
+        button_width = 120
+        button_height = 35
+        button_spacing = 15
+
+        total_width = button_width * 2 + button_spacing
+        start_x = dialog_x + (dialog_width - total_width) // 2
+
+        apply_btn_x = start_x
+        cancel_btn_x = start_x + button_width + button_spacing
+
+        # Apply button
+        pygame.draw.rect(self.screen, GREEN, (apply_btn_x, button_y, button_width, button_height))
+        pygame.draw.rect(
+            self.screen, BLACK, (apply_btn_x, button_y, button_width, button_height), 2
+        )
+        apply_text = self.small_font.render("APPLY", True, BLACK)
+        apply_text_x = apply_btn_x + (button_width - apply_text.get_width()) // 2
+        apply_text_y = button_y + (button_height - apply_text.get_height()) // 2
+        self.screen.blit(apply_text, (apply_text_x, apply_text_y))
+
+        # Cancel button
+        pygame.draw.rect(self.screen, RED, (cancel_btn_x, button_y, button_width, button_height))
+        pygame.draw.rect(
+            self.screen, BLACK, (cancel_btn_x, button_y, button_width, button_height), 2
+        )
+        cancel_text = self.small_font.render("CANCEL", True, BLACK)
+        cancel_text_x = cancel_btn_x + (button_width - cancel_text.get_width()) // 2
+        cancel_text_y = button_y + (button_height - cancel_text.get_height()) // 2
+        self.screen.blit(cancel_text, (cancel_text_x, cancel_text_y))
 
     def draw_zone_palette(self):
         """Draw zone editing palette - draggable window"""
@@ -1730,7 +2163,7 @@ class MapEditor:
         title_x = toolbar_x + (toolbar_width - title_text.get_width()) // 2
         self.screen.blit(title_text, (title_x, toolbar_y + 5))
 
-        # Buttons - 2x3 layout (compact)
+        # Buttons - 3x2 layout (compact)
         button_width = 110
         button_height = 25
         button_spacing_x = 10
@@ -1745,6 +2178,7 @@ class MapEditor:
             ("UNITS", 1, 0),
             ("ZONES", 1, 1),
             ("LOAD", 1, 2),
+            ("SIGHT", 2, 0),  # Bulk sight angle adjustment
         ]
 
         for label, row, col in buttons:
@@ -1821,7 +2255,48 @@ class MapEditor:
                 # Right click to delete unit
                 self.delete_unit_at_pos(pos)
             else:
-                self.handle_unit_placement(pos)
+                # Check for double-click on unit to select for editing
+                import time
+
+                current_time = time.time()
+
+                # Check if clicking on an existing unit
+                world_x, world_y = self.screen_to_world(pos[0], pos[1])
+                clicked_unit_pos = None
+
+                for i in range(self.grid_height):
+                    for j in range(self.grid_width):
+                        if self.grid[i, j] > 0:
+                            cell_world_x = (
+                                j - self.grid_width / 2 + 0.5
+                            ) * self.actual_unit_spacing_x
+                            cell_world_y = (
+                                i - self.grid_height / 2 + 0.5
+                            ) * self.actual_unit_spacing_y
+
+                            if (
+                                abs(world_x - cell_world_x) < self.actual_unit_spacing_x / 2
+                                and abs(world_y - cell_world_y) < self.actual_unit_spacing_y / 2
+                            ):
+                                clicked_unit_pos = (i, j)
+                                break
+                    if clicked_unit_pos:
+                        break
+
+                if (
+                    clicked_unit_pos
+                    and current_time - self.last_unit_click_time < self.double_click_threshold
+                ):
+                    # Double-click detected on unit
+                    self.selected_unit_info = {"grid_pos": clicked_unit_pos}
+                    self.last_unit_click_time = 0
+                elif clicked_unit_pos:
+                    # Single click on existing unit - do nothing (prevent overwriting)
+                    self.last_unit_click_time = current_time
+                else:
+                    # Single click on empty cell - place unit
+                    self.last_unit_click_time = current_time
+                    self.handle_unit_placement(pos)
         elif self.edit_mode == "zone":
             if is_right_click:
                 # Right click to delete zone
@@ -1873,12 +2348,28 @@ class MapEditor:
                                 self.team_grid[i, j + 1] = 0
                                 self.team_grid[i + 1, j + 1] = 0
                                 self.rotation_grid[i, j] = 0
+                                # Reset all stats
+                                self.sight_angle_grid[i, j] = SIGHT_ANGLE
+                                self.health_grid[i, j] = 0
+                                self.attack_damage_grid[i, j] = 0
+                                self.attack_range_grid[i, j] = 0
+                                self.attack_cooldown_grid[i, j] = 0
+                                self.speed_grid[i, j] = 0
+                                self.body_radius_grid[i, j] = 0
                                 self.save_state()  # Save after deletion
                         else:
                             # Delete 1x1 unit
                             self.grid[i, j] = 0
                             self.team_grid[i, j] = 0
                             self.rotation_grid[i, j] = 0
+                            # Reset all stats
+                            self.sight_angle_grid[i, j] = SIGHT_ANGLE
+                            self.health_grid[i, j] = 0
+                            self.attack_damage_grid[i, j] = 0
+                            self.attack_range_grid[i, j] = 0
+                            self.attack_cooldown_grid[i, j] = 0
+                            self.speed_grid[i, j] = 0
+                            self.body_radius_grid[i, j] = 0
                             self.save_state()  # Save after deletion
                     elif cell_value == MAMMOTH_OCCUPIED:
                         # Clicked on a Mammoth's occupied cell, find and delete the whole Mammoth
@@ -1909,6 +2400,14 @@ class MapEditor:
                                 self.team_grid[top_i, top_j + 1] = 0
                                 self.team_grid[top_i + 1, top_j + 1] = 0
                                 self.rotation_grid[top_i, top_j] = 0
+                                # Reset all stats
+                                self.sight_angle_grid[top_i, top_j] = SIGHT_ANGLE
+                                self.health_grid[top_i, top_j] = 0
+                                self.attack_damage_grid[top_i, top_j] = 0
+                                self.attack_range_grid[top_i, top_j] = 0
+                                self.attack_cooldown_grid[top_i, top_j] = 0
+                                self.speed_grid[top_i, top_j] = 0
+                                self.body_radius_grid[top_i, top_j] = 0
                                 self.save_state()
                     return
 
@@ -1981,6 +2480,16 @@ class MapEditor:
                             self.team_grid[i, j + 1] = self.selected_team
                             self.team_grid[i + 1, j + 1] = self.selected_team
 
+                            # Set all stats for new unit
+                            stats = self.get_default_stats_for_unit(self.selected_unit_id)
+                            self.sight_angle_grid[i, j] = stats["sight_angle"]
+                            self.health_grid[i, j] = stats["health"]
+                            self.attack_damage_grid[i, j] = stats["attack_damage"]
+                            self.attack_range_grid[i, j] = stats["attack_range"]
+                            self.attack_cooldown_grid[i, j] = stats["attack_cooldown"]
+                            self.speed_grid[i, j] = stats["speed"]
+                            self.body_radius_grid[i, j] = stats["body_radius"]
+
                             # Default rotation for top-left cell only
                             if self.selected_team == 0:
                                 self.rotation_grid[i, j] = 0  # Ally faces right
@@ -2010,6 +2519,15 @@ class MapEditor:
                         self.grid[i, j] = self.selected_unit_id
                         if self.selected_unit_id > 0:
                             self.team_grid[i, j] = self.selected_team
+                            # Set all stats for new unit
+                            stats = self.get_default_stats_for_unit(self.selected_unit_id)
+                            self.sight_angle_grid[i, j] = stats["sight_angle"]
+                            self.health_grid[i, j] = stats["health"]
+                            self.attack_damage_grid[i, j] = stats["attack_damage"]
+                            self.attack_range_grid[i, j] = stats["attack_range"]
+                            self.attack_cooldown_grid[i, j] = stats["attack_cooldown"]
+                            self.speed_grid[i, j] = stats["speed"]
+                            self.body_radius_grid[i, j] = stats["body_radius"]
                             # Default rotation: 0 (facing right for ally, left for enemy)
                             if self.selected_team == 0:
                                 self.rotation_grid[i, j] = 0  # Ally faces right
@@ -2073,12 +2591,34 @@ class MapEditor:
         self.grid = np.zeros((self.grid_height, self.grid_width), dtype=int)
         self.team_grid = np.zeros((self.grid_height, self.grid_width), dtype=int)
         self.rotation_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+        self.sight_angle_grid = np.full(
+            (self.grid_height, self.grid_width), SIGHT_ANGLE, dtype=float
+        )
+        self.health_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+        self.attack_damage_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+        self.attack_range_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+        self.attack_cooldown_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+        self.speed_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+        self.body_radius_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
         self.zones = []
         self.save_state()  # Save state after clearing
 
     def handle_ui_click(self, pos):
         """Handle UI button clicks. Returns True if a UI element was clicked."""
         x, y = pos
+
+        # Handle bulk sight angle dialog if open
+        if self.show_bulk_sight_angle_dialog:
+            return self.handle_bulk_sight_angle_click(pos)
+
+        # Handle palette config dialog if open
+        if self.show_palette_config:
+            return self.handle_palette_config_click(pos)
+
+        # Handle unit info box if open
+        if self.selected_unit_info:
+            if self.handle_unit_info_click(pos):
+                return True
 
         # Handle new scenario dialog if open
         if self.show_new_scenario_dialog:
@@ -2110,6 +2650,7 @@ class MapEditor:
             ("UNITS", 1, 0),
             ("ZONES", 1, 1),
             ("LOAD", 1, 2),
+            ("SIGHT", 2, 0),  # Bulk sight angle adjustment
         ]
 
         for label, row, col in buttons:
@@ -2132,6 +2673,10 @@ class MapEditor:
                     self.edit_mode = "zone"
                 elif label == "LOAD":
                     self.load_scenario()
+                elif label == "SIGHT":
+                    # Open bulk sight angle dialog
+                    self.show_bulk_sight_angle_dialog = True
+                    self.bulk_sight_angle_input = f"{SIGHT_ANGLE:.4f}"
                 return True
 
         # Check Unit palette (only if in unit mode)
@@ -2155,6 +2700,10 @@ class MapEditor:
 
                 # Unit buttons
                 unit_button_size = 110
+                import time
+
+                current_time = time.time()
+
                 for idx in range(len(self.unit_names)):
                     unit_id = idx + 1
                     row = idx // 3
@@ -2165,7 +2714,32 @@ class MapEditor:
                         btn_x <= x <= btn_x + unit_button_size
                         and btn_y <= y <= btn_y + unit_button_size
                     ):
-                        self.selected_unit_id = unit_id
+                        # Check for double-click
+                        if (
+                            self.selected_unit_id == unit_id
+                            and current_time - getattr(self, "last_palette_click_time", 0)
+                            < self.double_click_threshold
+                        ):
+                            # Double-click on palette unit - open config
+                            self.show_palette_config = True
+                            self.palette_config_unit_id = unit_id
+                            # Initialize inputs with current defaults
+                            stats = self.get_default_stats_for_unit(unit_id)
+                            self.palette_config_inputs = {
+                                "health": f"{stats['health']:.2f}",
+                                "attack_damage": f"{stats['attack_damage']:.2f}",
+                                "attack_range": f"{stats['attack_range']:.2f}",
+                                "attack_cooldown": f"{stats['attack_cooldown']:.2f}",
+                                "speed": f"{stats['speed']:.2f}",
+                                "body_radius": f"{stats['body_radius']:.2f}",
+                                "sight_angle": f"{stats['sight_angle']:.4f}",
+                            }
+                            self.palette_config_active_field = "health"
+                            self.last_palette_click_time = 0
+                        else:
+                            # Single click - select unit
+                            self.selected_unit_id = unit_id
+                            self.last_palette_click_time = current_time
                         return True
                 return True  # Clicked inside panel
 
@@ -2250,6 +2824,205 @@ class MapEditor:
                 return True  # Clicked inside panel
 
         return False
+
+    def handle_unit_info_click(self, pos):
+        """Handle clicks in the unit info box"""
+        x, y = pos
+
+        if not self.selected_unit_info:
+            return False
+
+        # Must match draw_unit_info dimensions
+        box_width = 300
+        box_height = 298
+        box_x = SCREEN_WIDTH - box_width - 20
+        box_y = SCREEN_HEIGHT - box_height - 20
+
+        # Check if clicked outside - close the info box
+        if not (box_x <= x <= box_x + box_width and box_y <= y <= box_y + box_height):
+            self.selected_unit_info = None
+            self.editing_unit = False
+            self.unit_edit_field = None
+            return False
+
+        # Check field clicks (must match draw_unit_info)
+        title_bar_height = 24
+        field_y = box_y + title_bar_height + 22  # After hint (3 + 19)
+
+        input_x = box_x + 145  # Match draw_unit_info
+        input_width = 145  # Match draw_unit_info
+        input_height = 24
+
+        i, j = self.selected_unit_info["grid_pos"]
+
+        # All editable fields
+        fields = [
+            ("health", self.health_grid[i, j]),
+            ("attack_damage", self.attack_damage_grid[i, j]),
+            ("attack_range", self.attack_range_grid[i, j]),
+            ("attack_cooldown", self.attack_cooldown_grid[i, j]),
+            ("speed", self.speed_grid[i, j]),
+            ("body_radius", self.body_radius_grid[i, j]),
+            ("sight_angle", self.sight_angle_grid[i, j]),
+        ]
+
+        for field_name, value in fields:
+            field_rect = pygame.Rect(input_x, field_y - 2, input_width, input_height)
+            if field_rect.collidepoint(x, y):
+                self.editing_unit = True
+                self.unit_edit_field = field_name
+                self.unit_edit_input = f"{value:.4f}"
+                return True
+            field_y += 26
+
+        return True  # Clicked inside info box
+
+    def handle_bulk_sight_angle_click(self, pos):
+        """Handle clicks in bulk sight angle dialog"""
+        x, y = pos
+
+        dialog_width = 420
+        dialog_height = 180
+        dialog_x = (SCREEN_WIDTH - dialog_width) // 2
+        dialog_y = (SCREEN_HEIGHT - dialog_height) // 2
+
+        # Check buttons
+        button_y = dialog_y + dialog_height - 50
+        button_width = 120
+        button_height = 35
+        button_spacing = 15
+
+        total_width = button_width * 2 + button_spacing
+        start_x = dialog_x + (dialog_width - total_width) // 2
+
+        apply_btn_x = start_x
+        cancel_btn_x = start_x + button_width + button_spacing
+
+        apply_btn = pygame.Rect(apply_btn_x, button_y, button_width, button_height)
+        cancel_btn = pygame.Rect(cancel_btn_x, button_y, button_width, button_height)
+
+        if apply_btn.collidepoint(x, y):
+            # Apply sight angle to all palette unit defaults
+            try:
+                new_sight_angle = float(self.bulk_sight_angle_input)
+                # Update custom defaults for all units
+                for unit_id in range(1, len(self.unit_names) + 1):
+                    if unit_id not in self.custom_defaults:
+                        # Create new custom defaults based on unit spec
+                        stats = self.get_default_stats_for_unit(unit_id)
+                        self.custom_defaults[unit_id] = stats.copy()
+                    # Update sight angle
+                    self.custom_defaults[unit_id]["sight_angle"] = new_sight_angle
+                    self.use_custom_defaults[unit_id] = True
+                print(
+                    f"Applied sight angle {new_sight_angle:.4f} to all {len(self.unit_names)} unit types in palette"
+                )
+            except ValueError as e:
+                print(f"Invalid input: {self.bulk_sight_angle_input}, error: {e}")
+            self.show_bulk_sight_angle_dialog = False
+            return True
+        elif cancel_btn.collidepoint(x, y):
+            self.show_bulk_sight_angle_dialog = False
+            return True
+
+        return True
+
+    def handle_palette_config_click(self, pos):
+        """Handle clicks in the palette config dialog"""
+        x, y = pos
+
+        dialog_width = 450
+        dialog_height = 420
+        dialog_x = (SCREEN_WIDTH - dialog_width) // 2
+        dialog_y = (SCREEN_HEIGHT - dialog_height) // 2
+
+        # Check if clicked outside
+        if not (
+            dialog_x <= x <= dialog_x + dialog_width and dialog_y <= y <= dialog_y + dialog_height
+        ):
+            self.show_palette_config = False
+            return True
+
+        # Check input fields
+        field_y = dialog_y + 75
+        fields = [
+            "health",
+            "attack_damage",
+            "attack_range",
+            "attack_cooldown",
+            "speed",
+            "body_radius",
+            "sight_angle",
+        ]
+
+        input_x = dialog_x + 200
+        input_width = 230
+        input_height = 28
+
+        for field_name in fields:
+            input_rect = pygame.Rect(input_x, field_y - 2, input_width, input_height)
+            if input_rect.collidepoint(x, y):
+                self.palette_config_active_field = field_name
+                return True
+            field_y += 35
+
+        # Check buttons (match draw_palette_config_dialog)
+        button_y = dialog_y + dialog_height - 50
+        button_width = 120
+        button_height = 35
+        button_spacing = 15
+
+        total_width = button_width * 3 + button_spacing * 2
+        start_x = dialog_x + (dialog_width - total_width) // 2
+
+        reset_btn_x = start_x
+        save_btn_x = start_x + button_width + button_spacing
+        cancel_btn_x = start_x + (button_width + button_spacing) * 2
+
+        reset_btn = pygame.Rect(reset_btn_x, button_y, button_width, button_height)
+        save_btn = pygame.Rect(save_btn_x, button_y, button_width, button_height)
+        cancel_btn = pygame.Rect(cancel_btn_x, button_y, button_width, button_height)
+
+        if reset_btn.collidepoint(x, y):
+            # Reset to unit spec defaults
+            self.use_custom_defaults[self.palette_config_unit_id] = False
+            if self.palette_config_unit_id in self.custom_defaults:
+                del self.custom_defaults[self.palette_config_unit_id]
+            # Reload inputs
+            stats = self.get_default_stats_for_unit(self.palette_config_unit_id)
+            self.palette_config_inputs = {
+                "health": f"{stats['health']:.2f}",
+                "attack_damage": f"{stats['attack_damage']:.2f}",
+                "attack_range": f"{stats['attack_range']:.2f}",
+                "attack_cooldown": f"{stats['attack_cooldown']:.2f}",
+                "speed": f"{stats['speed']:.2f}",
+                "body_radius": f"{stats['body_radius']:.2f}",
+                "sight_angle": f"{stats['sight_angle']:.4f}",
+            }
+            return True
+        elif save_btn.collidepoint(x, y):
+            # Save custom defaults
+            try:
+                custom_stats = {
+                    "health": float(self.palette_config_inputs["health"]),
+                    "attack_damage": float(self.palette_config_inputs["attack_damage"]),
+                    "attack_range": float(self.palette_config_inputs["attack_range"]),
+                    "attack_cooldown": float(self.palette_config_inputs["attack_cooldown"]),
+                    "speed": float(self.palette_config_inputs["speed"]),
+                    "body_radius": float(self.palette_config_inputs["body_radius"]),
+                    "sight_angle": float(self.palette_config_inputs["sight_angle"]),
+                }
+                self.custom_defaults[self.palette_config_unit_id] = custom_stats
+                self.use_custom_defaults[self.palette_config_unit_id] = True
+            except ValueError:
+                pass  # Invalid input, don't save
+            self.show_palette_config = False
+            return True
+        elif cancel_btn.collidepoint(x, y):
+            self.show_palette_config = False
+            return True
+
+        return True
 
     def handle_new_scenario_dialog_click(self, pos):
         """Handle clicks in the new scenario dialog (aligned with draw_new_scenario_dialog)"""
@@ -2622,7 +3395,7 @@ class MapEditor:
     def save_scenario_file(self):
         """Save scenario as JSON (env_params.json format)"""
         # Extract unit information from grid data (separate ally and enemy)
-        ally_units = []  # (position, unit_id, team, rotation)
+        ally_units = []  # (position, unit_id, team, rotation, sight_angle, grid_pos)
         enemy_units = []
 
         for i in range(self.grid_height):
@@ -2638,7 +3411,18 @@ class MapEditor:
                             continue
 
                     team = int(self.team_grid[i, j])
-                    rotation = float(self.rotation_grid[i, j])
+                    rotation = -float(
+                        self.rotation_grid[i, j]
+                    )  # Negate rotation to match game coordinate system
+
+                    # Get all custom stats from grids
+                    sight_angle = float(self.sight_angle_grid[i, j])
+                    health = float(self.health_grid[i, j])
+                    attack_damage = float(self.attack_damage_grid[i, j])
+                    attack_range = float(self.attack_range_grid[i, j])
+                    attack_cooldown = float(self.attack_cooldown_grid[i, j])
+                    speed = float(self.speed_grid[i, j])
+                    body_radius = float(self.body_radius_grid[i, j])
 
                     # Convert to world coordinates
                     if unit_id == UnitID.Mammoth:
@@ -2653,7 +3437,22 @@ class MapEditor:
                         world_x = (j - self.grid_width / 2 + 0.5) * self.actual_unit_spacing_x
                         world_y = (i - self.grid_height / 2 + 0.5) * self.actual_unit_spacing_y
 
-                    unit_data = ([world_x, world_y], unit_id - 1, team, rotation)
+                    unit_data = (
+                        [world_x, world_y],
+                        unit_id - 1,
+                        team,
+                        rotation,
+                        {
+                            "sight_angle": sight_angle,
+                            "health": health,
+                            "attack_damage": attack_damage,
+                            "attack_range": attack_range,
+                            "attack_cooldown": attack_cooldown,
+                            "speed": speed,
+                            "body_radius": body_radius,
+                        },
+                        (i, j),
+                    )
 
                     # Separate by team
                     if team == 0:  # Ally
@@ -2669,12 +3468,14 @@ class MapEditor:
         unit_ids = []
         teams = []
         rotations = []
+        custom_stats_list = []  # List of stat dictionaries
 
-        for pos, uid, team, rot in all_units:
+        for pos, uid, team, rot, custom_stats, grid_pos in all_units:
             positions.append(pos)
             unit_ids.append([uid])
             teams.append([team])
             rotations.append([rot])
+            custom_stats_list.append(custom_stats)
 
         # Load unit specs
         all_spec = self.all_spec
@@ -2707,31 +3508,54 @@ class MapEditor:
         sight_angles = []
         speeds = []
 
-        for unit_id in unit_ids:
+        for i, unit_id in enumerate(unit_ids):
             idx = unit_id[0]
-            if idx < len(all_spec["attack_cooldown"]):
-                attack_cooldowns.append([float(all_spec["attack_cooldown"][idx])])
-                attack_damages.append([float(all_spec["attack_damages"][idx])])
-                attack_ranges.append([float(all_spec["attack_ranges"][idx])])
-                attack_types.append(
-                    [1 if float(all_spec["attack_damages"][idx]) < 0 else 0]
-                )  # heal = 1
-                body_radiuss.append([float(all_spec["body_radiuses"][idx])])
-                body_weights.append([float(all_spec["body_weights"][idx])])
-                healths.append([float(all_spec["healths"][idx])])
-                sight_angles.append([float(all_spec["sight_angles"][idx])])
-                speeds.append([float(all_spec["speeds"][idx])])
+            custom_stats = custom_stats_list[i]
+
+            # Use custom stats from grid (fallback to spec if 0)
+            health_val = custom_stats["health"]
+            if health_val == 0 and idx < len(all_spec["healths"]):
+                health_val = float(all_spec["healths"][idx])
+
+            attack_damage_val = custom_stats["attack_damage"]
+            if attack_damage_val == 0 and idx < len(all_spec["attack_damages"]):
+                attack_damage_val = float(all_spec["attack_damages"][idx])
+
+            attack_range_val = custom_stats["attack_range"]
+            if attack_range_val == 0 and idx < len(all_spec["attack_ranges"]):
+                attack_range_val = float(all_spec["attack_ranges"][idx])
+
+            attack_cooldown_val = custom_stats["attack_cooldown"]
+            if attack_cooldown_val == 0 and idx < len(all_spec["attack_cooldown"]):
+                attack_cooldown_val = float(all_spec["attack_cooldown"][idx])
+
+            speed_val = custom_stats["speed"]
+            if speed_val == 0 and idx < len(all_spec["speeds"]):
+                speed_val = float(all_spec["speeds"][idx])
+
+            body_radius_val = custom_stats["body_radius"]
+            if body_radius_val == 0 and idx < len(all_spec["body_radiuses"]):
+                body_radius_val = float(all_spec["body_radiuses"][idx])
+
+            sight_angle_val = custom_stats["sight_angle"]
+            if sight_angle_val == 0 and idx < len(all_spec["sight_angles"]):
+                sight_angle_val = float(all_spec["sight_angles"][idx])
+
+            # Get body_weight from spec (not customizable)
+            if idx < len(all_spec["body_weights"]):
+                body_weight_val = float(all_spec["body_weights"][idx])
             else:
-                # Default values
-                attack_cooldowns.append([1.0])
-                attack_damages.append([0.0])
-                attack_ranges.append([1.0])
-                attack_types.append([0])
-                body_radiuss.append([1.0])
-                body_weights.append([1.0])
-                healths.append([1.0])
-                sight_angles.append([1.5708])  # π/2
-                speeds.append([1.0])
+                body_weight_val = 1.0
+
+            attack_cooldowns.append([attack_cooldown_val])
+            attack_damages.append([attack_damage_val])
+            attack_ranges.append([attack_range_val])
+            attack_types.append([1 if attack_damage_val < 0 else 0])  # heal = 1
+            body_radiuss.append([body_radius_val])
+            body_weights.append([body_weight_val])
+            healths.append([health_val])
+            sight_angles.append([sight_angle_val])
+            speeds.append([speed_val])
 
             is_alive.append([True])
             is_disabled.append([False])
@@ -2787,7 +3611,7 @@ class MapEditor:
         }
 
         # Create scenarios folder (if not exists)
-        folder_path = f"src/scenarios/{self.save_folder_selection}"
+        folder_path = f"src/tabs/scenarios/{self.save_folder_selection}"
         os.makedirs(folder_path, exist_ok=True)
 
         # Save JSON file with scenario name
@@ -2803,7 +3627,7 @@ class MapEditor:
     def load_scenario(self):
         """Display scenario load dialog"""
         # Load JSON files from all scenario subfolders
-        scenarios_base = "src/scenarios"
+        scenarios_base = "src/tabs/scenarios"
         self.available_scenarios = {}
         self.folder_expanded = {}
 
@@ -2827,7 +3651,7 @@ class MapEditor:
 
     def load_scenario_file(self, folder, filename):
         """Load selected scenario file"""
-        file_path = f"src/scenarios/{folder}/{filename}"
+        file_path = f"src/tabs/scenarios/{folder}/{filename}"
         try:
             with open(file_path, "r") as f:
                 data = json.load(f)
@@ -2871,17 +3695,56 @@ class MapEditor:
             teams = scenario.get("teams", [])
             rotations = scenario.get("rotations", [])
 
-            # Initialize grid
+            # Load all stat arrays
+            sight_angles_data = scenario.get("sight_angles", [])
+            healths_data = scenario.get("healths", [])
+            attack_damages_data = scenario.get("attack_damages", [])
+            attack_ranges_data = scenario.get("attack_ranges", [])
+            attack_cooldowns_data = scenario.get("attack_cooldowns", [])
+            speeds_data = scenario.get("speeds", [])
+            body_radiuss_data = scenario.get("body_radiuss", [])
+
+            # Initialize grids
             self.grid = np.zeros((self.grid_height, self.grid_width), dtype=int)
             self.team_grid = np.zeros((self.grid_height, self.grid_width), dtype=int)
             self.rotation_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+            self.sight_angle_grid = np.full(
+                (self.grid_height, self.grid_width), SIGHT_ANGLE, dtype=float
+            )
+            self.health_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+            self.attack_damage_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+            self.attack_range_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+            self.attack_cooldown_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+            self.speed_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
+            self.body_radius_grid = np.zeros((self.grid_height, self.grid_width), dtype=float)
 
-            for pos, unit_id_list, team_list, rot_list in zip(
-                positions, unit_ids, teams, rotations
+            for idx, (pos, unit_id_list, team_list, rot_list) in enumerate(
+                zip(positions, unit_ids, teams, rotations)
             ):
                 unit_id = int(unit_id_list[0]) + 1  # Stored as 0-indexed in JSON, so +1
                 team = int(team_list[0])
-                rotation = float(rot_list[0])
+                rotation = -float(rot_list[0])  # Negate rotation to match editor coordinate system
+
+                # Load all stats if available
+                sight_angle = (
+                    float(sight_angles_data[idx][0])
+                    if idx < len(sight_angles_data)
+                    else SIGHT_ANGLE
+                )
+                health = float(healths_data[idx][0]) if idx < len(healths_data) else 0
+                attack_damage = (
+                    float(attack_damages_data[idx][0]) if idx < len(attack_damages_data) else 0
+                )
+                attack_range = (
+                    float(attack_ranges_data[idx][0]) if idx < len(attack_ranges_data) else 0
+                )
+                attack_cooldown = (
+                    float(attack_cooldowns_data[idx][0]) if idx < len(attack_cooldowns_data) else 0
+                )
+                speed = float(speeds_data[idx][0]) if idx < len(speeds_data) else 0
+                body_radius = (
+                    float(body_radiuss_data[idx][0]) if idx < len(body_radiuss_data) else 0
+                )
 
                 # Convert world coordinates to grid coordinates
                 world_x, world_y = pos
@@ -2926,10 +3789,26 @@ class MapEditor:
                             self.team_grid[i, j + 1] = team
                             self.team_grid[i + 1, j + 1] = team
                             self.rotation_grid[i, j] = rotation
+                            # Set all stats
+                            self.sight_angle_grid[i, j] = sight_angle
+                            self.health_grid[i, j] = health
+                            self.attack_damage_grid[i, j] = attack_damage
+                            self.attack_range_grid[i, j] = attack_range
+                            self.attack_cooldown_grid[i, j] = attack_cooldown
+                            self.speed_grid[i, j] = speed
+                            self.body_radius_grid[i, j] = body_radius
                     else:
                         self.grid[i, j] = unit_id
                         self.team_grid[i, j] = team
                         self.rotation_grid[i, j] = rotation
+                        # Set all stats
+                        self.sight_angle_grid[i, j] = sight_angle
+                        self.health_grid[i, j] = health
+                        self.attack_damage_grid[i, j] = attack_damage
+                        self.attack_range_grid[i, j] = attack_range
+                        self.attack_cooldown_grid[i, j] = attack_cooldown
+                        self.speed_grid[i, j] = speed
+                        self.body_radius_grid[i, j] = body_radius
 
             # Load zone data
             self.zones = []
@@ -3099,7 +3978,146 @@ class MapEditor:
                         self.handle_zoom(event.y)
 
                 elif event.type == pygame.KEYDOWN:
-                    if self.editing_zone and self.zone_edit_field:
+                    if self.show_bulk_sight_angle_dialog:
+                        # Handle bulk sight angle input
+                        if event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+                            # Apply and close
+                            try:
+                                new_sight_angle = float(self.bulk_sight_angle_input)
+                                # Update custom defaults for all units
+                                for unit_id in range(1, len(self.unit_names) + 1):
+                                    if unit_id not in self.custom_defaults:
+                                        # Create new custom defaults based on unit spec
+                                        stats = self.get_default_stats_for_unit(unit_id)
+                                        self.custom_defaults[unit_id] = stats.copy()
+                                    # Update sight angle
+                                    self.custom_defaults[unit_id]["sight_angle"] = new_sight_angle
+                                    self.use_custom_defaults[unit_id] = True
+                                print(
+                                    f"[ENTER] Applied sight angle {new_sight_angle:.4f} to all {len(self.unit_names)} unit types in palette"
+                                )
+                            except ValueError as e:
+                                print(
+                                    f"[ENTER] Invalid input: {self.bulk_sight_angle_input}, error: {e}"
+                                )
+                            self.show_bulk_sight_angle_dialog = False
+                        elif event.key == pygame.K_ESCAPE:
+                            self.show_bulk_sight_angle_dialog = False
+                        elif event.key == pygame.K_BACKSPACE:
+                            self.bulk_sight_angle_input = self.bulk_sight_angle_input[:-1]
+                        else:
+                            if event.unicode in "0123456789.-":
+                                self.bulk_sight_angle_input += event.unicode
+                    elif self.show_palette_config:
+                        # Handle palette config input
+                        if event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+                            # Save and close
+                            try:
+                                custom_stats = {
+                                    "health": float(self.palette_config_inputs["health"]),
+                                    "attack_damage": float(
+                                        self.palette_config_inputs["attack_damage"]
+                                    ),
+                                    "attack_range": float(
+                                        self.palette_config_inputs["attack_range"]
+                                    ),
+                                    "attack_cooldown": float(
+                                        self.palette_config_inputs["attack_cooldown"]
+                                    ),
+                                    "speed": float(self.palette_config_inputs["speed"]),
+                                    "body_radius": float(self.palette_config_inputs["body_radius"]),
+                                    "sight_angle": float(self.palette_config_inputs["sight_angle"]),
+                                }
+                                self.custom_defaults[self.palette_config_unit_id] = custom_stats
+                                self.use_custom_defaults[self.palette_config_unit_id] = True
+                            except ValueError:
+                                pass
+                            self.show_palette_config = False
+                        elif event.key == pygame.K_TAB:
+                            # Move to next field
+                            fields = [
+                                "health",
+                                "attack_damage",
+                                "attack_range",
+                                "attack_cooldown",
+                                "speed",
+                                "body_radius",
+                                "sight_angle",
+                            ]
+                            current_idx = fields.index(self.palette_config_active_field)
+                            self.palette_config_active_field = fields[
+                                (current_idx + 1) % len(fields)
+                            ]
+                        elif event.key == pygame.K_ESCAPE:
+                            self.show_palette_config = False
+                        elif event.key == pygame.K_BACKSPACE:
+                            current_value = self.palette_config_inputs.get(
+                                self.palette_config_active_field, ""
+                            )
+                            self.palette_config_inputs[self.palette_config_active_field] = (
+                                current_value[:-1]
+                            )
+                        else:
+                            if event.unicode in "0123456789.-":
+                                current_value = self.palette_config_inputs.get(
+                                    self.palette_config_active_field, ""
+                                )
+                                self.palette_config_inputs[self.palette_config_active_field] = (
+                                    current_value + event.unicode
+                                )
+                    elif self.editing_unit and self.unit_edit_field:
+                        # Handle unit editing input
+                        if event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+                            if self.unit_edit_input and self.selected_unit_info:
+                                try:
+                                    i, j = self.selected_unit_info["grid_pos"]
+                                    new_value = float(self.unit_edit_input)
+
+                                    # Apply the edit based on field type
+                                    if self.unit_edit_field == "health" and new_value > 0:
+                                        self.health_grid[i, j] = new_value
+                                        self.save_state()
+                                    elif (
+                                        self.unit_edit_field == "attack_damage"
+                                        and new_value >= -1000
+                                    ):  # Allow negative for healers
+                                        self.attack_damage_grid[i, j] = new_value
+                                        self.save_state()
+                                    elif self.unit_edit_field == "attack_range" and new_value >= 0:
+                                        self.attack_range_grid[i, j] = new_value
+                                        self.save_state()
+                                    elif (
+                                        self.unit_edit_field == "attack_cooldown" and new_value > 0
+                                    ):
+                                        self.attack_cooldown_grid[i, j] = new_value
+                                        self.save_state()
+                                    elif self.unit_edit_field == "speed" and new_value >= 0:
+                                        self.speed_grid[i, j] = new_value
+                                        self.save_state()
+                                    elif self.unit_edit_field == "body_radius" and new_value > 0:
+                                        self.body_radius_grid[i, j] = new_value
+                                        self.save_state()
+                                    elif (
+                                        self.unit_edit_field == "sight_angle"
+                                        and 0 < new_value <= 2 * np.pi
+                                    ):
+                                        self.sight_angle_grid[i, j] = new_value
+                                        self.save_state()
+                                except ValueError:
+                                    pass
+                            self.editing_unit = False
+                            self.unit_edit_field = None
+                            self.unit_edit_input = ""
+                        elif event.key == pygame.K_ESCAPE:
+                            self.editing_unit = False
+                            self.unit_edit_field = None
+                            self.unit_edit_input = ""
+                        elif event.key == pygame.K_BACKSPACE:
+                            self.unit_edit_input = self.unit_edit_input[:-1]
+                        else:
+                            if event.unicode in "0123456789.-":
+                                self.unit_edit_input += event.unicode
+                    elif self.editing_zone and self.zone_edit_field:
                         # Handle zone editing input
                         if event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
                             # Apply the edit immediately
@@ -3321,6 +4339,10 @@ class MapEditor:
             # Draw hovered zone info if in zone mode
             if self.edit_mode == "zone":
                 self.draw_hovered_zone_info()
+
+            # Draw unit info if unit is selected
+            if self.edit_mode == "unit" and self.selected_unit_info:
+                self.draw_unit_info()
 
             # New scenario dialog (very top)
             if self.show_new_scenario_dialog:
