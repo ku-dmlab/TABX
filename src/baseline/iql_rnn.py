@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from dataclasses import dataclass
+from functools import partial
 from typing import Literal, Tuple
 
 import flashbax as fbx
@@ -54,7 +55,9 @@ class Config:
     LN_EPS: float = 1e-6
     REW_SCALE: float = 10.0  # scale the reward to the original scale of TABS
     TEST_DURING_TRAINING: bool = True
-    TEST_INTERVAL: float = 0.05  # as a fraction of updates, i.e. log every 5% of training process
+    TEST_INTERVAL: float | None = (
+        None  # as a fraction of updates, i.e. log every 5% of training process
+    )
     TEST_NUM_STEPS: int = 512
     TEST_NUM_ENVS: int = 128  # number of episodes to average over, can affect performance
     # Env
@@ -68,6 +71,7 @@ class Config:
     PROJECT_NAME: str = "iql_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
+    VALUE_EVAL_NUM_ENVS: int | None = 128
 
 
 def get_greedy_actions(q_vals, valid_actions):
@@ -76,7 +80,7 @@ def get_greedy_actions(q_vals, valid_actions):
     return jnp.argmax(q_vals, axis=-1)
 
 
-def make_train(config, env, env_params, test_env_params):
+def make_train(config, env, eval_env, env_params, test_env_params):
     config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
 
     eps_scheduler = optax.linear_schedule(
@@ -395,13 +399,16 @@ def make_train(config, env, env_params, test_env_params):
             # update the test metrics
             if config.get("TEST_DURING_TRAINING", True):
                 rng, _rng = jax.random.split(rng)
-                test_state = jax.lax.cond(
-                    train_state.n_updates % int(config["NUM_UPDATES"] * config["TEST_INTERVAL"])
-                    == 0,
-                    lambda _: get_greedy_metrics(_rng, train_state),
-                    lambda _: test_state,
-                    operand=None,
-                )
+                if config["TEST_INTERVAL"] is not None:
+                    test_state = jax.lax.cond(
+                        train_state.n_updates % int(config["NUM_UPDATES"] * config["TEST_INTERVAL"])
+                        == 0,
+                        lambda _: get_greedy_metrics(_rng, train_state),
+                        lambda _: test_state,
+                        operand=None,
+                    )
+                else:
+                    test_state = get_greedy_metrics(_rng, train_state)
                 metrics.update({"test_" + k: v for k, v in test_state.items()})
 
             def callback(metric, init_rng):
@@ -430,7 +437,7 @@ def make_train(config, env, env_params, test_env_params):
                 rng, key_s = jax.random.split(rng)
                 _obs = batchify(last_obs)[:, np.newaxis]
                 _dones = batchify(last_dones)[:, np.newaxis]
-                hstate, q_vals = jax.vmap(network.apply, in_axes=(None, 0, 0, 0))(
+                next_hstate, q_vals = jax.vmap(network.apply, in_axes=(None, 0, 0, 0))(
                     params,
                     hstate,
                     _obs,
@@ -440,14 +447,23 @@ def make_train(config, env, env_params, test_env_params):
                 valid_actions = jax.vmap(env.get_avail_actions)(env_state)
                 actions = get_greedy_actions(q_vals, batchify(valid_actions))
                 actions = unbatchify(actions)
-                obs, env_state, rewards, dones, infos = jax.vmap(env.step, in_axes=(0, 0, 0, 0))(
+                obs, next_env_state, rewards, dones, infos = jax.vmap(
+                    env.step, in_axes=(0, 0, 0, 0)
+                )(
                     jax.random.split(key_s, config["TEST_NUM_ENVS"]),
                     env_state,
                     actions,
                     test_env_params,
                 )
-                step_state = (params, env_state, obs, dones, hstate, rng)
-                return step_state, (rewards, dones, infos)
+                timestep = Timestep(
+                    obs=last_obs,
+                    actions=actions,
+                    rewards=jax.tree.map(lambda x: config.get("REW_SCALE", 1) * x, rewards),
+                    dones=last_dones,
+                    avail_actions=valid_actions,
+                )
+                step_state = (params, next_env_state, obs, dones, next_hstate, rng)
+                return step_state, (timestep, env_state, q_vals, hstate)
 
             rng, _rng = jax.random.split(rng)
             init_obs, env_state = jax.vmap(env.reset, in_axes=(0, 0))(
@@ -469,10 +485,93 @@ def make_train(config, env, env_params, test_env_params):
                 hstate,
                 _rng,
             )
-            step_state, (rewards, dones, infos) = jax.lax.scan(
-                _greedy_env_step, step_state, None, config["TEST_NUM_STEPS"]
+            step_state, (timestep, stacked_env_state, stacked_q_vals, stacked_hstate) = (
+                jax.lax.scan(_greedy_env_step, step_state, None, config["TEST_NUM_STEPS"])
             )
+
+            def timestep_sample(array, idx, axis=1):
+                return jax.vmap(lambda idx, num: jnp.take(array[idx], num, axis=axis), in_axes=0)(
+                    idx, jnp.arange(config["TEST_NUM_ENVS"])
+                )
+
+            rng, _rng = jax.random.split(rng, 2)
+            timestep_idx = jax.random.randint(
+                _rng, (config["TEST_NUM_ENVS"],), 0, config["TEST_NUM_STEPS"]
+            )
+            value_eval_env_params = jax.tree.map(
+                partial(timestep_sample, idx=timestep_idx, axis=0), stacked_env_state
+            )
+
+            eval_hstate = timestep_sample(stacked_hstate, timestep_idx, axis=1).swapaxes(0, 1)
+            estimated_q = timestep_sample(stacked_q_vals.max(axis=-1), timestep_idx, axis=1)
+            eval_obsv = jax.vmap(env.get_obs)(value_eval_env_params["state"])
+            eval_obsv = env.filter_obs(eval_obsv)
+
+            def _eval_step(step_state, unused):
+                params, env_state, last_obs, last_dones, hstate, rng, all_done, returns = step_state
+                rng, key_s = jax.random.split(rng)
+                _obs = batchify(last_obs)[:, np.newaxis]
+                _dones = batchify(last_dones)[:, np.newaxis]
+                hstate, q_vals = jax.vmap(network.apply, in_axes=(None, 0, 0, 0))(
+                    params,
+                    hstate,
+                    _obs,
+                    _dones,
+                )
+                q_vals = q_vals.squeeze(axis=1)
+                valid_actions = jax.vmap(eval_env.get_avail_actions)(env_state)
+                actions = get_greedy_actions(q_vals, batchify(valid_actions))
+                actions = unbatchify(actions)
+                obs, env_state, rewards, dones, infos = jax.vmap(eval_env.step, in_axes=(0, 0, 0))(
+                    jax.random.split(key_s, config["TEST_NUM_ENVS"]),
+                    env_state,
+                    actions,
+                )
+                step_state = (
+                    params,
+                    env_state,
+                    obs,
+                    dones,
+                    hstate,
+                    rng,
+                    dones["__all__"],
+                    jnp.where(all_done, returns, returns * config["GAMMA"] + rewards["__all__"]),
+                )
+                return step_state, None
+
+            def mc_value_estimate(rng):
+                eval_runner_state = (
+                    train_state.params,
+                    value_eval_env_params,
+                    eval_obsv,
+                    init_dones,
+                    eval_hstate,
+                    rng,
+                    jnp.zeros((config["TEST_NUM_ENVS"]), dtype=bool),
+                    jnp.zeros((config["TEST_NUM_ENVS"]), dtype=float),
+                )
+                eval_runner_state, _ = jax.lax.scan(
+                    _eval_step, eval_runner_state, None, env.max_episode_steps
+                )
+                return eval_runner_state[-1]
+
+            mc_returns = jax.vmap(mc_value_estimate)(
+                jax.random.split(rng, config["VALUE_EVAL_NUM_ENVS"])
+            )
+            mc_returns = mc_returns.mean(axis=0)[..., None]
+            dones = jax.vmap(batchify)(timestep.dones)
+            dones = timestep_sample(dones, timestep_idx, axis=1)
+            all_dones = timestep_sample(timestep.dones["__all__"], timestep_idx, axis=0)
+            error_target = ~dones | all_dones[:, None]
+            estimated_value = jnp.sum(error_target * estimated_q) / jnp.sum(error_target)
+            value_error = (
+                error_target * jnp.abs(estimated_q - mc_returns.mean(axis=0)[:, None])
+            ).sum() / error_target.sum()
+
             metrics = get_battle_metric(env, step_state[1])
+            metrics["value_error"] = value_error
+            metrics["mc_returns"] = mc_returns.mean()
+            metrics["estimated_q"] = estimated_value.mean()
             return metrics
 
         rng, _rng = jax.random.split(rng)
@@ -523,7 +622,13 @@ def main(config):
     env = TABSEnemyHeuristicWrapper(env)
     env = TABSAutoResetWrapper(env)
 
-    train_fn = jax.jit(make_train(config.__dict__, env, train_env_params, test_env_params))
+    eval_env = TABS(cfg=tabs_config, world_state_type=config.WORLD_STATE_TYPE)
+    eval_env = TABSLogWrapper(eval_env, reset_when_done=False)
+    eval_env = TABSEnemyHeuristicWrapper(eval_env)
+
+    train_fn = jax.jit(
+        make_train(config.__dict__, env, eval_env, train_env_params, test_env_params)
+    )
     with jax.disable_jit(False):
         if isinstance(config.SEED, int):
             result = train_fn(jax.random.key(config.SEED))

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from dataclasses import dataclass
+from functools import partial
 from typing import Literal, NamedTuple, Tuple
 
 import jax
@@ -13,6 +14,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tyro
+from flax import struct
 from flax.training.train_state import TrainState
 
 import wandb
@@ -76,6 +78,15 @@ class Config:
     PROJECT_NAME: str = "ippo_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
+    VALUE_EVAL_NUM_ENVS: int | None = 128
+
+
+@struct.dataclass
+class EvaluateState:
+    dones: jnp.ndarray
+    global_dones: jnp.ndarray
+    value: jnp.ndarray
+    hstates: jnp.ndarray
 
 
 def make_train(config):
@@ -89,6 +100,10 @@ def make_train(config):
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
     env = TABSAutoResetWrapper(env)
+
+    eval_env = TABS(cfg=tabs_config, world_state_type=config["WORLD_STATE_TYPE"])
+    eval_env = TABSLogWrapper(eval_env, reset_when_done=False)
+    eval_env = TABSEnemyHeuristicWrapper(eval_env)
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
     config["MINIBATCH_SIZE"] = (
@@ -153,7 +168,7 @@ def make_train(config):
                 )
                 obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
                 ac_in = (obs_batch[np.newaxis, :], last_done[np.newaxis, :], avail_actions)
-                hstate, pi, value = network.apply(train_state.params, hstate, ac_in)
+                next_hstate, pi, value = network.apply(train_state.params, hstate, ac_in)
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
                 env_act = unbatchify(action, env.agents, config["NUM_ENVS"], env.num_agents)
@@ -162,7 +177,7 @@ def make_train(config):
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
                 rng_step = jax.random.split(_rng, config["NUM_ENVS"])
-                obsv, env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, 0))(
+                obsv, next_env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, 0))(
                     rng_step, env_state, env_act, env_params
                 )
                 # info = jax.tree.map(lambda x: x.reshape((config["NUM_ACTORS"])), info)
@@ -178,11 +193,11 @@ def make_train(config):
                     info,
                     avail_actions,
                 )
-                runner_state = (train_state, env_state, obsv, done_batch, hstate, rng)
-                return runner_state, transition
+                runner_state = (train_state, next_env_state, obsv, done_batch, next_hstate, rng)
+                return runner_state, (transition, env_state, hstate)
 
             initial_hstate = runner_state[-2]
-            runner_state, traj_batch = jax.lax.scan(
+            runner_state, (traj_batch, stacked_env_state, stacked_hstate) = jax.lax.scan(
                 _env_step, runner_state, None, config["NUM_STEPS"]
             )
 
@@ -220,6 +235,111 @@ def make_train(config):
                 return advantages, advantages + traj_batch.value
 
             advantages, targets = _calculate_gae(traj_batch, last_val)
+
+            if config["VALUE_EVAL_NUM_ENVS"] is not None:
+                evaluate_state = jax.tree.map(
+                    lambda x: x.reshape(
+                        (config["NUM_STEPS"], env.num_agents, config["NUM_ENVS"], -1)
+                    ).squeeze(),
+                    EvaluateState(
+                        dones=traj_batch.done,
+                        global_dones=traj_batch.global_done,
+                        value=traj_batch.value,
+                        hstates=stacked_hstate,
+                    ),
+                )
+
+                def timestep_sample(array, idx, axis=1):
+                    return jax.vmap(
+                        lambda idx, num: jnp.take(array[idx], num, axis=axis), in_axes=0
+                    )(idx, jnp.arange(config["NUM_ENVS"]))
+
+                rng, _rng = jax.random.split(rng, 2)
+                timestep_idx = jax.random.randint(
+                    _rng, (config["NUM_ENVS"],), 0, config["NUM_STEPS"]
+                )
+                evaluate_state = jax.tree.map(
+                    partial(timestep_sample, idx=timestep_idx), evaluate_state
+                )
+                value_eval_env_params = jax.tree.map(
+                    partial(timestep_sample, idx=timestep_idx, axis=0), stacked_env_state
+                )
+
+                def _eval_step(runner_state, unused):
+                    train_state, env_state, last_obs, last_done, hstate, rng, all_done, returns = (
+                        runner_state
+                    )
+
+                    # SELECT ACTION
+                    rng, _rng = jax.random.split(rng)
+                    avail_actions = jax.vmap(eval_env.get_avail_actions)(env_state)
+                    avail_actions = jax.lax.stop_gradient(
+                        batchify(avail_actions, eval_env.agents, config["NUM_ACTORS"])
+                    )
+                    obs_batch = batchify(last_obs, eval_env.agents, config["NUM_ACTORS"])
+                    ac_in = (
+                        obs_batch[np.newaxis, :],
+                        last_done[np.newaxis, :],
+                        avail_actions,
+                    )
+                    next_hstate, pi, value = network.apply(train_state.params, hstate, ac_in)
+                    action = pi.sample(seed=_rng)
+                    env_act = unbatchify(
+                        action, eval_env.agents, config["NUM_ENVS"], eval_env.num_agents
+                    )
+                    env_act = {k: v.squeeze() for k, v in env_act.items()}
+
+                    # STEP ENV
+                    rng, _rng = jax.random.split(rng)
+                    rng_step = jax.random.split(_rng, config["NUM_ENVS"])
+                    obsv, next_env_state, reward, done, info = jax.vmap(
+                        eval_env.step, in_axes=(0, 0, 0)
+                    )(rng_step, env_state, env_act)
+                    # info = jax.tree.map(lambda x: x.reshape((config["NUM_ACTORS"])), info)
+                    done_batch = batchify(done, eval_env.agents, config["NUM_ACTORS"]).squeeze()
+
+                    runner_state = (
+                        train_state,
+                        next_env_state,
+                        obsv,
+                        done_batch,
+                        next_hstate,
+                        rng,
+                        done["__all__"],
+                        jnp.where(all_done, returns, returns * config["GAMMA"] + reward["__all__"]),
+                    )
+                    return runner_state, None
+
+                eval_obsv = jax.vmap(env.get_obs)(value_eval_env_params["state"])
+                eval_obsv = eval_env.filter_obs(eval_obsv)
+
+                def mc_value_estimate(rng):
+                    eval_runner_state = (
+                        train_state,
+                        value_eval_env_params,
+                        eval_obsv,
+                        jnp.zeros((config["NUM_ACTORS"]), dtype=bool),
+                        evaluate_state.hstates.reshape(-1, config["GRU_HIDDEN_DIM"]),
+                        rng,
+                        jnp.zeros((config["NUM_ENVS"]), dtype=bool),
+                        jnp.zeros((config["NUM_ENVS"]), dtype=float),
+                    )
+                    eval_runner_state, _ = jax.lax.scan(
+                        _eval_step, eval_runner_state, None, env.max_episode_steps
+                    )
+                    return eval_runner_state[-1]
+
+                mc_values = jax.vmap(mc_value_estimate)(
+                    jax.random.split(rng, config["VALUE_EVAL_NUM_ENVS"])
+                )
+
+                error_target = ~evaluate_state.dones | evaluate_state.global_dones[:, 0:1]
+                estimated_value = jnp.sum(error_target * evaluate_state.value) / jnp.sum(
+                    error_target
+                )
+                value_error = (
+                    error_target * jnp.abs(evaluate_state.value - mc_values.mean(axis=0)[:, None])
+                ).sum() / error_target.sum()
 
             # UPDATE NETWORK
             def _update_epoch(update_state, unused):
@@ -331,6 +451,10 @@ def make_train(config):
             )
             train_state = update_state[0]
             metric = get_battle_metric(env, env_state)
+            if config["VALUE_EVAL_NUM_ENVS"] is not None:
+                metric["value_error"] = value_error
+                metric["mc_values"] = mc_values.mean()
+                metric["eval_value"] = estimated_value.mean()
             ratio_0 = loss_info[1][3].at[0, 0].get().mean()
             loss_info = jax.tree.map(lambda x: x.mean(), loss_info)
             metric["loss"] = {
