@@ -2,6 +2,8 @@
 Based on JaxMARL Implementation of MAPPO and JaxUED Implementation of PLR
 """
 
+import hashlib
+import json
 import os
 from dataclasses import dataclass
 from enum import IntEnum
@@ -24,7 +26,13 @@ from src.baseline.ued.level_generator import level_generator, mutate_level_gener
 from src.baseline.ued.level_sampler import LevelSampler
 from src.baseline.ued.scores import compute_max_returns, max_mc, positive_value_loss
 from src.baseline.ued.utils import get_evaluation_heuristic_params, get_evaluation_scenarios
-from src.baseline.utils import batchify, get_battle_metric, save_params, unbatchify
+from src.baseline.utils import (
+    batchify,
+    dataclass_to_dict,
+    get_battle_metric,
+    save_params,
+    unbatchify,
+)
 from src.tabs import TABS, build_batched_env_params_and_config
 from src.tabs.scenarios.constants import CHALLENGES
 from src.tabs.utils import Transition
@@ -54,12 +62,13 @@ class Config:
     MAX_GRAD_NORM: float = 0.25
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
+    LN_EPS: float = 1e-6
     # Env
     SCENARIO: str = "1F1M3A1Hvs2F1S1K1A1H_2L"
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
     FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
-    WORLD_STATE_TYPE: Literal["concat", "global"] = "concat"
+    WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # PLR
     SCORE_FUNC: str = "MaxMC"  # MaxMC, pvl
     EXPLORATORY_GRAD_UPDATES: bool = False  # False if Robust PLR or ACCEL
@@ -79,6 +88,7 @@ class Config:
     NUM_EVAL: int = 10  # The number of episodes to evaluate
     # Misc.
     SEED: int | Tuple[int, ...] = 0
+    ALGORITHM: str = "robust_plr_mappo"  # for distinguishing wandb runs
     PROJECT_NAME: str = "plr_mappo_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
@@ -289,11 +299,7 @@ def make_train(config):
                     batchify(avail_actions, env.agents, config["NUM_ACTORS"])
                 )
                 obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
-                ac_in = (
-                    obs_batch[np.newaxis, :],
-                    last_done[np.newaxis, :],
-                    avail_actions,
-                )
+                ac_in = (obs_batch[np.newaxis, :], last_done[np.newaxis, :], avail_actions)
                 ac_hstate, pi = actor_network.apply(train_states[0].params, hstates[0], ac_in)
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
@@ -303,13 +309,10 @@ def make_train(config):
                 # VALUE
                 # world_state is (num_envs, world_state_size)
                 # repeat for each agent to get (num_actors, world_state_size)
-                world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-                world_state = jnp.repeat(world_state, env.num_agents, axis=0)  # (NUM_ACTORS, 280)
+                world_state = last_obs["world_state"]
+                world_state = jnp.tile(world_state, (env.num_agents, 1))
 
-                cr_in = (
-                    world_state[None, :],
-                    last_done[np.newaxis, :],
-                )
+                cr_in = (world_state[None, :], last_done[np.newaxis, :])
                 cr_hstate, value = critic_network.apply(train_states[1].params, hstates[1], cr_in)
 
                 # STEP ENV
@@ -354,14 +357,9 @@ def make_train(config):
                     update_grad: bool = True,
                 ):
                     def _update_epoch_fn(update_state, unused):
-                        (
-                            train_states,
-                            init_hstates,
-                            traj_batch,
-                            advantages,
-                            targets,
-                            rng,
-                        ) = update_state
+                        (train_states, init_hstates, traj_batch, advantages, targets, rng) = (
+                            update_state
+                        )
 
                         def _update_minbatch(train_states, batch_info):
                             actor_train_state, critic_train_state = train_states
@@ -555,14 +553,9 @@ def make_train(config):
                         runner_state
                     )
 
-                    last_world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-                    last_world_state = jnp.repeat(
-                        last_world_state, env.num_agents, axis=0
-                    )  # (NUM_ACTORS, 280)
-                    cr_in = (
-                        last_world_state[None, :],
-                        last_done[np.newaxis, :],
-                    )
+                    last_world_state = last_obs["world_state"]
+                    last_world_state = jnp.tile(last_world_state, (env.num_agents, 1))
+                    cr_in = (last_world_state[None, :], last_done[np.newaxis, :])
                     _, last_val = critic_network.apply(train_states[1].params, hstates[1], cr_in)
                     last_val = last_val.squeeze()
 
@@ -650,14 +643,9 @@ def make_train(config):
                         runner_state
                     )
 
-                    last_world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-                    last_world_state = jnp.repeat(
-                        last_world_state, env.num_agents, axis=0
-                    )  # (NUM_ACTORS, 280)
-                    cr_in = (
-                        last_world_state[None, :],
-                        last_done[np.newaxis, :],
-                    )
+                    last_world_state = last_obs["world_state"]
+                    last_world_state = jnp.tile(last_world_state, (env.num_agents, 1))
+                    cr_in = (last_world_state[None, :], last_done[np.newaxis, :])
                     _, last_val = critic_network.apply(train_states[1].params, hstates[1], cr_in)
                     last_val = last_val.squeeze()
 
@@ -752,14 +740,9 @@ def make_train(config):
                         runner_state
                     )
 
-                    last_world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-                    last_world_state = jnp.repeat(
-                        last_world_state, env.num_agents, axis=0
-                    )  # (NUM_ACTORS, 280)
-                    cr_in = (
-                        last_world_state[None, :],
-                        last_done[np.newaxis, :],
-                    )
+                    last_world_state = last_obs["world_state"]
+                    last_world_state = jnp.tile(last_world_state, (env.num_agents, 1))
+                    cr_in = (last_world_state[None, :], last_done[np.newaxis, :])
                     _, last_val = critic_network.apply(train_states[1].params, hstates[1], cr_in)
                     last_val = last_val.squeeze()
 
@@ -880,11 +863,7 @@ def make_train(config):
                         batchify(avail_actions, eval_env.agents, BATCH_ACTORS)
                     )
                     obs_batch = batchify(last_obs, eval_env.agents, BATCH_ACTORS)
-                    ac_in = (
-                        obs_batch[np.newaxis, :],
-                        last_done[np.newaxis, :],
-                        avail_actions,
-                    )
+                    ac_in = (obs_batch[np.newaxis, :], last_done[np.newaxis, :], avail_actions)
                     ac_hstate, pi = actor_network.apply(actor_train_state.params, ac_hstate, ac_in)
                     action = pi.sample(seed=_rng)
                     env_act = unbatchify(action, eval_env.agents, BATCH_SIZE, eval_env.num_agents)
@@ -963,10 +942,27 @@ def make_train(config):
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
+    config_dict = dataclass_to_dict(config)
+    config_json = json.dumps(config_dict, sort_keys=True)
+    config_hash = hashlib.md5(config_json.encode()).hexdigest()[:8]
+    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME, config_hash)
+    os.makedirs(save_path, exist_ok=True)
+
+    # Save config to logs directory
+    with open(os.path.join(save_path, "config.json"), "w") as f:
+        json.dump(config_dict, f, indent=2)
+
     if config.SCENARIO in CHALLENGES:
         raise ValueError(f"{config.SCENARIO} is not supported in the UED setting.")
 
-    wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
+    if config.USE_ACCEL:
+        config.ALGORITHM = "accel_mappo"
+    elif config.EXPLORATORY_GRAD_UPDATES:
+        config.ALGORITHM = "plr_mappo"
+
+    wandb.init(
+        project=config.PROJECT_NAME, mode="online", config=config_dict | {"HASH": config_hash}
+    )
     train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
         if isinstance(config.SEED, int):
@@ -975,13 +971,8 @@ if __name__ == "__main__":
             result = jax.vmap(train_fn)(jax.vmap(jax.random.key)(jnp.array(config.SEED)))
 
     # Save trained model
-    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME)
-    os.makedirs(save_path, exist_ok=True)
     runner_state = result["runner_state"][0]
     save_params(
         runner_state[0][0].params,
-        os.path.join(
-            save_path,
-            f"{config.SCENARIO}_seed{config.SEED}_actor.safetensors",
-        ),
+        os.path.join(save_path, f"{config.SCENARIO}_seed{config.SEED}_actor.safetensors"),
     )

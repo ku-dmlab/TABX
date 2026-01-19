@@ -1,4 +1,5 @@
 import os
+from dataclasses import asdict, is_dataclass
 from typing import Any, Dict, Union
 
 import chex
@@ -128,3 +129,23 @@ def save_params(params: Dict, filename: Union[str, os.PathLike]) -> None:
 def load_params(filename: Union[str, os.PathLike]) -> Dict:
     flattened_dict = load_file(filename)
     return unflatten_dict(flattened_dict, sep=",")
+
+
+def dataclass_to_dict(obj):
+    """Convert dataclass object to a complete dictionary, filtering private attributes."""
+
+    def _convert(item):
+        if is_dataclass(item):
+            return _convert(asdict(item))
+        elif isinstance(item, dict):
+            return {k: _convert(v) for k, v in item.items()}
+        elif isinstance(item, (list, tuple)):
+            return [_convert(element) for element in item]
+        else:
+            return item
+
+    result = _convert(obj)
+    # Filter out private attributes (starting with _)
+    if isinstance(result, dict):
+        return {k: v for k, v in result.items() if not k.startswith("_")}
+    return result

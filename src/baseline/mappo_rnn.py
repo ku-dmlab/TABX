@@ -2,6 +2,8 @@
 Based on JaxMARL Implementation of MAPPO
 """
 
+import hashlib
+import json
 import os
 from dataclasses import dataclass
 from functools import partial
@@ -17,7 +19,13 @@ from flax.training.train_state import TrainState
 
 import wandb
 from src.baseline.layers import ActorRNN, CriticRNN, ScannedRNN
-from src.baseline.utils import batchify, get_battle_metric, save_params, unbatchify
+from src.baseline.utils import (
+    batchify,
+    dataclass_to_dict,
+    get_battle_metric,
+    save_params,
+    unbatchify,
+)
 from src.tabs import TABS, build_batched_env_params_and_config
 from src.tabs.utils import Transition
 from src.tabs.wrappers.wrappers import (
@@ -46,13 +54,15 @@ class Config:
     MAX_GRAD_NORM: float = 0.25
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
+    LN_EPS: float = 1e-6
     # Env
     SCENARIO: str = "elbow"
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
-    WORLD_STATE_TYPE: Literal["concat", "global"] = "concat"
+    WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # Misc.
     SEED: int | Tuple[int, ...] = 0
+    ALGORITHM: str = "mappo"  # for distinguishing wandb runs
     PROJECT_NAME: str = "mappo_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
@@ -116,13 +126,7 @@ def make_train(config):
         ac_init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])
         actor_network_params = actor_network.init(_rng_actor, ac_init_hstate, ac_init_x)
         cr_init_x = (
-            jnp.zeros(
-                (
-                    1,
-                    config["NUM_ENVS"],
-                    env.world_state_size(),
-                )
-            ),
+            jnp.zeros((1, config["NUM_ENVS"], env.world_state_size())),
             jnp.zeros((1, config["NUM_ENVS"])),
         )
         cr_init_hstate = ScannedRNN.initialize_carry(config["NUM_ENVS"], config["GRU_HIDDEN_DIM"])
@@ -180,11 +184,7 @@ def make_train(config):
                     batchify(avail_actions, env.agents, config["NUM_ACTORS"])
                 )
                 obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
-                ac_in = (
-                    obs_batch[np.newaxis, :],
-                    last_done[np.newaxis, :],
-                    avail_actions,
-                )
+                ac_in = (obs_batch[np.newaxis, :], last_done[np.newaxis, :], avail_actions)
                 # print('env step ac in', ac_in)
                 ac_hstate, pi = actor_network.apply(train_states[0].params, hstates[0], ac_in)
                 action = pi.sample(seed=_rng)
@@ -198,10 +198,7 @@ def make_train(config):
                 world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
                 world_state = jnp.tile(world_state, (env.num_agents, 1))  # (NUM_ACTORS, 280)
 
-                cr_in = (
-                    world_state[None, :],
-                    last_done[np.newaxis, :],
-                )
+                cr_in = (world_state[None, :], last_done[np.newaxis, :])
                 cr_hstate, value = critic_network.apply(train_states[1].params, hstates[1], cr_in)
 
                 # STEP ENV
@@ -496,14 +493,7 @@ def make_train(config):
 
                     return (actor_train_state, critic_train_state), loss_info
 
-                (
-                    train_states,
-                    init_hstates,
-                    traj_batch,
-                    advantages,
-                    targets,
-                    rng,
-                ) = update_state
+                (train_states, init_hstates, traj_batch, advantages, targets, rng) = update_state
                 rng, _rng = jax.random.split(rng)
 
                 init_hstates = jax.tree.map(
@@ -545,14 +535,7 @@ def make_train(config):
                 )
                 return update_state, loss_info
 
-            update_state = (
-                train_states,
-                initial_hstates,
-                traj_batch,
-                advantages,
-                targets,
-                rng,
-            )
+            update_state = (train_states, initial_hstates, traj_batch, advantages, targets, rng)
             update_state, loss_info = jax.lax.scan(
                 _update_epoch, update_state, None, config["UPDATE_EPOCHS"]
             )
@@ -607,7 +590,19 @@ def make_train(config):
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
-    wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
+    config_dict = dataclass_to_dict(config)
+    config_json = json.dumps(config_dict, sort_keys=True)
+    config_hash = hashlib.md5(config_json.encode()).hexdigest()[:8]
+    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME, config_hash)
+    os.makedirs(save_path, exist_ok=True)
+
+    # Save config to logs directory
+    with open(os.path.join(save_path, "config.json"), "w") as f:
+        json.dump(config_dict, f, indent=2)
+
+    wandb.init(
+        project=config.PROJECT_NAME, mode="online", config=config_dict | {"HASH": config_hash}
+    )
     train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
         if isinstance(config.SEED, int):
@@ -616,15 +611,10 @@ if __name__ == "__main__":
             result = jax.vmap(train_fn)(jax.vmap(jax.random.key)(jnp.array(config.SEED)))
 
     # Save trained model
-    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME)
-    os.makedirs(save_path, exist_ok=True)
     runner_state = result["runner_state"][0]
     save_params(
         runner_state[0][0].params,
-        os.path.join(
-            save_path,
-            f"{config.SCENARIO}_seed{config.SEED}_actor.safetensors",
-        ),
+        os.path.join(save_path, f"{config.SCENARIO}_seed{config.SEED}_actor.safetensors"),
     )
     if isinstance(config.SEED, tuple):
         runner_state = jax.tree.map(lambda x: x[0], runner_state)

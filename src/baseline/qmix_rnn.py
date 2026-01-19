@@ -2,6 +2,8 @@
 Based on JaxMARL Implementation of QMIX
 """
 
+import hashlib
+import json
 import os
 from dataclasses import dataclass
 from functools import partial
@@ -16,7 +18,13 @@ import tyro
 
 import wandb
 from src.baseline.layers import MixingNetwork, QScannedRNN, RNNQNetwork
-from src.baseline.utils import CustomTrainState, Timestep, get_battle_metric, save_params
+from src.baseline.utils import (
+    CustomTrainState,
+    Timestep,
+    dataclass_to_dict,
+    get_battle_metric,
+    save_params,
+)
 from src.tabs import TABS, build_batched_env_params_and_config
 from src.tabs.wrappers.wrappers import (
     TABSAutoResetWrapper,
@@ -47,7 +55,8 @@ class Config:
     LEARNING_STARTS: int = 10000  # timesteps
     LR_LINEAR_DECAY: bool = False
     GAMMA: float = 0.99
-    REW_SCALE: float = 10.0  # scale the reward to the original scale of SMAC
+    LN_EPS: float = 1e-6
+    REW_SCALE: float = 10.0  # scale the reward to the original scale of TABS
     TEST_DURING_TRAINING: bool = True
     TEST_INTERVAL: float | None = (
         None  # as a fraction of updates, i.e. log every 5% of training process
@@ -58,9 +67,10 @@ class Config:
     SCENARIO: str = "elbow"
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
-    WORLD_STATE_TYPE: Literal["concat", "global"] = "concat"
+    WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # Misc.
     SEED: int | Tuple[int, ...] = 0
+    ALGORITHM: str = "qmix"  # for distinguishing wandb runs
     PROJECT_NAME: str = "qmix_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
@@ -155,12 +165,14 @@ def make_train(config, env, eval_env, env_params, test_env_params):
         network = RNNQNetwork(
             action_dim=env.action_space(env.agents[0]).n,
             hidden_dim=config["HIDDEN_SIZE"],
+            ln_eps=config["LN_EPS"],
         )
 
         mixer = MixingNetwork(
-            config["MIXER_EMBEDDING_DIM"],
-            config["MIXER_HYPERNET_HIDDEN_DIM"],
-            config["MIXER_INIT_SCALE"],
+            embedding_dim=config["MIXER_EMBEDDING_DIM"],
+            hypernet_hidden_dim=config["MIXER_HYPERNET_HIDDEN_DIM"],
+            init_scale=config["MIXER_INIT_SCALE"],
+            ln_eps=config["LN_EPS"],
         )
 
         def create_agent(rng):
@@ -237,10 +249,7 @@ def make_train(config, env, eval_env, env_params, test_env_params):
                 new_hs, q_vals = jax.vmap(
                     network.apply, in_axes=(None, 0, 0, 0)
                 )(  # vmap across the agent dim
-                    train_state.params["agent"],
-                    hs,
-                    _obs,
-                    _dones,
+                    train_state.params["agent"], hs, _obs, _dones
                 )
                 q_vals = q_vals.squeeze(
                     axis=1
@@ -283,10 +292,7 @@ def make_train(config, env, eval_env, env_params, test_env_params):
             expl_state = (init_hs, init_obs, init_dones, env_state)
             rng, _rng = jax.random.split(rng)
             (_, _, _, last_state, _), (timesteps, infos) = jax.lax.scan(
-                _step_env,
-                (*expl_state, _rng),
-                None,
-                config["NUM_STEPS"],
+                _step_env, (*expl_state, _rng), None, config["NUM_STEPS"]
             )
 
             train_state = train_state.replace(
@@ -316,9 +322,7 @@ def make_train(config, env, eval_env, env_params, test_env_params):
 
                 # preprocess network input
                 init_hs = QScannedRNN.initialize_carry(
-                    config["HIDDEN_SIZE"],
-                    len(env.agents),
-                    config["BUFFER_BATCH_SIZE"],
+                    config["HIDDEN_SIZE"], len(env.agents), config["BUFFER_BATCH_SIZE"]
                 )
                 # num_agents, timesteps, batch_size, ...
                 _obs = batchify(minibatch.obs)
@@ -328,25 +332,17 @@ def make_train(config, env, eval_env, env_params, test_env_params):
                 _avail_actions = batchify(minibatch.avail_actions)
 
                 _, q_next_target = jax.vmap(network.apply, in_axes=(None, 0, 0, 0))(
-                    train_state.target_network_params["agent"],
-                    init_hs,
-                    _obs,
-                    _dones,
+                    train_state.target_network_params["agent"], init_hs, _obs, _dones
                 )  # (num_agents, timesteps, batch_size, num_actions)
 
                 def _loss_fn(params):
                     _, q_vals = jax.vmap(network.apply, in_axes=(None, 0, 0, 0))(
-                        params["agent"],
-                        init_hs,
-                        _obs,
-                        _dones,
+                        params["agent"], init_hs, _obs, _dones
                     )  # (num_agents, timesteps, batch_size, num_actions)
 
                     # get logits of the chosen actions
                     chosen_action_q_vals = jnp.take_along_axis(
-                        q_vals,
-                        _actions[..., np.newaxis],
-                        axis=-1,
+                        q_vals, _actions[..., np.newaxis], axis=-1
                     ).squeeze(-1)  # (num_agents, timesteps, batch_size,)
 
                     unavailable_actions = 1 - _avail_actions
@@ -354,9 +350,7 @@ def make_train(config, env, eval_env, env_params, test_env_params):
 
                     # get the q values of the next state
                     q_next = jnp.take_along_axis(
-                        q_next_target,
-                        jnp.argmax(valid_q_vals, axis=-1)[..., np.newaxis],
-                        axis=-1,
+                        q_next_target, jnp.argmax(valid_q_vals, axis=-1)[..., np.newaxis], axis=-1
                     ).squeeze(-1)  # (num_agents, timesteps, batch_size,)
 
                     qmix_next = mixer.apply(
@@ -374,9 +368,7 @@ def make_train(config, env, eval_env, env_params, test_env_params):
                     )
 
                     qmix = mixer.apply(
-                        params["mixer"],
-                        chosen_action_q_vals,
-                        minibatch.obs["world_state"],
+                        params["mixer"], chosen_action_q_vals, minibatch.obs["world_state"]
                     )[:-1]
                     loss = jnp.mean((qmix - jax.lax.stop_gradient(qmix_target)) ** 2)
 
@@ -386,9 +378,7 @@ def make_train(config, env, eval_env, env_params, test_env_params):
                     train_state.params
                 )
                 train_state = train_state.apply_gradients(grads=grads)
-                train_state = train_state.replace(
-                    grad_steps=train_state.grad_steps + 1,
-                )
+                train_state = train_state.replace(grad_steps=train_state.grad_steps + 1)
                 return (train_state, rng), (loss, qvals)
 
             rng, _rng = jax.random.split(rng)
@@ -402,10 +392,7 @@ def make_train(config, env, eval_env, env_params, test_env_params):
                 ),
                 lambda train_state, rng: (
                     (train_state, rng),
-                    (
-                        jnp.zeros(config["NUM_EPOCHS"]),
-                        jnp.zeros(config["NUM_EPOCHS"]),
-                    ),
+                    (jnp.zeros(config["NUM_EPOCHS"]), jnp.zeros(config["NUM_EPOCHS"])),
                 ),  # do nothing
                 train_state,
                 _rng,
@@ -479,10 +466,7 @@ def make_train(config, env, eval_env, env_params, test_env_params):
                 _obs = batchify(last_obs)[:, np.newaxis]
                 _dones = batchify(last_dones)[:, np.newaxis]
                 next_hstate, q_vals = jax.vmap(network.apply, in_axes=(None, 0, 0, 0))(
-                    params,
-                    hstate,
-                    _obs,
-                    _dones,
+                    params, hstate, _obs, _dones
                 )
                 q_vals = q_vals.squeeze(axis=1)
                 valid_actions = jax.vmap(env.get_avail_actions)(env_state)
@@ -518,16 +502,9 @@ def make_train(config, env, eval_env, env_params, test_env_params):
             hstate = QScannedRNN.initialize_carry(
                 config["HIDDEN_SIZE"], len(env.agents), config["TEST_NUM_ENVS"]
             )  # (n_agents*n_envs, hs_size)
-            step_state = (
-                params,
-                env_state,
-                init_obs,
-                init_dones,
-                hstate,
-                _rng,
-            )
-            step_state, (timestep, stacked_env_state, stacked_q_vals, stacked_hstate) = (
-                jax.lax.scan(_greedy_env_step, step_state, None, config["TEST_NUM_STEPS"])
+            step_state = (params, env_state, init_obs, init_dones, hstate, _rng)
+            step_state, (timestep, stacked_env_state, stacked_q_vals, stacked_hstate) = jax.lax.scan(
+                _greedy_env_step, step_state, None, config["TEST_NUM_STEPS"]
             )
             metrics = get_battle_metric(env, step_state[1])
 
@@ -633,7 +610,19 @@ def make_train(config, env, eval_env, env_params, test_env_params):
 
 
 def main(config):
-    wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
+    config_dict = dataclass_to_dict(config)
+    config_json = json.dumps(config_dict, sort_keys=True)
+    config_hash = hashlib.md5(config_json.encode()).hexdigest()[:8]
+    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME, config_hash)
+    os.makedirs(save_path, exist_ok=True)
+
+    # Save config to logs directory
+    with open(os.path.join(save_path, "config.json"), "w") as f:
+        json.dump(config_dict, f, indent=2)
+
+    wandb.init(
+        project=config.PROJECT_NAME, mode="online", config=config_dict | {"HASH": config_hash}
+    )
 
     train_env_params, tabs_config = build_batched_env_params_and_config(
         scenario_names=config.SCENARIO,
@@ -667,8 +656,6 @@ def main(config):
             result = jax.vmap(train_fn)(jax.vmap(jax.random.key)(jnp.array(config.SEED)))
 
     # Save trained model
-    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME)
-    os.makedirs(save_path, exist_ok=True)
     runner_state = result["runner_state"]
     save_params(
         runner_state[0].params["agent"],
@@ -706,6 +693,7 @@ def main(config):
         network = RNNQNetwork(
             action_dim=env.action_space(env.agents[0]).n,
             hidden_dim=config.HIDDEN_SIZE,
+            ln_eps=config.LN_EPS,
         )
 
         rng = jax.random.PRNGKey(config.SEED[0] if isinstance(config.SEED, tuple) else config.SEED)

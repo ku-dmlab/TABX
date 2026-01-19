@@ -2,6 +2,8 @@
 Based on JaxMARL Implementation of MAPPO
 """
 
+import hashlib
+import json
 import os
 from dataclasses import dataclass
 from functools import partial
@@ -17,7 +19,13 @@ from flax.training.train_state import TrainState
 
 import wandb
 from src.baseline.layers import ActorCriticRNN, ScannedRNN
-from src.baseline.utils import batchify, get_battle_metric, save_params, unbatchify
+from src.baseline.utils import (
+    batchify,
+    dataclass_to_dict,
+    get_battle_metric,
+    save_params,
+    unbatchify,
+)
 from src.tabs import TABS, build_batched_env_params_and_config
 from src.tabs.utils import Transition
 from src.tabs.wrappers.wrappers import (
@@ -58,13 +66,15 @@ class Config:
     MAX_GRAD_NORM: float = 0.25
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
+    LN_EPS: float = 1e-6
     # Env
     SCENARIO: str = "elbow"
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
-    WORLD_STATE_TYPE: Literal["concat", "global"] = "concat"
+    WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # Misc.
     SEED: int | Tuple[int, ...] = 0
+    ALGORITHM: str = "ippo"  # for distinguishing wandb runs
     PROJECT_NAME: str = "ippo_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
@@ -133,11 +143,7 @@ def make_train(config):
                 optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
                 optax.adam(config["LR"], eps=1e-5),
             )
-        train_state = TrainState.create(
-            apply_fn=network.apply,
-            params=network_params,
-            tx=tx,
-        )
+        train_state = TrainState.create(apply_fn=network.apply, params=network_params, tx=tx)
 
         # INIT ENV
         rng, _rng = jax.random.split(rng)
@@ -161,11 +167,7 @@ def make_train(config):
                     batchify(avail_actions, env.agents, config["NUM_ACTORS"])
                 )
                 obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
-                ac_in = (
-                    obs_batch[np.newaxis, :],
-                    last_done[np.newaxis, :],
-                    avail_actions,
-                )
+                ac_in = (obs_batch[np.newaxis, :], last_done[np.newaxis, :], avail_actions)
                 next_hstate, pi, value = network.apply(train_state.params, hstate, ac_in)
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
@@ -415,12 +417,7 @@ def make_train(config):
 
                 # adding an additional "fake" dimensionality to perform minibatching correctly
                 init_hstate = jnp.reshape(init_hstate, (1, config["NUM_ACTORS"], -1))
-                batch = (
-                    init_hstate,
-                    traj_batch,
-                    advantages.squeeze(),
-                    targets.squeeze(),
-                )
+                batch = (init_hstate, traj_batch, advantages.squeeze(), targets.squeeze())
                 permutation = jax.random.permutation(_rng, config["NUM_ACTORS"])
 
                 shuffled_batch = jax.tree.map(lambda x: jnp.take(x, permutation, axis=1), batch)
@@ -448,14 +445,7 @@ def make_train(config):
                 )
                 return update_state, total_loss
 
-            update_state = (
-                train_state,
-                initial_hstate,
-                traj_batch,
-                advantages,
-                targets,
-                rng,
-            )
+            update_state = (train_state, initial_hstate, traj_batch, advantages, targets, rng)
             update_state, loss_info = jax.lax.scan(
                 _update_epoch, update_state, None, config["UPDATE_EPOCHS"]
             )
@@ -521,23 +511,31 @@ def make_train(config):
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
-    wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
+    config_dict = dataclass_to_dict(config)
+    config_json = json.dumps(config_dict, sort_keys=True)
+    config_hash = hashlib.md5(config_json.encode()).hexdigest()[:8]
+    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME, config_hash)
+    os.makedirs(save_path, exist_ok=True)
+
+    # Save config to logs directory
+    with open(os.path.join(save_path, "config.json"), "w") as f:
+        json.dump(config_dict, f, indent=2)
+
+    wandb.init(
+        project=config.PROJECT_NAME, mode="online", config=config_dict | {"HASH": config_hash}
+    )
     train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
         if isinstance(config.SEED, int):
             result = train_fn(jax.random.key(config.SEED))
         else:
             result = jax.vmap(train_fn)(jax.vmap(jax.random.key)(jnp.array(config.SEED)))
+
     # Save trained model
-    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME)
-    os.makedirs(save_path, exist_ok=True)
     runner_state = result["runner_state"][0]
     save_params(
         runner_state[0].params,
-        os.path.join(
-            save_path,
-            f"{config.SCENARIO}_seed{config.SEED}_actor.safetensors",
-        ),
+        os.path.join(save_path, f"{config.SCENARIO}_seed{config.SEED}_actor.safetensors"),
     )
     if isinstance(config.SEED, tuple):
         runner_state = jax.tree.map(lambda x: x[0], runner_state)

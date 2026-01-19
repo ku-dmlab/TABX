@@ -12,7 +12,6 @@ dependencies = [
     "tensorflow-probability>=0.25",
     "pygame>=2.5.2",
     "uv>=0.6.6",
-    "wandb>=0.20.1",
     "ipykernel>=6.29.5",
     "matplotlib>=3.10.3",
     "easydict>=1.13",
@@ -24,6 +23,7 @@ dependencies = [
     "distrax>=0.1.5",
     "ruff>=0.14.10",
     "safetensors>=0.7.0",
+    "wandb>=0.24.0",
 ]
 
 [project.scripts]
