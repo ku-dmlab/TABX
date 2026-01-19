@@ -4,7 +4,7 @@ Based on JaxMARL Implementation of MAPPO
 
 import os
 from dataclasses import dataclass
-from typing import NamedTuple, Tuple, Literal
+from typing import Literal, NamedTuple, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -56,11 +56,12 @@ class Config:
     MAX_GRAD_NORM: float = 0.25
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
+    LN_EPS: float = 1e-6
     # Env
     SCENARIO: str = "elbow"
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
-    WORLD_STATE_TYPE: Literal["concat", "global"] = "concat"
+    WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # Misc.
     SEED: int | Tuple[int, ...] = 0
     PROJECT_NAME: str = "ippo_rnn"  # wandb project name
