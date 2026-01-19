@@ -207,8 +207,8 @@ def make_train(config):
                 # VALUE
                 # world_state is (num_envs, world_state_size)
                 # repeat for each agent to get (num_actors, world_state_size)
-                world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-                world_state = jnp.repeat(world_state, env.num_agents, axis=0)  # (NUM_ACTORS, 280)
+                world_state = last_obs["world_state"]
+                world_state = jnp.tile(world_state, (env.num_agents, 1))
 
                 cr_in = (
                     world_state[None, :],
@@ -255,10 +255,8 @@ def make_train(config):
             # CALCULATE ADVANTAGE
             train_states, env_state, last_obs, last_done, hstates, levels, rng = runner_state
 
-            last_world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-            last_world_state = jnp.repeat(
-                last_world_state, env.num_agents, axis=0
-            )  # (NUM_ACTORS, 280)
+            last_world_state = last_obs["world_state"]
+            last_world_state = jnp.tile(last_world_state, (env.num_agents, 1))
 
             cr_in = (
                 last_world_state[None, :],
