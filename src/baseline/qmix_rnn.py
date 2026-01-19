@@ -520,7 +520,9 @@ def main(config):
     with open(os.path.join(save_path, "config.json"), "w") as f:
         json.dump(config_dict, f, indent=2)
 
-    wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
+    wandb.init(
+        project=config.PROJECT_NAME, mode="online", config=config_dict | {"HASH": config_hash}
+    )
 
     train_env_params, tabs_config = build_batched_env_params_and_config(
         scenario_names=config.SCENARIO,

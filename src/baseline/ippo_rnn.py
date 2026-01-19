@@ -397,7 +397,9 @@ if __name__ == "__main__":
     with open(os.path.join(save_path, "config.json"), "w") as f:
         json.dump(config_dict, f, indent=2)
 
-    wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
+    wandb.init(
+        project=config.PROJECT_NAME, mode="online", config=config_dict | {"HASH": config_hash}
+    )
     train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
         if isinstance(config.SEED, int):

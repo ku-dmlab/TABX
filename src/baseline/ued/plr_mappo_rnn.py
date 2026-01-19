@@ -960,7 +960,9 @@ if __name__ == "__main__":
     elif config.EXPLORATORY_GRAD_UPDATES:
         config.ALGORITHM = "plr_mappo"
 
-    wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
+    wandb.init(
+        project=config.PROJECT_NAME, mode="online", config=config_dict | {"HASH": config_hash}
+    )
     train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
         if isinstance(config.SEED, int):

@@ -542,7 +542,9 @@ if __name__ == "__main__":
     if config.SCENARIO in CHALLENGES:
         raise ValueError(f"{config.SCENARIO} is not supported in the UED setting.")
 
-    wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
+    wandb.init(
+        project=config.PROJECT_NAME, mode="online", config=config_dict | {"HASH": config_hash}
+    )
     train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
         if isinstance(config.SEED, int):
