@@ -566,7 +566,9 @@ def main(config):
             return {agent: x[i] for i, agent in enumerate(env.agents)}
 
         network = RNNQNetwork(
-            action_dim=env.action_space(env.agents[0]).n, hidden_dim=config.HIDDEN_SIZE
+            action_dim=env.action_space(env.agents[0]).n,
+            hidden_dim=config.HIDDEN_SIZE,
+            ln_eps=config.LN_EPS,
         )
 
         rng = jax.random.PRNGKey(config.SEED[0] if isinstance(config.SEED, tuple) else config.SEED)
