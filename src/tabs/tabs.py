@@ -500,6 +500,8 @@ class TABS(BaseMAEnv):
         cfg: TABSConfig,
         world_state_type: str = "concat",
         max_episode_steps: int = 512,
+        win_reward: float = 1.0,
+        lose_reward: float = -1.0,
     ):
         max_n_ally = cfg.max_n_ally
         max_n_enemy = cfg.max_n_enemy
@@ -517,7 +519,8 @@ class TABS(BaseMAEnv):
         self.max_n_zone = max_n_zone
         self.max_episode_steps = max_episode_steps
         self.max_team = 2
-
+        self.win_reward = win_reward
+        self.lose_reward = lose_reward
         self.empty_state = {
             name: DefaultUnit(
                 transform=Transform(position=jnp.array([0.0, 0.0]), rotation=jnp.array([0.0])),
@@ -893,9 +896,9 @@ class TABS(BaseMAEnv):
 
         # The team with the highest hp ratio gets reward 1.0 when the episode is done or truncated
         decision_win_reward = (
-            jnp.zeros_like(team_hp_ratio)
+            jnp.full_like(team_hp_ratio, self.lose_reward)
             .at[self.max_team - 1 - jnp.argmax(team_hp_ratio[::-1])]
-            .set(1.0)
+            .set(self.win_reward)
         )
         win_reward = jnp.where(dones["__all__"], decision_win_reward, 0.0)[..., None]
         # dense reward
