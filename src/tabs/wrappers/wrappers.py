@@ -297,7 +297,7 @@ class TABSLogWrapper(BaseWrapper):
                 + new_episode_return * ep_done,
                 returned_episode_lengths=state.returned_episode_lengths * (1 - ep_done)
                 + net_epsiode_length * ep_done,
-                returned_episode_wins=info["done_reward"] * ep_done
+                returned_episode_wins=info["is_win"] * ep_done
                 + state.returned_episode_wins * (1 - ep_done),
                 first_kills=new_first_kill * (1 - ep_done),
                 cumulative_is_attackings=new_cumulative_is_attackings * (1 - ep_done),
@@ -339,7 +339,7 @@ class TABSLogWrapper(BaseWrapper):
                 episode_lengths=net_epsiode_length,
                 returned_episode_returns=new_episode_return,
                 returned_episode_lengths=net_epsiode_length,
-                returned_episode_wins=info["done_reward"].astype(jnp.float32),
+                returned_episode_wins=info["is_win"].astype(jnp.float32),
                 first_kills=new_first_kill,
                 cumulative_is_attackings=new_cumulative_is_attackings,
                 cumulative_damage_dealts=new_cumulative_damage_dealts,

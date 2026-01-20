@@ -913,6 +913,7 @@ class TABS(BaseMAEnv):
             "timestep": state["game_manager"].timestep,
             "disabled_units": is_disabled,
             "done_reward": win_reward,
+            "is_win": jnp.where(win_reward == self.lose_reward, 0.0, 1.0),
             "truncation": truncation,
             "is_attacking": is_attacking,
             "damage_dealt": damage_dealt,
