@@ -897,7 +897,7 @@ class TABS(BaseMAEnv):
         # The team with the highest hp ratio gets reward 1.0 when the episode is done or truncated
         decision_win_reward = (
             jnp.full_like(team_hp_ratio, self.lose_reward)
-            .at[self.max_team - 1 - jnp.argmax(team_hp_ratio[::-1])]
+            .at[self.max_team - 1 - jnp.argmax(jnp.round(team_hp_ratio[::-1], 4))]
             .set(self.win_reward)
         )
         win_reward = jnp.where(dones["__all__"], decision_win_reward, 0.0)[..., None]
