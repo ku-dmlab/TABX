@@ -268,3 +268,63 @@ class MixingNetwork(nn.Module):
         q_tot = jnp.matmul(hidden, w_2) + b_2
 
         return q_tot.squeeze()  # (time_steps, batch_size)
+
+
+class RNDNetwork(nn.Module):
+    hidden_dim: int
+    output_dim: int
+    num_layers: int
+
+    @nn.compact
+    def __call__(self, x):
+        for _ in range(self.num_layers):
+            x = nn.Dense(self.hidden_dim)(x)
+            x = nn.relu(x)
+
+        x = nn.Dense(self.output_dim)(x)
+
+        return x
+
+
+class RNDCriticRNN(nn.Module):
+    config: Dict
+
+    @nn.compact
+    def __call__(self, hidden, x):
+        world_state, dones = x
+
+        # Extrinsic reward
+        embedding = nn.Dense(
+            self.config["FC_DIM_SIZE"], kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+        )(world_state)
+        embedding = nn.LayerNorm(self.config["LN_EPS"])(embedding)
+        embedding = nn.relu(embedding)
+
+        rnn_in = (embedding, dones)
+        hidden, embedding = ScannedRNN()(hidden, rnn_in)
+
+        critic_e = nn.Dense(
+            self.config["GRU_HIDDEN_DIM"], kernel_init=orthogonal(2), bias_init=constant(0.0)
+        )(embedding)
+        critic_e = nn.LayerNorm(self.config["LN_EPS"])(critic_e)
+        critic_e = nn.relu(critic_e)
+        critic_e = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(critic_e)
+
+        # Intrinsic reward
+        embedding = nn.Dense(
+            self.config["FC_DIM_SIZE"], kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+        )(world_state)
+        embedding = nn.LayerNorm(self.config["LN_EPS"])(embedding)
+        embedding = nn.relu(embedding)
+
+        rnn_in = (embedding, dones)
+        hidden, embedding = ScannedRNN()(hidden, rnn_in)
+
+        critic_i = nn.Dense(
+            self.config["GRU_HIDDEN_DIM"], kernel_init=orthogonal(2), bias_init=constant(0.0)
+        )(embedding)
+        critic_i = nn.LayerNorm(self.config["LN_EPS"])(critic_i)
+        critic_i = nn.relu(critic_i)
+        critic_i = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(critic_i)
+
+        return hidden, jnp.squeeze(critic_e, axis=-1), jnp.squeeze(critic_i, axis=-1)
