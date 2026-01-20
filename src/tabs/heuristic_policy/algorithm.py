@@ -278,6 +278,18 @@ def get_discrete_action(
         rotate_action_nt,
     )
 
+    # if the visible unit may die, set the ever_visible to False.
+    rel_pos_to_last_visible_target = jnp.square(
+        parsed_obs.other.rel_pos - min_target_move_position_nt
+    ).sum(axis=-1)
+    target_idx = jnp.argmin(rel_pos_to_last_visible_target)
+    may_die = (parsed_obs.other.health[target_idx] <= 0.0) & (
+        rel_pos_to_last_visible_target[target_idx] < parsed_obs.other.radius[target_idx] ** 2
+    )
+    last_visible_target = last_visible_target.replace(
+        ever_visible=jnp.where(may_die, False, last_visible_target.ever_visible)
+    )
+
     # --------------- Calculate final action ---------------
     final_action = jnp.where(
         attackable_if_rotate
