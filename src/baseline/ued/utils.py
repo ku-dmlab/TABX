@@ -37,7 +37,7 @@ def get_evaluation_scenarios(scenario_name: str, free_param_type: List) -> List:
         return [scenario_name] + [
             (s1 + "_" + s2).replace("_void", "")
             for s1, s2 in product(EVAL_UNIT_SCENARIOS, [zone_name])
-            if enemy_comp in s1
+            if enemy_comp in s1.split("vs")[-1]
         ]
     else:  # heuristic config
         return [scenario_name]
