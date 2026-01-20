@@ -59,7 +59,8 @@ class TABSEnemyHeuristicWrapper(BaseWrapper):
         }
 
     def step(self, key, state, action):
-        obs = self.env.get_obs(state["state"])
+        obs_key, key = jax.random.split(key)
+        obs = self.env.get_obs(state["state"], obs_key)
         new_last_visible_targets = {}
         # Add enemy actions based on heuristic policy
         for unit in self.env.enemy_keys:
@@ -160,7 +161,8 @@ class TABSHeuristicWrapper(BaseWrapper):
         return target_obs, state
 
     def step(self, key, state, action):
-        obs = self.env.get_obs(state)
+        obs_key, key = jax.random.split(key)
+        obs = self.env.get_obs(state, obs_key)
         # Add enemy actions based on heuristic policy
         for unit in self.heuristic_units:
             heuristic_key, key = jax.random.split(key)

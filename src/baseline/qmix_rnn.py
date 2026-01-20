@@ -68,6 +68,8 @@ class Config:
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
     WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
+    PERMUTE_OBS: bool = False
+    PERMUTE_WORLD_STATE: bool = False
     # Misc.
     SEED: int | Tuple[int, ...] = 0
     ALGORITHM: str = "qmix"  # for distinguishing wandb runs
@@ -503,8 +505,8 @@ def make_train(config, env, eval_env, env_params, test_env_params):
                 config["HIDDEN_SIZE"], len(env.agents), config["TEST_NUM_ENVS"]
             )  # (n_agents*n_envs, hs_size)
             step_state = (params, env_state, init_obs, init_dones, hstate, _rng)
-            step_state, (timestep, stacked_env_state, stacked_q_vals, stacked_hstate) = jax.lax.scan(
-                _greedy_env_step, step_state, None, config["TEST_NUM_STEPS"]
+            step_state, (timestep, stacked_env_state, stacked_q_vals, stacked_hstate) = (
+                jax.lax.scan(_greedy_env_step, step_state, None, config["TEST_NUM_STEPS"])
             )
             metrics = get_battle_metric(env, step_state[1])
 
@@ -532,7 +534,10 @@ def make_train(config, env, eval_env, env_params, test_env_params):
             eval_hstate = timestep_sample(stacked_hstate, timestep_idx, axis=1).swapaxes(0, 1)
             estimated_q = timestep_sample(estimated_q, timestep_idx, axis=0)
 
-            eval_obsv = jax.vmap(env.get_obs)(value_eval_env_params["state"])
+            rng, _rng = jax.random.split(_rng, 2)
+            eval_obsv = jax.vmap(env.get_obs)(
+                value_eval_env_params["state"], jax.random.split(_rng, config["TEST_NUM_ENVS"])
+            )
             eval_obsv = env.filter_obs(eval_obsv)
 
             def _eval_step(step_state, unused):
@@ -637,12 +642,22 @@ def main(config):
         n_repeat=config.TEST_NUM_ENVS,
     )
 
-    env = TABS(cfg=tabs_config, world_state_type=config.WORLD_STATE_TYPE)
+    env = TABS(
+        cfg=tabs_config,
+        world_state_type=config.WORLD_STATE_TYPE,
+        permute_obs=config.PERMUTE_OBS,
+        permute_world_state=config.PERMUTE_WORLD_STATE,
+    )
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
     env = TABSAutoResetWrapper(env)
 
-    eval_env = TABS(cfg=tabs_config, world_state_type=config.WORLD_STATE_TYPE)
+    eval_env = TABS(
+        cfg=tabs_config,
+        world_state_type=config.WORLD_STATE_TYPE,
+        permute_obs=config.PERMUTE_OBS,
+        permute_world_state=config.PERMUTE_WORLD_STATE,
+    )
     eval_env = TABSLogWrapper(eval_env, reset_when_done=False)
     eval_env = TABSEnemyHeuristicWrapper(eval_env)
 
@@ -680,7 +695,11 @@ def main(config):
             n_repeat=vis_num_envs,
             squeeze_when_single_scenario=False,
         )
-        env = TABS(cfg=tabs_config)
+        env = TABS(
+            cfg=tabs_config,
+            permute_obs=config.PERMUTE_OBS,
+            permute_world_state=config.PERMUTE_WORLD_STATE,
+        )
         env = TABSEnemyHeuristicWrapper(env)
         num_steps = env.max_episode_steps
 

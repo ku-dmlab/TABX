@@ -72,6 +72,7 @@ class Config:
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
     WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
+    PERMUTE_OBS: bool = False
     # Misc.
     SEED: int | Tuple[int, ...] = 0
     ALGORITHM: str = "ippo"  # for distinguishing wandb runs
@@ -96,12 +97,20 @@ def make_train(config):
         heuristic_param_names=config["HEURISTIC"],
         n_repeat=config["NUM_ENVS"],
     )
-    env = TABS(cfg=tabs_config, world_state_type=config["WORLD_STATE_TYPE"])
+    env = TABS(
+        cfg=tabs_config,
+        world_state_type=config["WORLD_STATE_TYPE"],
+        permute_obs=config["PERMUTE_OBS"],
+    )
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
     env = TABSAutoResetWrapper(env)
 
-    eval_env = TABS(cfg=tabs_config, world_state_type=config["WORLD_STATE_TYPE"])
+    eval_env = TABS(
+        cfg=tabs_config,
+        world_state_type=config["WORLD_STATE_TYPE"],
+        permute_obs=config["PERMUTE_OBS"],
+    )
     eval_env = TABSLogWrapper(eval_env, reset_when_done=False)
     eval_env = TABSEnemyHeuristicWrapper(eval_env)
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
@@ -310,7 +319,11 @@ def make_train(config):
                     )
                     return runner_state, None
 
-                eval_obsv = jax.vmap(env.get_obs)(value_eval_env_params["state"])
+                rng, _rng = jax.random.split(rng, 2)
+
+                eval_obsv = jax.vmap(env.get_obs)(
+                    value_eval_env_params["state"], jax.random.split(_rng, config["NUM_ENVS"])
+                )
                 eval_obsv = eval_env.filter_obs(eval_obsv)
 
                 def mc_value_estimate(rng):
@@ -547,7 +560,7 @@ if __name__ == "__main__":
         env_params, tabs_config = build_batched_env_params_and_config(
             scenario_names=config.SCENARIO
         )
-        env = TABS(cfg=tabs_config)
+        env = TABS(cfg=tabs_config, permute_obs=config.PERMUTE_OBS)
         env = TABSEnemyHeuristicWrapper(env)
         num_steps = env.max_episode_steps
 

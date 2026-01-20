@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Dict
 
 import chex
@@ -502,6 +503,8 @@ class TABS(BaseMAEnv):
         max_episode_steps: int = 512,
         win_reward: float = 1.0,
         lose_reward: float = -1.0,
+        permute_obs: bool = False,
+        permute_world_state: bool = False,
     ):
         max_n_ally = cfg.max_n_ally
         max_n_enemy = cfg.max_n_enemy
@@ -521,6 +524,8 @@ class TABS(BaseMAEnv):
         self.max_team = 2
         self.win_reward = win_reward
         self.lose_reward = lose_reward
+        self.permute_obs = permute_obs
+        self.permute_world_state = permute_world_state
         self.empty_state = {
             name: DefaultUnit(
                 transform=Transform(position=jnp.array([0.0, 0.0]), rotation=jnp.array([0.0])),
@@ -592,15 +597,17 @@ class TABS(BaseMAEnv):
             for agent in self.unit_keys
         }
 
-    def get_obs(self, state):
-        return self._get_obs(state)
+    def get_obs(self, state, rng):
+        return self._get_obs(state, rng)
 
-    def _get_obs(self, state):
+    def _get_obs(self, state, rng):
         """
         own_feature : [health, max_health, absolute_x, absolute_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive, speed]
         other_feature : [health, max_health, relative_x, relative_y, rotation / 2pi, attack_range, attack_damage, cooldown, cooldown / attack_cooldown, body_radius, body_weight, sight_angle, is_alive, is_ally, is_attackable, speed]
         """
-
+        obs_permute_key, obs_zone_permute_key, world_state_permute_key, world_zone_permute_key = (
+            jax.random.split(rng, 4)
+        )
         keys = self.unit_keys
 
         parsed_state = state["game_manager"].parsed_state
@@ -688,7 +695,14 @@ class TABS(BaseMAEnv):
                 axis=2,
             )
             * rolled_visible_matrix
-        ).reshape(n_unit, -1)
+        )
+        if self.permute_obs:
+            other_feature = jax.vmap(jax.random.permutation)(
+                jax.random.split(obs_permute_key, n_unit), other_feature
+            )
+
+        other_feature = other_feature.reshape(n_unit, -1)
+
         if self.max_n_zone > 0:
             zone_types = jnp.stack([state[zone].zone_type for zone in self.zone_keys])
             zone_positions = jnp.stack([state[zone].ellipse.position for zone in self.zone_keys])
@@ -704,7 +718,7 @@ class TABS(BaseMAEnv):
                     zone_effect_values,
                 ),
                 axis=1,
-            ).flatten()
+            )
 
             zone_types = jnp.repeat(zone_types[None], repeats=n_unit, axis=0)
             zone_rel_positions = zone_positions[None] - parsed_state.positions[:, None]
@@ -714,6 +728,12 @@ class TABS(BaseMAEnv):
                 (zone_types, zone_rel_positions, zone_axes, zone_effect_values), axis=-1
             )
             zone_feature = jnp.logical_not(zone_types == 0) * zone_feature
+
+            if self.permute_obs:
+                zone_feature = jax.vmap(jax.random.permutation)(
+                    jax.random.split(obs_zone_permute_key, n_unit), zone_feature
+                )
+
             zone_feature = zone_feature.reshape(n_unit, -1)
 
             concated_obs = jnp.concatenate((own_feature, other_feature, zone_feature), axis=1)
@@ -723,6 +743,8 @@ class TABS(BaseMAEnv):
 
         ally_obs = concated_obs[: len(self.ally_keys)]
         if self.world_state_type == "concat":
+            if self.permute_world_state:
+                ally_obs = jax.random.permutation(world_state_permute_key, ally_obs)
             unit_world_state = jax.tree.map(lambda *args: jnp.concatenate(args), *ally_obs)
         elif self.world_state_type == "global":
             unit_world_state = jnp.concatenate(
@@ -742,8 +764,16 @@ class TABS(BaseMAEnv):
                     parsed_state.speeds,
                 ),
                 axis=-1,
-            ).flatten()
+            )
+            if self.permute_world_state:
+                unit_world_state = jax.random.permutation(world_state_permute_key, unit_world_state)
+            unit_world_state = unit_world_state.flatten()
             if self.max_n_zone > 0:
+                if self.permute_world_state:
+                    zone_world_feature = jax.random.permutation(
+                        world_zone_permute_key, zone_world_feature
+                    )
+                zone_world_feature = zone_world_feature.flatten()
                 unit_world_state = jnp.concatenate([unit_world_state, zone_world_feature])
         else:
             raise ValueError(f"Invalid world state type: {self.world_state_type}.")
@@ -822,7 +852,10 @@ class TABS(BaseMAEnv):
             if hasattr(state[sprite], "zone_type"):
                 state = state[sprite].act(state, env_params["physics_params"])
 
-        return self.get_obs(state), {"state": state, "physics_params": env_params["physics_params"]}
+        return self.get_obs(state, key), {
+            "state": state,
+            "physics_params": env_params["physics_params"],
+        }
 
     def step(self, key, env_state, actions):
         state = env_state["state"]
@@ -924,7 +957,7 @@ class TABS(BaseMAEnv):
         info = jax.tree.map(lambda x: x.reshape(-1), info)
 
         return (
-            self.get_obs(state),
+            self.get_obs(state, key),
             {"state": state, "physics_params": physics_params},
             rewards,
             dones,
