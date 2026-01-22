@@ -92,14 +92,15 @@ def make_train(config):
     sample_random_level = level_generator(config["FREE_PARAM_TYPE"])
 
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
-    config["NUM_UPDATES"] = (
-        config["TOTAL_TIMESTEPS"]
-        // config["NUM_STEPS"]
-        // config["NUM_ENVS"]
-        // config["UPDATE_FREQ"]
+    config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // (
+        config["NUM_STEPS"] * config["UPDATE_FREQ"] * config["NUM_ENVS"]
     )
     config["MINIBATCH_SIZE"] = (
-        config["NUM_ACTORS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
+        config["NUM_ACTORS"]
+        * config["NUM_STEPS"]
+        * config["UPDATE_FREQ"]
+        * config["NUM_ENVS"]
+        // config["NUM_MINIBATCHES"]
     )
     config["CLIP_EPS"] = (
         config["CLIP_EPS"] / env.num_agents if config["SCALE_CLIP_EPS"] else config["CLIP_EPS"]
