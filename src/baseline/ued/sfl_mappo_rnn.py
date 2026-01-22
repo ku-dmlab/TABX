@@ -10,6 +10,8 @@ from typing import Literal, Tuple
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
+import math
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -92,8 +94,9 @@ def make_train(config):
     sample_random_level = level_generator(config["FREE_PARAM_TYPE"])
 
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
-    config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // (
-        config["NUM_STEPS"] * config["UPDATE_FREQ"] * config["NUM_ENVS"]
+    config["NUM_UPDATES"] = math.ceil(
+        config["TOTAL_TIMESTEPS"]
+        / (config["NUM_STEPS"] * config["UPDATE_FREQ"] * config["NUM_ENVS"])
     )
     config["MINIBATCH_SIZE"] = (
         config["NUM_ACTORS"]
