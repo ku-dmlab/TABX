@@ -502,6 +502,7 @@ class TABS(BaseMAEnv):
         max_episode_steps: int = 512,
         win_reward: float = 1.0,
         lose_reward: float = -1.0,
+        position_permutation: bool = False,
     ):
         max_n_ally = cfg.max_n_ally
         max_n_enemy = cfg.max_n_enemy
@@ -517,6 +518,7 @@ class TABS(BaseMAEnv):
         self.max_n_ally = max_n_ally
         self.max_n_enemy = max_n_enemy
         self.max_n_zone = max_n_zone
+        self.position_permutation = position_permutation
         self.max_episode_steps = max_episode_steps
         self.max_team = 2
         self.win_reward = win_reward
@@ -755,12 +757,23 @@ class TABS(BaseMAEnv):
     def reset(self, key, env_params):
         vscenario: VectorizedScenario = env_params["scenario"]
 
+        ally_key, env_key = jax.random.split(key)
+
+        if self.position_permutation:
+            ally_permutation = jax.random.permutation(ally_key, len(self.ally_keys))
+            enemy_permutation = jax.random.permutation(env_key, len(self.enemy_keys)) + len(
+                self.ally_keys
+            )
+        else:
+            enemy_permutation = jnp.arange(len(self.enemy_keys)) + len(self.ally_keys)
+            ally_permutation = jnp.arange(len(self.ally_keys))
+
         state = {}
-        for i, unit in enumerate(self.unit_keys):
+        for i, unit in enumerate(self.ally_keys):
             state[unit] = DefaultUnit(
                 transform=Transform(
-                    position=vscenario.positions[i],
-                    rotation=vscenario.rotations[i],
+                    position=vscenario.positions[ally_permutation[i]],
+                    rotation=vscenario.rotations[ally_permutation[i]],
                 ),
                 rigidbody=RigidBody(
                     mass=vscenario.body_weights[i],
@@ -786,6 +799,41 @@ class TABS(BaseMAEnv):
                     max_health=vscenario.healths[i],
                     speed=vscenario.speeds[i],
                     max_speed=vscenario.speeds[i],
+                ),
+                damage_dealt=jnp.array([0.0]),
+                is_attacking=jnp.array([False]),
+            )
+        for i, unit in enumerate(self.enemy_keys):
+            j = i + len(self.ally_keys)
+            state[unit] = DefaultUnit(
+                transform=Transform(
+                    position=vscenario.positions[enemy_permutation[i]],
+                    rotation=vscenario.rotations[enemy_permutation[i]],
+                ),
+                rigidbody=RigidBody(
+                    mass=vscenario.body_weights[j],
+                    velocity=jnp.array([0.0, 0.0]),
+                    acceleration=jnp.array([0.0, 0.0]),
+                    is_kinematic=jnp.array([False]),
+                ),
+                collider=CircleCollider(radius=vscenario.body_radiuss[j]),
+                team=vscenario.teams[j],
+                pos_min=vscenario.pos_min[j],
+                pos_max=vscenario.pos_max[j],
+                status=self.empty_state[unit].status.replace(
+                    unit_id=vscenario.unit_ids[j],
+                    health=vscenario.healths[j],
+                    attack_damage=vscenario.attack_damages[j],
+                    attack_range=vscenario.attack_ranges[j],
+                    attack_cooldown=vscenario.attack_cooldowns[j],
+                    cooldown=vscenario.attack_cooldowns[j] * 0.0,
+                    sight_angle=vscenario.sight_angles[j],
+                    is_alive=vscenario.is_alive[j],
+                    is_disabled=vscenario.is_disabled[j],
+                    attack_type=vscenario.attack_types[j],
+                    max_health=vscenario.healths[j],
+                    speed=vscenario.speeds[j],
+                    max_speed=vscenario.speeds[j],
                 ),
                 damage_dealt=jnp.array([0.0]),
                 is_attacking=jnp.array([False]),
