@@ -72,6 +72,7 @@ class Config:
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
     VALUE_EVAL_NUM_ENVS: int | None = 128
+    POSITION_PERMUTATION: bool = False
 
 
 def get_greedy_actions(q_vals, valid_actions):
@@ -617,12 +618,20 @@ def main(config):
         heuristic_param_names=config.HEURISTIC,
         n_repeat=config.TEST_NUM_ENVS,
     )
-    env = TABS(cfg=tabs_config, world_state_type=config.WORLD_STATE_TYPE)
+    env = TABS(
+        cfg=tabs_config,
+        world_state_type=config.WORLD_STATE_TYPE,
+        position_permutation=config.POSITION_PERMUTATION,
+    )
     env = TABSLogWrapper(env)
     env = TABSEnemyHeuristicWrapper(env)
     env = TABSAutoResetWrapper(env)
 
-    eval_env = TABS(cfg=tabs_config, world_state_type=config.WORLD_STATE_TYPE)
+    eval_env = TABS(
+        cfg=tabs_config,
+        world_state_type=config.WORLD_STATE_TYPE,
+        position_permutation=config.POSITION_PERMUTATION,
+    )
     eval_env = TABSLogWrapper(eval_env, reset_when_done=False)
     eval_env = TABSEnemyHeuristicWrapper(eval_env)
 
