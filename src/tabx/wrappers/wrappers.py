@@ -5,24 +5,24 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from src.tabs import TABS
-from src.tabs.heuristic_policy import LastVisibleTarget, heuristic_policy
-from src.tabs.heuristic_policy.params import TABSHeuristicParam
-from src.tabs.scenarios import VectorizedScenario
+from src.tabx import TABX
+from src.tabx.heuristic_policy import LastVisibleTarget, heuristic_policy
+from src.tabx.heuristic_policy.params import TABXHeuristicParam
+from src.tabx.scenarios import VectorizedScenario
 
 
 class BaseWrapper:
     def __getattr__(self, name: str):
         return getattr(self.env, name)
 
-    def __init__(self, env: TABS):
+    def __init__(self, env: TABX):
         self.env = env
 
 
-class TABSEnemyHeuristicWrapper(BaseWrapper):
+class TABXEnemyHeuristicWrapper(BaseWrapper):
     def __init__(
         self,
-        env: TABS,
+        env: TABX,
     ):
         super().__init__(env)
 
@@ -94,16 +94,16 @@ class TABSEnemyHeuristicWrapper(BaseWrapper):
         return {agent: avail_actions[agent] for agent in self.env.ally_keys}
 
 
-class TABSHeuristicWrapper(BaseWrapper):
+class TABXHeuristicWrapper(BaseWrapper):
     """
-    Wrapper for TABS that adds heuristic policy to specified units.
+    Wrapper for TABX that adds heuristic policy to specified units.
 
     This wrapper allows certain units to be controlled by a heuristic policy instead of
     requiring manual actions. It can filter observations to only return non-heuristic
     units and optionally filter rewards to only ally teams.
 
     Args:
-        env: TABS environment to wrap
+        env: TABX environment to wrap
         heuristic_units: Units to control with heuristic policy
             - "all": All units in the environment
             - "enemy": Only enemy units
@@ -121,9 +121,9 @@ class TABSHeuristicWrapper(BaseWrapper):
 
     def __init__(
         self,
-        env: TABS,
+        env: TABX,
         heuristic_units: List[str] | str = "enemy",
-        heuristic_config: TABSHeuristicParam = TABSHeuristicParam(),
+        heuristic_config: TABXHeuristicParam = TABXHeuristicParam(),
         heuristic_obs: bool = False,
         only_ally_reward: bool = True,
     ):
@@ -177,12 +177,12 @@ class TABSHeuristicWrapper(BaseWrapper):
         return target_obs, next_state, reward, done, info
 
 
-class TABSAutoResetWrapper(BaseWrapper):
+class TABXAutoResetWrapper(BaseWrapper):
     """
-    Wrapper for TABS that adds automatic reset functionality.
+    Wrapper for TABX that adds automatic reset functionality.
     """
 
-    def __init__(self, env: TABS):
+    def __init__(self, env: TABX):
         super().__init__(env)
 
     def step(self, key, state, action, env_params: Dict[str, Any] = None):
@@ -226,14 +226,14 @@ class LogEnvState:
 
 
 # ref : https://github.com/FLAIROx/JaxMARL/blob/main/jaxmarl/wrappers/baselines.py
-class TABSLogWrapper(BaseWrapper):
+class TABXLogWrapper(BaseWrapper):
     """
-    Wrapper for TABS that logs the episode returns, lengths, and wins.
+    Wrapper for TABX that logs the episode returns, lengths, and wins.
 
     Note: When done but no reset occurs, returned_episode_returns and lengths may not be accurate. Set reset_when_done to False if you don't want to reset when done.
     """
 
-    def __init__(self, env: TABS, reset_when_done: bool = True):
+    def __init__(self, env: TABX, reset_when_done: bool = True):
         super().__init__(env)
 
         self.reset_when_done = reset_when_done

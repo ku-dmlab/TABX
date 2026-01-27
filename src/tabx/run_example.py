@@ -1,11 +1,10 @@
 import jax
-import jax.numpy as jnp
 
-from src.tabs import TABS, build_batched_env_params_and_config
-from src.tabs.wrappers.wrappers import (
-    TABSAutoResetWrapper,
-    TABSEnemyHeuristicWrapper,
-    TABSLogWrapper,
+from src.tabx import TABX, build_batched_env_params_and_config
+from src.tabx.wrappers.wrappers import (
+    TABXAutoResetWrapper,
+    TABXEnemyHeuristicWrapper,
+    TABXLogWrapper,
 )
 
 if __name__ == "__main__":
@@ -13,13 +12,13 @@ if __name__ == "__main__":
     num_steps = 10
     scenario_name = "elbow"
 
-    env_params, tabs_config = build_batched_env_params_and_config(
+    env_params, tabx_config = build_batched_env_params_and_config(
         scenario_names=scenario_name, n_repeat=n_envs
     )
-    env = TABS(cfg=tabs_config)
-    env = TABSLogWrapper(env)
-    env = TABSEnemyHeuristicWrapper(env)
-    env = TABSAutoResetWrapper(env)
+    env = TABX(cfg=tabx_config)
+    env = TABXLogWrapper(env)
+    env = TABXEnemyHeuristicWrapper(env)
+    env = TABXAutoResetWrapper(env)
 
     v_reset = jax.vmap(env.reset, in_axes=(0, 0))
     v_step = jax.vmap(env.step, in_axes=(0, 0, 0, 0))

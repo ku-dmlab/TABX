@@ -26,12 +26,12 @@ from src.baseline.utils import (
     save_params,
     unbatchify,
 )
-from src.tabs import TABS, build_batched_env_params_and_config
-from src.tabs.utils import Transition
-from src.tabs.wrappers.wrappers import (
-    TABSAutoResetWrapper,
-    TABSEnemyHeuristicWrapper,
-    TABSLogWrapper,
+from src.tabx import TABX, build_batched_env_params_and_config
+from src.tabx.utils import Transition
+from src.tabx.wrappers.wrappers import (
+    TABXAutoResetWrapper,
+    TABXEnemyHeuristicWrapper,
+    TABXLogWrapper,
 )
 
 
@@ -91,28 +91,28 @@ class EvaluateState:
 
 
 def make_train(config):
-    env_params, tabs_config = build_batched_env_params_and_config(
+    env_params, tabx_config = build_batched_env_params_and_config(
         scenario_names=config["SCENARIO"],
         physics_param_names=config["PHYSICS"],
         heuristic_param_names=config["HEURISTIC"],
         n_repeat=config["NUM_ENVS"],
     )
-    env = TABS(
-        cfg=tabs_config,
+    env = TABX(
+        cfg=tabx_config,
         world_state_type=config["WORLD_STATE_TYPE"],
         position_permutation=config["POSITION_PERMUTATION"],
     )
-    env = TABSLogWrapper(env)
-    env = TABSEnemyHeuristicWrapper(env)
-    env = TABSAutoResetWrapper(env)
+    env = TABXLogWrapper(env)
+    env = TABXEnemyHeuristicWrapper(env)
+    env = TABXAutoResetWrapper(env)
 
-    eval_env = TABS(
-        cfg=tabs_config,
+    eval_env = TABX(
+        cfg=tabx_config,
         world_state_type=config["WORLD_STATE_TYPE"],
         position_permutation=config["POSITION_PERMUTATION"],
     )
-    eval_env = TABSLogWrapper(eval_env, reset_when_done=False)
-    eval_env = TABSEnemyHeuristicWrapper(eval_env)
+    eval_env = TABXLogWrapper(eval_env, reset_when_done=False)
+    eval_env = TABXEnemyHeuristicWrapper(eval_env)
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
     config["MINIBATCH_SIZE"] = (
@@ -551,13 +551,13 @@ if __name__ == "__main__":
 
     if config.SAVE_VIDEO:
         # Visualize
-        from src.tabs.visualize import Visualizer
+        from src.tabx.visualize import Visualizer
 
-        env_params, tabs_config = build_batched_env_params_and_config(
+        env_params, tabx_config = build_batched_env_params_and_config(
             scenario_names=config.SCENARIO
         )
-        env = TABS(cfg=tabs_config)
-        env = TABSEnemyHeuristicWrapper(env)
+        env = TABX(cfg=tabx_config)
+        env = TABXEnemyHeuristicWrapper(env)
         num_steps = env.max_episode_steps
 
         init_hstate = ScannedRNN.initialize_carry(1, 128)

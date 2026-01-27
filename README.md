@@ -1,10 +1,10 @@
-# Totally Accelerated Battle Simulator (TABS)
-**Totally Accelerated Battle Simulator (TABS)**, is inspired by the popular strategic simulation game Totally Accurate Battle Simulator (2021, Landfall Games). TABS provides a complex, multi-stage environment suite implemented in JAX, designed for accelerated training and scalable experimentation.
+# Totally Accelerated Battle Simulator (TABX)
+**Totally Accelerated Battle Simulator (TABX)**, is inspired by the popular strategic simulation game Totally Accurate Battle Simulator (2021, Landfall Games). TABX provides a complex, multi-stage environment suite implemented in JAX, designed for accelerated training and scalable experimentation.
 
-TABS is structured into three sequential stages:
-- `TABSUnitComb`: Agents select unit compositions under a given budget.
-- `TABSUnitDeploy`: The chosen units are spatially arranged on the battlefield.
-- `TABSBattleSimulator`: Agents control units in real-time combat.
+TABX is structured into three sequential stages:
+- `TABXUnitComb`: Agents select unit compositions under a given budget.
+- `TABXUnitDeploy`: The chosen units are spatially arranged on the battlefield.
+- `TABXBattleSimulator`: Agents control units in real-time combat.
 
 ## Baseline Algorithms
 We provide implementations of four reinforcement learning algorithms, available in the `baseline` directory. Configuration files are managed using Tyro.
