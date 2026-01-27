@@ -133,19 +133,19 @@ class MapEditor:
         self.toolbar_dragging = False
         self.toolbar_drag_offset = (0, 0)
 
-        # Unit palette window - below Toolbar
+        # Unit palette window
         self.unit_panel_x = right_panel_x
-        self.unit_panel_y = self.toolbar_y  # 120
+        self.unit_panel_y = self.toolbar_y
         self.unit_panel_width = 370
-        self.unit_panel_height = 500  # Compact to fit all units + settings
+        self.unit_panel_height = 500
         self.unit_panel_dragging = False
         self.unit_panel_drag_offset = (0, 0)
 
-        # Zone palette window - starts at same position as Unit
+        # Zone palette window
         self.zone_panel_x = right_panel_x
-        self.zone_panel_y = self.toolbar_y + self.toolbar_height + 10  # 120
+        self.zone_panel_y = self.toolbar_y
         self.zone_panel_width = 370
-        self.zone_panel_height = 240  # Increased to fit description
+        self.zone_panel_height = 240
         self.zone_panel_dragging = False
         self.zone_panel_drag_offset = (0, 0)
 
@@ -1409,6 +1409,11 @@ class MapEditor:
 
     def draw_palette_config_dialog(self):
         """Draw dialog for configuring default unit stats"""
+        # Semi-transparent overlay
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.screen.blit(overlay, (0, 0))
+
         dialog_width = 450
         dialog_height = 420
         dialog_x = (SCREEN_WIDTH - dialog_width) // 2
@@ -1518,6 +1523,11 @@ class MapEditor:
 
     def draw_bulk_sight_angle_dialog(self):
         """Draw dialog for bulk sight angle adjustment for palette defaults"""
+        # Semi-transparent overlay
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.screen.blit(overlay, (0, 0))
+
         dialog_width = 420
         dialog_height = 180
         dialog_x = (SCREEN_WIDTH - dialog_width) // 2
@@ -2609,11 +2619,13 @@ class MapEditor:
 
         # Handle bulk sight angle dialog if open
         if self.show_bulk_sight_angle_dialog:
-            return self.handle_bulk_sight_angle_click(pos)
+            self.handle_bulk_sight_angle_click(pos)
+            return True
 
         # Handle palette config dialog if open
         if self.show_palette_config:
-            return self.handle_palette_config_click(pos)
+            self.handle_palette_config_click(pos)
+            return True
 
         # Handle unit info box if open
         if self.selected_unit_info:
@@ -2622,15 +2634,18 @@ class MapEditor:
 
         # Handle new scenario dialog if open
         if self.show_new_scenario_dialog:
-            return self.handle_new_scenario_dialog_click(pos)
+            self.handle_new_scenario_dialog_click(pos)
+            return True
 
         # Handle save dialog if open
         if self.show_save_dialog:
-            return self.handle_save_dialog_click(pos)
+            self.handle_save_dialog_click(pos)
+            return True
 
         # Handle load dialog if open
         if self.show_load_dialog:
-            return self.handle_load_dialog_click(pos)
+            self.handle_load_dialog_click(pos)
+            return True
 
         # Check toolbar buttons - 2x3 layout
         toolbar_x = self.toolbar_x
@@ -3852,55 +3867,85 @@ class MapEditor:
                             if self.handle_zone_info_click(event.pos):
                                 continue
 
-                        # Check if dragging toolbar
-                        toolbar_title_bar = pygame.Rect(
-                            self.toolbar_x, self.toolbar_y, self.toolbar_width, 25
+                        # Check if any dialog is open
+                        any_dialog_open = (
+                            self.show_new_scenario_dialog
+                            or self.show_load_dialog
+                            or self.show_save_dialog
+                            or self.show_palette_config
+                            or self.show_bulk_sight_angle_dialog
                         )
-                        if toolbar_title_bar.collidepoint(mouse_x, mouse_y):
-                            self.toolbar_dragging = True
-                            self.toolbar_drag_offset = (
-                                mouse_x - self.toolbar_x,
-                                mouse_y - self.toolbar_y,
-                            )
 
-                        # Check if dragging unit panel (only in unit mode)
-                        elif self.edit_mode == "unit":
-                            unit_title_bar = pygame.Rect(
-                                self.unit_panel_x, self.unit_panel_y, self.unit_panel_width, 30
+                        if not any_dialog_open:
+                            # Check if dragging toolbar
+                            toolbar_title_bar = pygame.Rect(
+                                self.toolbar_x, self.toolbar_y, self.toolbar_width, 25
                             )
-                            if unit_title_bar.collidepoint(mouse_x, mouse_y):
-                                self.unit_panel_dragging = True
-                                self.unit_panel_drag_offset = (
-                                    mouse_x - self.unit_panel_x,
-                                    mouse_y - self.unit_panel_y,
+                            if toolbar_title_bar.collidepoint(mouse_x, mouse_y):
+                                self.toolbar_dragging = True
+                                self.toolbar_drag_offset = (
+                                    mouse_x - self.toolbar_x,
+                                    mouse_y - self.toolbar_y,
                                 )
 
-                        # Check if dragging zone panel (only in zone mode)
-                        elif self.edit_mode == "zone":
-                            zone_title_bar = pygame.Rect(
-                                self.zone_panel_x, self.zone_panel_y, self.zone_panel_width, 30
-                            )
-                            if zone_title_bar.collidepoint(mouse_x, mouse_y):
-                                self.zone_panel_dragging = True
-                                self.zone_panel_drag_offset = (
-                                    mouse_x - self.zone_panel_x,
-                                    mouse_y - self.zone_panel_y,
+                            # Check if dragging unit panel (only in unit mode)
+                            elif self.edit_mode == "unit":
+                                unit_title_bar = pygame.Rect(
+                                    self.unit_panel_x, self.unit_panel_y, self.unit_panel_width, 30
                                 )
+                                if unit_title_bar.collidepoint(mouse_x, mouse_y):
+                                    self.unit_panel_dragging = True
+                                    self.unit_panel_drag_offset = (
+                                        mouse_x - self.unit_panel_x,
+                                        mouse_y - self.unit_panel_y,
+                                    )
+
+                            # Check if dragging zone panel (only in zone mode)
+                            elif self.edit_mode == "zone":
+                                zone_title_bar = pygame.Rect(
+                                    self.zone_panel_x, self.zone_panel_y, self.zone_panel_width, 30
+                                )
+                                if zone_title_bar.collidepoint(mouse_x, mouse_y):
+                                    self.zone_panel_dragging = True
+                                    self.zone_panel_drag_offset = (
+                                        mouse_x - self.zone_panel_x,
+                                        mouse_y - self.zone_panel_y,
+                                    )
 
                         # Check UI first
                         if not self.handle_ui_click(event.pos):
                             # Then check battlefield (only if dialog not open)
-                            if not self.show_new_scenario_dialog:
+                            if not any_dialog_open:
                                 self.handle_battlefield_click(event.pos, is_drag_start=True)
                     elif event.button == 3:  # Right click
-                        # Right click to delete
-                        if not self.show_new_scenario_dialog:
+                        any_dialog_open = (
+                            self.show_new_scenario_dialog
+                            or self.show_load_dialog
+                            or self.show_save_dialog
+                            or self.show_palette_config
+                            or self.show_bulk_sight_angle_dialog
+                        )
+                        if not any_dialog_open:
                             self.handle_battlefield_click(event.pos, is_right_click=True)
                     elif event.button == 4:  # Wheel up (zoom in) - legacy mouse
-                        if not self.show_new_scenario_dialog and not self.show_load_dialog:
+                        any_dialog_open = (
+                            self.show_new_scenario_dialog
+                            or self.show_load_dialog
+                            or self.show_save_dialog
+                            or self.show_palette_config
+                            or self.show_bulk_sight_angle_dialog
+                        )
+                        if not any_dialog_open:
                             self.handle_zoom(1)
                     elif event.button == 5:  # Wheel down (zoom out) - legacy mouse
-                        if not self.show_new_scenario_dialog and not self.show_load_dialog:
+                        any_dialog_open = (
+                            self.show_new_scenario_dialog
+                            or self.show_load_dialog
+                            or self.show_save_dialog
+                            or self.show_palette_config
+                            or self.show_bulk_sight_angle_dialog
+                        )
+                        if not any_dialog_open:
                             self.handle_zoom(-1)
 
                 elif event.type == pygame.MOUSEBUTTONUP:
@@ -4293,6 +4338,10 @@ class MapEditor:
             # Check keyboard state (continuous application when held down)
             if (
                 not self.show_new_scenario_dialog
+                and not self.show_load_dialog
+                and not self.show_save_dialog
+                and not self.show_palette_config
+                and not self.show_bulk_sight_angle_dialog
                 and not self.text_input_active
                 and not self.editing_zone
             ):
@@ -4319,7 +4368,14 @@ class MapEditor:
                         self.rotation_cooldown = self.rotation_cooldown_frames
 
             # Update hovered zone info if in zone mode
-            if self.edit_mode == "zone" and not self.show_new_scenario_dialog:
+            if (
+                self.edit_mode == "zone"
+                and not self.show_new_scenario_dialog
+                and not self.show_load_dialog
+                and not self.show_save_dialog
+                and not self.show_palette_config
+                and not self.show_bulk_sight_angle_dialog
+            ):
                 mouse_pos = pygame.mouse.get_pos()
                 self.update_hovered_zone(mouse_pos)
 
@@ -4344,9 +4400,17 @@ class MapEditor:
             if self.edit_mode == "unit" and self.selected_unit_info:
                 self.draw_unit_info()
 
-            # New scenario dialog (very top)
+            # Draw dialogs (very top)
             if self.show_new_scenario_dialog:
                 self.draw_new_scenario_dialog()
+            if self.show_save_dialog:
+                self.draw_save_dialog()
+            if self.show_load_dialog:
+                self.draw_load_dialog()
+            if self.show_palette_config:
+                self.draw_palette_config_dialog()
+            if self.show_bulk_sight_angle_dialog:
+                self.draw_bulk_sight_angle_dialog()
 
             pygame.display.flip()
             self.clock.tick(60)
