@@ -36,7 +36,7 @@ def load_heuristic_params_from_json(heuristic_param_name: str = "default"):
 
 
 def build_batched_heuristic_params(
-    heuristic_param_names: List[str] | str = "easy",
+    heuristic_param_names: List[str] | str = "novice",
     n_repeat: int = 1,
     squeeze_when_single_heuristic: bool = True,
 ):
