@@ -1,5 +1,5 @@
 # Totally Accelerated Battle Simulator in JAX (TABX)
-**Totally Accelerated Battle Simulator in JAX (TABX)** is a rapid, flexible, and easily configurable sandbox for generalization in MARL. It allows researchers to generate various scenarios tailored to specific research objectives by offering a diverse set of environmental parameters.
+**Totally Accelerated Battle Simulator in JAX (TABX)** is a rapid, flexible, and easily configurable sandbox for MARL. It allows researchers to generate various scenarios tailored to specific research questions by offering a diverse set of environmental parameters.
 
 <img src="imgs/clover.gif" style="width:300px"> </img>
 <img src="imgs/crossfire.gif" style="width:300px"> </img>
@@ -45,9 +45,9 @@ To facilitate systematic classification and support the design of these agents, 
 Role-specific attributes modulate the baseline behavior by shaping how agents position themselves during engagements.
 
 ## Rewards
-An episode terminates when all units of one team are incapacitated. At this point, a global binary reward is issued to all agents:
-- Win (+1): All enemy units eliminated.
-- Lose (-1): All ally units eliminated.
+- **Dense Reward**: At each timestep, agents receive a shared reward proportional to the change in health ratio difference between allied and enemy teams, incentivizing both attacks and healing.
+
+- **Terminal Reward**: Episodes end when one team is eliminated or the step limit is reached. Winners receive +1, losers receive -1. On timeout, the team with higher average health ratio wins (ties favor the adversary to discourage evasive strategies).
 
 ## GUI Scenario Editor
 
@@ -62,7 +62,7 @@ To facilitate flexible scenario design, TABX provides a Graphical User Interface
 - **Property Editor Panel**: A context-sensitive interface for modifying the attributes of selected elements. The panel dynamically updates its fields based on the specific type of element selected on the canvas (e.g., adjusting a unit's health or a zone's dimensions).
 
 ```python
-$ uv run scenario_editor.py
+$ uv run src/tabx/scenario_editor.py
 ```
 
 ## Baseline Algorithms
