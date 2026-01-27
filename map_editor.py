@@ -7,8 +7,8 @@ import jax.numpy as jnp
 import numpy as np
 import pygame
 
-from src.tabs.constants import ALL_UNIT_NAMES, SIGHT_ANGLE, UNITID2CHAR, UnitID
-from src.tabs.units import get_all_unit_spec
+from src.tabx.constants import ALL_UNIT_NAMES, SIGHT_ANGLE, UNITID2CHAR, UnitID
+from src.tabx.units import get_all_unit_spec
 
 # Screen settings
 SCREEN_WIDTH = 1400
@@ -48,7 +48,7 @@ class MapEditor:
     def __init__(self, max_field_height=78.0, max_field_width=121.0):
         pygame.init()
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("TABS Scenario Generator")
+        pygame.display.set_caption("TABX Scenario Editor")
 
         # Field size settings
         self.max_field_height = max_field_height
@@ -125,7 +125,7 @@ class MapEditor:
         # Fixed x position for right panels (20px from right edge of screen)
         right_panel_x = SCREEN_WIDTH - 360 - 20  # 1400 - 370 - 20 = 1010
 
-        # Toolbar (TABS SCENARIO GENERATOR) - top
+        # Toolbar (tabx SCENARIO GENERATOR) - top
         self.toolbar_x = right_panel_x - 400
         self.toolbar_y = 20
         self.toolbar_width = 370
@@ -507,10 +507,10 @@ class MapEditor:
     def draw_unit_on_field(self, unit_id, screen_x, screen_y, cell_size, is_ally, rotation=0):
         """Draw a unit on the battlefield with custom rotation"""
         try:
-            # Swap images: ally uses enemy image, enemy uses ally image
-            suffix = "_enemy" if is_ally else "_ally"
+            # Use correct images: ally uses ally image, enemy uses enemy image
+            suffix = "_ally" if is_ally else "_enemy"
             img_path = (
-                f"./src/tabs/visualize/assets/units/{self.unit_names[unit_id - 1]}{suffix}.png"
+                f"./src/tabx/visualize/assets/units/{self.unit_names[unit_id - 1]}{suffix}.png"
             )
             unit_img = pygame.image.load(img_path)
             unit_img = pygame.transform.scale(unit_img, (cell_size - 4, cell_size - 4))
@@ -683,9 +683,9 @@ class MapEditor:
                     # Display preview
                     try:
                         unit_name = self.unit_names[self.selected_unit_id - 1]
-                        # Swap images: ally uses enemy image, enemy uses ally image
-                        suffix = "_enemy" if self.selected_team == 0 else "_ally"
-                        img_path = f"./src/tabs/visualize/assets/units/{unit_name}{suffix}.png"
+                        # Use correct images: ally uses ally image, enemy uses enemy image
+                        suffix = "_ally" if self.selected_team == 0 else "_enemy"
+                        img_path = f"./src/tabx/visualize/assets/units/{unit_name}{suffix}.png"
                         unit_img = pygame.image.load(img_path)
                         unit_img = pygame.transform.scale(unit_img, (draw_size - 4, draw_size - 4))
 
@@ -1354,7 +1354,7 @@ class MapEditor:
 
             # Unit image
             try:
-                img_path = f"./src/tabs/visualize/assets/units/{self.unit_names[idx]}.png"
+                img_path = f"./src/tabx/visualize/assets/units/{self.unit_names[idx]}.png"
                 unit_img = pygame.image.load(img_path)
                 unit_img = pygame.transform.scale(unit_img, (60, 60))
                 self.screen.blit(unit_img, (x + 25, y + 10))
@@ -2159,7 +2159,7 @@ class MapEditor:
         pygame.draw.rect(
             self.screen, BLACK, (toolbar_x, toolbar_y, toolbar_width, title_bar_height), 1
         )
-        title_text = self.small_font.render("TABS Scenario Generator", True, WHITE)
+        title_text = self.small_font.render("TABX Scenario Editor", True, WHITE)
         title_x = toolbar_x + (toolbar_width - title_text.get_width()) // 2
         self.screen.blit(title_text, (title_x, toolbar_y + 5))
 
@@ -3611,7 +3611,7 @@ class MapEditor:
         }
 
         # Create scenarios folder (if not exists)
-        folder_path = f"src/tabs/scenarios/{self.save_folder_selection}"
+        folder_path = f"src/tabx/scenarios/{self.save_folder_selection}"
         os.makedirs(folder_path, exist_ok=True)
 
         # Save JSON file with scenario name
@@ -3627,7 +3627,7 @@ class MapEditor:
     def load_scenario(self):
         """Display scenario load dialog"""
         # Load JSON files from all scenario subfolders
-        scenarios_base = "src/tabs/scenarios"
+        scenarios_base = "src/tabx/scenarios"
         self.available_scenarios = {}
         self.folder_expanded = {}
 
@@ -3651,7 +3651,7 @@ class MapEditor:
 
     def load_scenario_file(self, folder, filename):
         """Load selected scenario file"""
-        file_path = f"src/tabs/scenarios/{folder}/{filename}"
+        file_path = f"src/tabx/scenarios/{folder}/{filename}"
         try:
             with open(file_path, "r") as f:
                 data = json.load(f)
