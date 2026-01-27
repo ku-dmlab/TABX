@@ -49,9 +49,9 @@ An episode terminates when all units of one team are incapacitated. At this poin
 - Win (+1): All enemy units eliminated.
 - Lose (-1): All ally units eliminated.
 
-## GUI Map Editor
+## GUI Scenario Editor
 
-<img src="imgs/map_editor_overview.png" style="width:600px"> </img>
+<img src="imgs/scenario_editor.png" style="width:600px"> </img>
 
 To facilitate flexible scenario design, TABX provides a Graphical User Interface (GUI) that allows users to construct custom scenarios and parameters through an intuitive visual orchestration workflow.
 
@@ -62,7 +62,7 @@ To facilitate flexible scenario design, TABX provides a Graphical User Interface
 - **Property Editor Panel**: A context-sensitive interface for modifying the attributes of selected elements. The panel dynamically updates its fields based on the specific type of element selected on the canvas (e.g., adjusting a unit's health or a zone's dimensions).
 
 ```python
-$ uv run map_editor.py
+$ uv run scenario_editor.py
 ```
 
 ## Baseline Algorithms
