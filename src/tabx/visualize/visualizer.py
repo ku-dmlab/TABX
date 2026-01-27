@@ -4,7 +4,7 @@ import chex
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 
-from src.tabs.environments.base_maenv import BaseMAEnv
+from src.tabx.environments.base_maenv import BaseMAEnv
 
 
 class Visualizer:

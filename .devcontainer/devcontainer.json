@@ -1,5 +1,5 @@
 {
-	"name": "TABS",
+	"name": "TABX",
 	"build": {
 		"context": ".",
 		"dockerfile": "dev.Dockerfile"

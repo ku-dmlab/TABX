@@ -5,19 +5,19 @@ import jax
 import jax.numpy as jnp
 from flax import struct
 
-from src.tabs.config import TABSConfig
-from src.tabs.constants import ACTION_TABLE, AttackType, UnitAction
-from src.tabs.environments.base_maenv import BaseMAEnv
-from src.tabs.environments.spaces import Box, Discrete
-from src.tabs.physics.components import (
+from src.tabx.config import TABXConfig
+from src.tabx.constants import ACTION_TABLE, AttackType, UnitAction
+from src.tabx.environments.base_maenv import BaseMAEnv
+from src.tabx.environments.spaces import Box, Discrete
+from src.tabx.physics.components import (
     CircleCollider,
     Ellipse,
     RigidBody,
     Transform,
 )
-from src.tabs.physics.utils import physics_step, physics_update
-from src.tabs.scenarios.scenario import VectorizedScenario
-from src.tabs.utils import notify
+from src.tabx.physics.utils import physics_step, physics_update
+from src.tabx.scenarios.scenario import VectorizedScenario
+from src.tabx.utils import notify
 
 
 @struct.dataclass
@@ -494,10 +494,10 @@ class GameManager:
         )
 
 
-class TABS(BaseMAEnv):
+class TABX(BaseMAEnv):
     def __init__(
         self,
-        cfg: TABSConfig,
+        cfg: TABXConfig,
         world_state_type: str = "concat",
         max_episode_steps: int = 512,
         win_reward: float = 1.0,
@@ -1004,7 +1004,7 @@ class TABS(BaseMAEnv):
         }
 
     def init_render(self, ax, state: Dict):
-        from src.tabs.visualize.rendering import HEIGHT, WIDTH, get_tabs_render
+        from src.tabx.visualize.rendering import HEIGHT, WIDTH, get_tabx_render
 
         br = state["state"][self.unit_keys[0]].collider.radius
         pos_min = (
@@ -1021,7 +1021,7 @@ class TABS(BaseMAEnv):
 
         pix_unit_size = min(pix_unit_size_x, pix_unit_size_y).item()
 
-        frame = get_tabs_render(
+        frame = get_tabx_render(
             state=state["state"],
             unit_keys=self.unit_keys,
             zone_keys=self.zone_keys,

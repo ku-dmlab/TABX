@@ -6,7 +6,7 @@ import chex
 import jax
 import jax.numpy as jnp
 
-from src.tabs import TABSHeuristicParam, VectorizedScenario, ZoneScenario
+from src.tabx import TABXHeuristicParam, VectorizedScenario, ZoneScenario
 
 FREE_PARAM_TYPES = {"zone": 0, "unit_spec": 1, "heuristic_config": 2}
 
@@ -138,8 +138,8 @@ heuristic_config_ranges = {"epsilon": [0.0, 1.0], "aggressive_threshold": [0.0, 
 
 def randomize_heuristic_config(env_params: Level, rng: chex.PRNGKey) -> Level:
     def _randomize_heuristic_config(
-        config: TABSHeuristicParam, rng: chex.PRNGKey
-    ) -> TABSHeuristicParam:
+        config: TABXHeuristicParam, rng: chex.PRNGKey
+    ) -> TABXHeuristicParam:
         # Randomly set heuristic policy configuration (epsilon, aggressive_threshold)
         rngs = jax.random.split(rng)
         config = config.replace(
@@ -356,8 +356,8 @@ def mutate_unit_spec(env_params: Level, rng: chex.PRNGKey) -> Level:
 
 def mutate_heuristic_config(env_params: Level, rng: chex.PRNGKey) -> Level:
     def _mutate_heuristic_config(
-        config: TABSHeuristicParam, rng: chex.PRNGKey
-    ) -> TABSHeuristicParam:
+        config: TABXHeuristicParam, rng: chex.PRNGKey
+    ) -> TABXHeuristicParam:
         # Add noise
         rngs = jax.random.split(rng)
         config = config.replace(

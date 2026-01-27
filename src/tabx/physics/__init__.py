@@ -1,5 +1,5 @@
-from src.tabs.physics.components import BoxCollider, CircleCollider, Ellipse, RigidBody, Transform
-from src.tabs.physics.utils import (
+from src.tabx.physics.components import BoxCollider, CircleCollider, Ellipse, RigidBody, Transform
+from src.tabx.physics.utils import (
     build_batched_physics_params,
     circle_box_normal,
     circle_circle_normal,

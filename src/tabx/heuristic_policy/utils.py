@@ -5,8 +5,8 @@ from typing import List
 import jax
 import jax.numpy as jnp
 
-from src.tabs.heuristic_policy.constants import HEURISTIC_PARAMS
-from src.tabs.heuristic_policy.params import TABSHeuristicParam
+from src.tabx.heuristic_policy.constants import HEURISTIC_PARAMS
+from src.tabx.heuristic_policy.params import TABXHeuristicParam
 
 
 def load_json_to_jnp(file_path):
@@ -23,7 +23,7 @@ def load_json_to_jnp(file_path):
 
     physics_params = to_jnp_array(loaded)
 
-    return TABSHeuristicParam(**physics_params)
+    return TABXHeuristicParam(**physics_params)
 
 
 def load_heuristic_params_from_json(heuristic_param_name: str = "default"):

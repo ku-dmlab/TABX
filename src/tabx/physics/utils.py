@@ -6,9 +6,9 @@ from typing import List
 import jax
 import jax.numpy as jnp
 
-from src.tabs.physics.components import BoxCollider, CircleCollider
-from src.tabs.physics.constants import PHYSICS_PARAMS
-from src.tabs.physics.params import PhysicsParams
+from src.tabx.physics.components import BoxCollider, CircleCollider
+from src.tabx.physics.constants import PHYSICS_PARAMS
+from src.tabx.physics.params import PhysicsParams
 
 
 def circle_circle_normal(circle_a, circle_b):

@@ -3,10 +3,10 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import chex
 
-from src.tabs.config import TABSConfig
-from src.tabs.heuristic_policy import build_batched_heuristic_params
-from src.tabs.physics import build_batched_physics_params
-from src.tabs.scenarios import build_batched_scenarios
+from src.tabx.config import TABXConfig
+from src.tabx.heuristic_policy import build_batched_heuristic_params
+from src.tabx.physics import build_batched_physics_params
+from src.tabx.scenarios import build_batched_scenarios
 
 
 class Transition(NamedTuple):
@@ -41,7 +41,7 @@ def build_batched_env_params_and_config(
     max_n_ally: Optional[int] = None,
     max_n_enemy: Optional[int] = None,
     max_n_zone: Optional[int] = None,
-) -> Tuple[EnvParameters, TABSConfig]:
+) -> Tuple[EnvParameters, TABXConfig]:
     n_scenario = 1 if isinstance(scenario_names, str) else len(scenario_names)
     n_physics = 1 if isinstance(physics_param_names, str) else len(physics_param_names)
     n_heuristic = 1 if isinstance(heuristic_param_names, str) else len(heuristic_param_names)
@@ -52,7 +52,7 @@ def build_batched_env_params_and_config(
             category=UserWarning,
         )
 
-    vscenario, zone_scenario, tabs_config = build_batched_scenarios(
+    vscenario, zone_scenario, tabx_config = build_batched_scenarios(
         scenario_names=scenario_names,
         n_repeat=n_repeat,
         squeeze_when_single_scenario=squeeze_when_single_scenario,
@@ -75,4 +75,4 @@ def build_batched_env_params_and_config(
         "zone_scenario": zone_scenario,
         "physics_params": physics_params,
         "heuristic_params": heuristic_params,
-    }, tabs_config
+    }, tabx_config

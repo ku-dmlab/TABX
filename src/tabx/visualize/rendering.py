@@ -5,8 +5,8 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pygame
 
-from src.tabs.constants import ALL_UNIT_NAMES
-from src.tabs.tabs import DefaultUnit, Zone
+from src.tabx.constants import ALL_UNIT_NAMES
+from src.tabx.tabx import DefaultUnit, Zone
 
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
@@ -49,31 +49,6 @@ PIX_UNIT_SIZE = 17
 ASSET_PATH = Path(__file__).resolve().parent.joinpath("assets", "units")
 
 pygame.font.init()
-
-
-def draw_text(
-    canvas: pygame.Surface,
-    text: str,
-    width: int,
-    height: int,
-    x: int,
-    y: int,
-    size: int = 20,
-    align_center: bool = True,
-):
-    _canvas = pygame.Surface((width, height), pygame.SRCALPHA)
-
-    font = pygame.font.SysFont(name=None, size=size, bold=False)
-    text_width, text_height = font.size(text)
-    _text = font.render(text, True, COLOR_TEXT, None)
-    if align_center:
-        # Align center
-        _canvas.blit(_text, (width // 2 - text_width // 2, height // 2 - text_height // 2 + 1))
-    else:
-        # Align right
-        _canvas.blit(_text, (width - text_width - 10, height // 2 - text_height // 2 + 1))
-
-    canvas.blit(_canvas, (x, y))
 
 
 def world_to_screen(pos: Tuple, width: int = WIDTH, height: int = HEIGHT):
@@ -354,7 +329,7 @@ def draw_zone(canvas: pygame.Surface, zone: Zone, width: int, height: int, pix_u
     canvas.blit(_canvas, (screen_pos[0] - axes[0] // 2, screen_pos[1] - axes[1] // 2))
 
 
-def get_tabs_render(
+def get_tabx_render(
     state: Dict,
     unit_keys: List,
     zone_keys: List,
@@ -364,7 +339,7 @@ def get_tabs_render(
     show_sight: bool = False,
     pix_unit: bool = False,
 ):
-    """Return the step frame of TABS formatted as a NumPy array"""
+    """Return the step frame of TABX formatted as a NumPy array"""
 
     canvas = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
     canvas.fill(BG_MAIN)

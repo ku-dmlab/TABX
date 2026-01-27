@@ -9,8 +9,8 @@ from flax.training.train_state import TrainState
 from flax.traverse_util import flatten_dict, unflatten_dict
 from safetensors.flax import load_file, save_file
 
-from src.tabs import TABS
-from src.tabs.constants import ALL_UNIT_NAMES
+from src.tabx import TABX
+from src.tabx.constants import ALL_UNIT_NAMES
 
 
 @chex.dataclass(frozen=True)
@@ -39,7 +39,7 @@ def unbatchify(x: jnp.ndarray, agent_list, num_envs, num_actors):
     return {a: x[i] for i, a in enumerate(agent_list)}
 
 
-def get_battle_metric(env: TABS, last_state):
+def get_battle_metric(env: TABX, last_state):
     log_state = last_state["log_state"]
     n_env = last_state["log_state"].returned_episode_returns.shape[0]
 

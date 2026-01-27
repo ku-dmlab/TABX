@@ -33,13 +33,13 @@ from src.baseline.utils import (
     save_params,
     unbatchify,
 )
-from src.tabs import TABS, build_batched_env_params_and_config
-from src.tabs.scenarios.constants import CHALLENGES
-from src.tabs.utils import Transition
-from src.tabs.wrappers.wrappers import (
-    TABSAutoResetWrapper,
-    TABSEnemyHeuristicWrapper,
-    TABSLogWrapper,
+from src.tabx import TABX, build_batched_env_params_and_config
+from src.tabx.scenarios.constants import CHALLENGES
+from src.tabx.utils import Transition
+from src.tabx.wrappers.wrappers import (
+    TABXAutoResetWrapper,
+    TABXEnemyHeuristicWrapper,
+    TABXLogWrapper,
 )
 
 
@@ -113,15 +113,15 @@ class SampleState:
 
 
 def make_train(config):
-    init_env_params, tabs_config = build_batched_env_params_and_config(
+    init_env_params, tabx_config = build_batched_env_params_and_config(
         scenario_names=config["SCENARIO"],
         physics_param_names=config["PHYSICS"],
         heuristic_param_names=config["HEURISTIC"],
     )
-    env = TABS(cfg=tabs_config, world_state_type=config["WORLD_STATE_TYPE"])
-    env = TABSLogWrapper(env)
-    env = TABSEnemyHeuristicWrapper(env)
-    env = TABSAutoResetWrapper(env)
+    env = TABX(cfg=tabx_config, world_state_type=config["WORLD_STATE_TYPE"])
+    env = TABXLogWrapper(env)
+    env = TABXEnemyHeuristicWrapper(env)
+    env = TABXAutoResetWrapper(env)
 
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
@@ -245,16 +245,16 @@ def make_train(config):
         heuristic_params = get_evaluation_heuristic_params(
             config["HEURISTIC"], list(config["FREE_PARAM_TYPE"])
         )
-        eval_levels, tabs_config = build_batched_env_params_and_config(
+        eval_levels, tabx_config = build_batched_env_params_and_config(
             scenario_names=eval_scenarios,
             physics_param_names=[config["PHYSICS"]] * n_eval_scenarios,
             heuristic_param_names=heuristic_params * n_eval_scenarios,
             n_repeat=config["NUM_EVAL"],
         )
-        eval_env = TABS(cfg=tabs_config)
-        eval_env = TABSLogWrapper(eval_env)
-        eval_env = TABSEnemyHeuristicWrapper(eval_env)
-        eval_env = TABSAutoResetWrapper(eval_env)
+        eval_env = TABX(cfg=tabx_config)
+        eval_env = TABXLogWrapper(eval_env)
+        eval_env = TABXEnemyHeuristicWrapper(eval_env)
+        eval_env = TABXAutoResetWrapper(eval_env)
         reset_rngs = jax.random.split(_rng_reset, config["NUM_EVAL"] * n_eval_scenarios)
         eval_obsv, eval_env_state = jax.vmap(eval_env.reset, in_axes=(0, 0))(
             reset_rngs, eval_levels

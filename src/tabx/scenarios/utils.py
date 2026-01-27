@@ -5,15 +5,15 @@ from typing import List, Optional, Tuple
 import jax
 import jax.numpy as jnp
 
-from src.tabs.config import TABSConfig
-from src.tabs.scenarios.constants import (
+from src.tabx.config import TABXConfig
+from src.tabx.scenarios.constants import (
     CHALLENGES,
     EVAL_UNIT_SCENARIOS,
     EVAL_ZONE_SCENARIOS,
     UNIT_SCENARIOS,
     ZONE_SCENARIOS,
 )
-from src.tabs.scenarios.scenario import VectorizedScenario, ZoneScenario
+from src.tabx.scenarios.scenario import VectorizedScenario, ZoneScenario
 
 
 def load_json_to_jnp(file_path):
@@ -152,7 +152,7 @@ def build_batched_scenarios(
     max_n_ally: Optional[int] = None,
     max_n_enemy: Optional[int] = None,
     max_n_zone: Optional[int] = None,
-) -> Tuple[VectorizedScenario, ZoneScenario, TABSConfig]:
+) -> Tuple[VectorizedScenario, ZoneScenario, TABXConfig]:
     if isinstance(scenario_names, str):
         scenario_names = [scenario_names]
     vscenarios, zone_scenarios = zip(
@@ -186,10 +186,10 @@ def build_batched_scenarios(
         stacked_vscenario = jax.tree.map(lambda x: x.squeeze(axis=0), stacked_vscenario)
         stacked_zone_scenario = jax.tree.map(lambda x: x.squeeze(axis=0), stacked_zone_scenario)
 
-    # TABS Configuration
-    tabs_config = TABSConfig(
+    # TABX Configuration
+    tabx_config = TABXConfig(
         max_n_ally=max_n_ally,
         max_n_enemy=max_n_enemy,
         max_n_zone=max_n_zone,
     )
-    return stacked_vscenario, stacked_zone_scenario, tabs_config
+    return stacked_vscenario, stacked_zone_scenario, tabx_config

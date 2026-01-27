@@ -24,11 +24,11 @@ from src.baseline.utils import (
     get_battle_metric,
     save_params,
 )
-from src.tabs import TABS, build_batched_env_params_and_config
-from src.tabs.wrappers.wrappers import (
-    TABSAutoResetWrapper,
-    TABSEnemyHeuristicWrapper,
-    TABSLogWrapper,
+from src.tabx import TABX, build_batched_env_params_and_config
+from src.tabx.wrappers.wrappers import (
+    TABXAutoResetWrapper,
+    TABXEnemyHeuristicWrapper,
+    TABXLogWrapper,
 )
 
 
@@ -55,7 +55,7 @@ class Config:
     LR_LINEAR_DECAY: bool = False
     GAMMA: float = 0.99
     LN_EPS: float = 1e-6
-    REW_SCALE: float = 10.0  # scale the reward to the original scale of TABS
+    REW_SCALE: float = 10.0  # scale the reward to the original scale of TABX
     TEST_DURING_TRAINING: bool = True
     TEST_INTERVAL: float = 0.05  # as a fraction of updates, i.e. log every 5% of training process
     TEST_NUM_STEPS: int = 512
@@ -502,26 +502,26 @@ def main(config):
         project=config.PROJECT_NAME, mode="online", config=config_dict | {"HASH": config_hash}
     )
 
-    train_env_params, tabs_config = build_batched_env_params_and_config(
+    train_env_params, tabx_config = build_batched_env_params_and_config(
         scenario_names=config.SCENARIO,
         physics_param_names=config.PHYSICS,
         heuristic_param_names=config.HEURISTIC,
         n_repeat=config.NUM_ENVS,
     )
-    test_env_params, tabs_config = build_batched_env_params_and_config(
+    test_env_params, tabx_config = build_batched_env_params_and_config(
         scenario_names=config.SCENARIO,
         physics_param_names=config.PHYSICS,
         heuristic_param_names=config.HEURISTIC,
         n_repeat=config.TEST_NUM_ENVS,
     )
-    env = TABS(
-        cfg=tabs_config,
+    env = TABX(
+        cfg=tabx_config,
         world_state_type=config.WORLD_STATE_TYPE,
         position_permutation=config.POSITION_PERMUTATION,
     )
-    env = TABSLogWrapper(env)
-    env = TABSEnemyHeuristicWrapper(env)
-    env = TABSAutoResetWrapper(env)
+    env = TABXLogWrapper(env)
+    env = TABXEnemyHeuristicWrapper(env)
+    env = TABXAutoResetWrapper(env)
 
     train_fn = jax.jit(make_train(config.__dict__, env, train_env_params, test_env_params))
     with jax.disable_jit(False):
@@ -545,18 +545,18 @@ def main(config):
 
     if config.SAVE_VIDEO:
         # Visualize
-        from src.tabs.visualize import Visualizer
+        from src.tabx.visualize import Visualizer
 
         vis_num_envs = 1
-        env_params, tabs_config = build_batched_env_params_and_config(
+        env_params, tabx_config = build_batched_env_params_and_config(
             scenario_names=config.SCENARIO,
             physics_param_names=config.PHYSICS,
             heuristic_param_names=config.HEURISTIC,
             n_repeat=vis_num_envs,
             squeeze_when_single_scenario=False,
         )
-        env = TABS(cfg=tabs_config)
-        env = TABSEnemyHeuristicWrapper(env)
+        env = TABX(cfg=tabx_config)
+        env = TABXEnemyHeuristicWrapper(env)
         num_steps = env.max_episode_steps
 
         def batchify(x: dict):

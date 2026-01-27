@@ -1,18 +1,18 @@
 import jax
 
-from src.tabs import TABS, build_batched_env_params_and_config
-from src.tabs.visualize import Visualizer
-from src.tabs.wrappers import TABSEnemyHeuristicWrapper
+from src.tabx import TABX, build_batched_env_params_and_config
+from src.tabx.visualize import Visualizer
+from src.tabx.wrappers import TABXEnemyHeuristicWrapper
 
 if __name__ == "__main__":
     num_steps = 120
     seed = 0
     scenario_name = "2F1M2Avs2S1K_2L2B2S"
 
-    env_params, tabs_config = build_batched_env_params_and_config(scenario_names=scenario_name)
+    env_params, tabx_config = build_batched_env_params_and_config(scenario_names=scenario_name)
 
-    env = TABS(cfg=tabs_config)
-    env = TABSEnemyHeuristicWrapper(env)
+    env = TABX(cfg=tabx_config)
+    env = TABXEnemyHeuristicWrapper(env)
 
     rng = jax.random.PRNGKey(seed)
     rng, _rng = jax.random.split(rng)

@@ -5,10 +5,10 @@ import chex
 import jax
 import jax.numpy as jnp
 
-from src.tabs.constants import TURN_ANGLE, UnitAction
-from src.tabs.heuristic_policy.components import LastVisibleTarget, ParsedObservation
-from src.tabs.heuristic_policy.params import TABSHeuristicParam
-from src.tabs.physics.params import PhysicsParams
+from src.tabx.constants import TURN_ANGLE, UnitAction
+from src.tabx.heuristic_policy.components import LastVisibleTarget, ParsedObservation
+from src.tabx.heuristic_policy.params import TABXHeuristicParam
+from src.tabx.physics.params import PhysicsParams
 
 
 def angle_wrap_to_pi(x):
@@ -50,7 +50,7 @@ def get_visible_target(parsed_obs: ParsedObservation) -> chex.Array:
 
 
 def get_target_move_position(
-    heuristic_config: TABSHeuristicParam, parsed_obs: ParsedObservation
+    heuristic_config: TABXHeuristicParam, parsed_obs: ParsedObservation
 ) -> chex.Array:
     """
     Get the target move position for the own unit.
@@ -93,7 +93,7 @@ Action = chex.Array
 
 
 def get_discrete_action(
-    heuristic_config: TABSHeuristicParam,
+    heuristic_config: TABXHeuristicParam,
     parsed_obs: ParsedObservation,
     physics_params: PhysicsParams,
     last_visible_target: LastVisibleTarget,
@@ -341,11 +341,11 @@ def heuristic_policy(
     last_visible_target: LastVisibleTarget,
     num_agents: int,
     num_zones: int,
-    heuristic_config: TABSHeuristicParam,
+    heuristic_config: TABXHeuristicParam,
     physics_params: PhysicsParams,
 ) -> Tuple[Action, LastVisibleTarget]:
     """
-    Heuristic policy for different unit types in TABS battle simulator.
+    Heuristic policy for different unit types in TABX battle simulator.
 
     Basic behavior for all units:
     - If no target is visible, rotate by 0.1π radians to search for enemies
