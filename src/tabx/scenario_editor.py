@@ -2233,13 +2233,13 @@ class MapEditor:
         # Help text - key descriptions
         if self.edit_mode == "unit":
             help_texts = [
-                "Q/E: Rotate | Click: Place | Right-click: Delete | WASD: Move | R: Reset",
+                "Q/E: Rotate | Click: Place | Right-click: Delete | WASD: Move | R: Reset Camera",
                 "Ctrl+Z: Undo | Ctrl+Y: Redo",
             ]
         else:
             help_texts = [
                 "Drag: Create Zone | Double-click Zone: Edit | Right-click: Delete",
-                "WASD: Move | R: Reset | Ctrl+Z: Undo | Ctrl+Y: Redo",
+                "WASD: Move | R: Reset Camera | Ctrl+Z: Undo | Ctrl+Y: Redo",
             ]
 
         for i, text in enumerate(help_texts):
