@@ -19,6 +19,7 @@ class ActorCriticRNN(nn.Module):
         embedding = nn.Dense(
             self.config["FC_DIM_SIZE"], kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
         )(obs)
+        embedding = nn.LayerNorm(self.config["LN_EPS"])(embedding)
         embedding = nn.relu(embedding)
 
         rnn_in = (embedding, dones)
@@ -27,6 +28,7 @@ class ActorCriticRNN(nn.Module):
         actor_mean = nn.Dense(
             self.config["GRU_HIDDEN_DIM"], kernel_init=orthogonal(2), bias_init=constant(0.0)
         )(embedding)
+        actor_mean = nn.LayerNorm(self.config["LN_EPS"])(actor_mean)
         actor_mean = nn.relu(actor_mean)
         actor_mean = nn.Dense(
             self.action_dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
@@ -39,6 +41,7 @@ class ActorCriticRNN(nn.Module):
         critic = nn.Dense(
             self.config["FC_DIM_SIZE"], kernel_init=orthogonal(2), bias_init=constant(0.0)
         )(embedding)
+        critic = nn.LayerNorm(self.config["LN_EPS"])(critic)
         critic = nn.relu(critic)
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(critic)
 
@@ -113,6 +116,7 @@ class ActorRNN(nn.Module):
         embedding = nn.Dense(
             self.config["FC_DIM_SIZE"], kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
         )(obs)
+        embedding = nn.LayerNorm(self.config["LN_EPS"])(embedding)
         embedding = nn.relu(embedding)
 
         rnn_in = (embedding, dones)
@@ -121,6 +125,7 @@ class ActorRNN(nn.Module):
         actor_mean = nn.Dense(
             self.config["GRU_HIDDEN_DIM"], kernel_init=orthogonal(2), bias_init=constant(0.0)
         )(embedding)
+        actor_mean = nn.LayerNorm(self.config["LN_EPS"])(actor_mean)
         actor_mean = nn.relu(actor_mean)
         actor_mean = nn.Dense(
             self.action_dim, kernel_init=orthogonal(0.01), bias_init=constant(0.0)
@@ -142,6 +147,7 @@ class CriticRNN(nn.Module):
         embedding = nn.Dense(
             self.config["FC_DIM_SIZE"], kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
         )(world_state)
+        embedding = nn.LayerNorm(self.config["LN_EPS"])(embedding)
         embedding = nn.relu(embedding)
 
         rnn_in = (embedding, dones)
@@ -150,6 +156,7 @@ class CriticRNN(nn.Module):
         critic = nn.Dense(
             self.config["GRU_HIDDEN_DIM"], kernel_init=orthogonal(2), bias_init=constant(0.0)
         )(embedding)
+        critic = nn.LayerNorm(self.config["LN_EPS"])(critic)
         critic = nn.relu(critic)
         critic = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(critic)
 
@@ -160,6 +167,7 @@ class RNNQNetwork(nn.Module):
     # homogenous agent for parameters sharing, assumes all agents have same obs and action dim
     action_dim: int
     hidden_dim: int
+    ln_eps: float
     init_scale: float = 1.0
 
     @nn.compact
@@ -169,6 +177,7 @@ class RNNQNetwork(nn.Module):
             kernel_init=orthogonal(self.init_scale),
             bias_init=constant(0.0),
         )(obs)
+        embedding = nn.LayerNorm(self.ln_eps)(embedding)
         embedding = nn.relu(embedding)
 
         rnn_in = (embedding, dones)
@@ -189,6 +198,7 @@ class HyperNetwork(nn.Module):
     hidden_dim: int
     output_dim: int
     init_scale: float
+    ln_eps: float
 
     @nn.compact
     def __call__(self, x):
@@ -197,6 +207,7 @@ class HyperNetwork(nn.Module):
             kernel_init=orthogonal(self.init_scale),
             bias_init=constant(0.0),
         )(x)
+        x = nn.LayerNorm(self.ln_eps)(x)
         x = nn.relu(x)
         x = nn.Dense(
             self.output_dim,
@@ -214,6 +225,7 @@ class MixingNetwork(nn.Module):
     embedding_dim: int
     hypernet_hidden_dim: int
     init_scale: float
+    ln_eps: float
 
     @nn.compact
     def __call__(self, q_vals, states):
@@ -225,6 +237,7 @@ class MixingNetwork(nn.Module):
             hidden_dim=self.hypernet_hidden_dim,
             output_dim=self.embedding_dim * n_agents,
             init_scale=self.init_scale,
+            ln_eps=self.ln_eps,
         )(states)
         b_1 = nn.Dense(
             self.embedding_dim,
@@ -235,10 +248,14 @@ class MixingNetwork(nn.Module):
             hidden_dim=self.hypernet_hidden_dim,
             output_dim=self.embedding_dim,
             init_scale=self.init_scale,
+            ln_eps=self.ln_eps,
         )(states)
-        b_2 = HyperNetwork(hidden_dim=self.embedding_dim, output_dim=1, init_scale=self.init_scale)(
-            states
-        )
+        b_2 = HyperNetwork(
+            hidden_dim=self.embedding_dim,
+            output_dim=1,
+            init_scale=self.init_scale,
+            ln_eps=self.ln_eps,
+        )(states)
 
         # monotonicity and reshaping
         w_1 = jnp.abs(w_1.reshape(time_steps, batch_size, n_agents, self.embedding_dim))
@@ -251,3 +268,63 @@ class MixingNetwork(nn.Module):
         q_tot = jnp.matmul(hidden, w_2) + b_2
 
         return q_tot.squeeze()  # (time_steps, batch_size)
+
+
+class RNDNetwork(nn.Module):
+    hidden_dim: int
+    output_dim: int
+    num_layers: int
+
+    @nn.compact
+    def __call__(self, x):
+        for _ in range(self.num_layers):
+            x = nn.Dense(self.hidden_dim)(x)
+            x = nn.relu(x)
+
+        x = nn.Dense(self.output_dim)(x)
+
+        return x
+
+
+class RNDCriticRNN(nn.Module):
+    config: Dict
+
+    @nn.compact
+    def __call__(self, hidden, x):
+        world_state, dones = x
+
+        # Extrinsic reward
+        embedding = nn.Dense(
+            self.config["FC_DIM_SIZE"], kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+        )(world_state)
+        embedding = nn.LayerNorm(self.config["LN_EPS"])(embedding)
+        embedding = nn.relu(embedding)
+
+        rnn_in = (embedding, dones)
+        hidden, embedding = ScannedRNN()(hidden, rnn_in)
+
+        critic_e = nn.Dense(
+            self.config["GRU_HIDDEN_DIM"], kernel_init=orthogonal(2), bias_init=constant(0.0)
+        )(embedding)
+        critic_e = nn.LayerNorm(self.config["LN_EPS"])(critic_e)
+        critic_e = nn.relu(critic_e)
+        critic_e = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(critic_e)
+
+        # Intrinsic reward
+        embedding = nn.Dense(
+            self.config["FC_DIM_SIZE"], kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
+        )(world_state)
+        embedding = nn.LayerNorm(self.config["LN_EPS"])(embedding)
+        embedding = nn.relu(embedding)
+
+        rnn_in = (embedding, dones)
+        hidden, embedding = ScannedRNN()(hidden, rnn_in)
+
+        critic_i = nn.Dense(
+            self.config["GRU_HIDDEN_DIM"], kernel_init=orthogonal(2), bias_init=constant(0.0)
+        )(embedding)
+        critic_i = nn.LayerNorm(self.config["LN_EPS"])(critic_i)
+        critic_i = nn.relu(critic_i)
+        critic_i = nn.Dense(1, kernel_init=orthogonal(1.0), bias_init=constant(0.0))(critic_i)
+
+        return hidden, jnp.squeeze(critic_e, axis=-1), jnp.squeeze(critic_i, axis=-1)

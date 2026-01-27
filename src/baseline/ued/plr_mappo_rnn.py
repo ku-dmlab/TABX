@@ -2,10 +2,12 @@
 Based on JaxMARL Implementation of MAPPO and JaxUED Implementation of PLR
 """
 
+import hashlib
+import json
 import os
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Literal
+from typing import Literal, Tuple
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
@@ -24,14 +26,20 @@ from src.baseline.ued.level_generator import level_generator, mutate_level_gener
 from src.baseline.ued.level_sampler import LevelSampler
 from src.baseline.ued.scores import compute_max_returns, max_mc, positive_value_loss
 from src.baseline.ued.utils import get_evaluation_heuristic_params, get_evaluation_scenarios
-from src.baseline.utils import batchify, get_battle_metric, save_params, unbatchify
-from src.tabs import TABS, build_batched_env_params_and_config
-from src.tabs.scenarios.constants import CHALLENGES
-from src.tabs.utils import Transition
-from src.tabs.wrappers.wrappers import (
-    TABSAutoResetWrapper,
-    TABSEnemyHeuristicWrapper,
-    TABSLogWrapper,
+from src.baseline.utils import (
+    batchify,
+    dataclass_to_dict,
+    get_battle_metric,
+    save_params,
+    unbatchify,
+)
+from src.tabx import TABX, build_batched_env_params_and_config
+from src.tabx.scenarios.constants import CHALLENGES
+from src.tabx.utils import Transition
+from src.tabx.wrappers.wrappers import (
+    TABXAutoResetWrapper,
+    TABXEnemyHeuristicWrapper,
+    TABXLogWrapper,
 )
 
 
@@ -54,11 +62,13 @@ class Config:
     MAX_GRAD_NORM: float = 0.25
     ACTIVATION: str = "relu"
     ANNEAL_LR: bool = True
+    LN_EPS: float = 1e-6
     # Env
     SCENARIO: str = "1F1M3A1Hvs2F1S1K1A1H_2L"
     PHYSICS: str = "default"
     HEURISTIC: str = "easy"
     FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
+    WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # PLR
     SCORE_FUNC: str = "MaxMC"  # MaxMC, pvl
     EXPLORATORY_GRAD_UPDATES: bool = False  # False if Robust PLR or ACCEL
@@ -77,7 +87,8 @@ class Config:
     EVAL_STEPS: int = 256
     NUM_EVAL: int = 10  # The number of episodes to evaluate
     # Misc.
-    SEED: int = 0
+    SEED: int | Tuple[int, ...] = 0
+    ALGORITHM: str = "robust_plr_mappo"  # for distinguishing wandb runs
     PROJECT_NAME: str = "plr_mappo_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
@@ -102,15 +113,15 @@ class SampleState:
 
 
 def make_train(config):
-    init_env_params, tabs_config = build_batched_env_params_and_config(
+    init_env_params, tabx_config = build_batched_env_params_and_config(
         scenario_names=config["SCENARIO"],
         physics_param_names=config["PHYSICS"],
         heuristic_param_names=config["HEURISTIC"],
     )
-    env = TABS(cfg=tabs_config)
-    env = TABSLogWrapper(env)
-    env = TABSEnemyHeuristicWrapper(env)
-    env = TABSAutoResetWrapper(env)
+    env = TABX(cfg=tabx_config, world_state_type=config["WORLD_STATE_TYPE"])
+    env = TABXLogWrapper(env)
+    env = TABXEnemyHeuristicWrapper(env)
+    env = TABXAutoResetWrapper(env)
 
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
@@ -140,6 +151,7 @@ def make_train(config):
             raise ValueError(f"Unknown score function: {config['SCORE_FUNC']}")
 
     def train(rng):
+        init_rng = rng
         # INIT NETWORK
         actor_network = ActorRNN(env.action_space(env.agents[0]).n, config=config)
         critic_network = CriticRNN(config=config)
@@ -233,16 +245,16 @@ def make_train(config):
         heuristic_params = get_evaluation_heuristic_params(
             config["HEURISTIC"], list(config["FREE_PARAM_TYPE"])
         )
-        eval_levels, tabs_config = build_batched_env_params_and_config(
+        eval_levels, tabx_config = build_batched_env_params_and_config(
             scenario_names=eval_scenarios,
             physics_param_names=[config["PHYSICS"]] * n_eval_scenarios,
             heuristic_param_names=heuristic_params * n_eval_scenarios,
             n_repeat=config["NUM_EVAL"],
         )
-        eval_env = TABS(cfg=tabs_config)
-        eval_env = TABSLogWrapper(eval_env)
-        eval_env = TABSEnemyHeuristicWrapper(eval_env)
-        eval_env = TABSAutoResetWrapper(eval_env)
+        eval_env = TABX(cfg=tabx_config)
+        eval_env = TABXLogWrapper(eval_env)
+        eval_env = TABXEnemyHeuristicWrapper(eval_env)
+        eval_env = TABXAutoResetWrapper(eval_env)
         reset_rngs = jax.random.split(_rng_reset, config["NUM_EVAL"] * n_eval_scenarios)
         eval_obsv, eval_env_state = jax.vmap(eval_env.reset, in_axes=(0, 0))(
             reset_rngs, eval_levels
@@ -287,11 +299,7 @@ def make_train(config):
                     batchify(avail_actions, env.agents, config["NUM_ACTORS"])
                 )
                 obs_batch = batchify(last_obs, env.agents, config["NUM_ACTORS"])
-                ac_in = (
-                    obs_batch[np.newaxis, :],
-                    last_done[np.newaxis, :],
-                    avail_actions,
-                )
+                ac_in = (obs_batch[np.newaxis, :], last_done[np.newaxis, :], avail_actions)
                 ac_hstate, pi = actor_network.apply(train_states[0].params, hstates[0], ac_in)
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
@@ -301,13 +309,10 @@ def make_train(config):
                 # VALUE
                 # world_state is (num_envs, world_state_size)
                 # repeat for each agent to get (num_actors, world_state_size)
-                world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-                world_state = jnp.repeat(world_state, env.num_agents, axis=0)  # (NUM_ACTORS, 280)
+                world_state = last_obs["world_state"]
+                world_state = jnp.tile(world_state, (env.num_agents, 1))
 
-                cr_in = (
-                    world_state[None, :],
-                    last_done[np.newaxis, :],
-                )
+                cr_in = (world_state[None, :], last_done[np.newaxis, :])
                 cr_hstate, value = critic_network.apply(train_states[1].params, hstates[1], cr_in)
 
                 # STEP ENV
@@ -352,14 +357,9 @@ def make_train(config):
                     update_grad: bool = True,
                 ):
                     def _update_epoch_fn(update_state, unused):
-                        (
-                            train_states,
-                            init_hstates,
-                            traj_batch,
-                            advantages,
-                            targets,
-                            rng,
-                        ) = update_state
+                        (train_states, init_hstates, traj_batch, advantages, targets, rng) = (
+                            update_state
+                        )
 
                         def _update_minbatch(train_states, batch_info):
                             actor_train_state, critic_train_state = train_states
@@ -553,14 +553,9 @@ def make_train(config):
                         runner_state
                     )
 
-                    last_world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-                    last_world_state = jnp.repeat(
-                        last_world_state, env.num_agents, axis=0
-                    )  # (NUM_ACTORS, 280)
-                    cr_in = (
-                        last_world_state[None, :],
-                        last_done[np.newaxis, :],
-                    )
+                    last_world_state = last_obs["world_state"]
+                    last_world_state = jnp.tile(last_world_state, (env.num_agents, 1))
+                    cr_in = (last_world_state[None, :], last_done[np.newaxis, :])
                     _, last_val = critic_network.apply(train_states[1].params, hstates[1], cr_in)
                     last_val = last_val.squeeze()
 
@@ -648,14 +643,9 @@ def make_train(config):
                         runner_state
                     )
 
-                    last_world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-                    last_world_state = jnp.repeat(
-                        last_world_state, env.num_agents, axis=0
-                    )  # (NUM_ACTORS, 280)
-                    cr_in = (
-                        last_world_state[None, :],
-                        last_done[np.newaxis, :],
-                    )
+                    last_world_state = last_obs["world_state"]
+                    last_world_state = jnp.tile(last_world_state, (env.num_agents, 1))
+                    cr_in = (last_world_state[None, :], last_done[np.newaxis, :])
                     _, last_val = critic_network.apply(train_states[1].params, hstates[1], cr_in)
                     last_val = last_val.squeeze()
 
@@ -750,14 +740,9 @@ def make_train(config):
                         runner_state
                     )
 
-                    last_world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-                    last_world_state = jnp.repeat(
-                        last_world_state, env.num_agents, axis=0
-                    )  # (NUM_ACTORS, 280)
-                    cr_in = (
-                        last_world_state[None, :],
-                        last_done[np.newaxis, :],
-                    )
+                    last_world_state = last_obs["world_state"]
+                    last_world_state = jnp.tile(last_world_state, (env.num_agents, 1))
+                    cr_in = (last_world_state[None, :], last_done[np.newaxis, :])
                     _, last_val = critic_network.apply(train_states[1].params, hstates[1], cr_in)
                     last_val = last_val.squeeze()
 
@@ -878,11 +863,7 @@ def make_train(config):
                         batchify(avail_actions, eval_env.agents, BATCH_ACTORS)
                     )
                     obs_batch = batchify(last_obs, eval_env.agents, BATCH_ACTORS)
-                    ac_in = (
-                        obs_batch[np.newaxis, :],
-                        last_done[np.newaxis, :],
-                        avail_actions,
-                    )
+                    ac_in = (obs_batch[np.newaxis, :], last_done[np.newaxis, :], avail_actions)
                     ac_hstate, pi = actor_network.apply(actor_train_state.params, ac_hstate, ac_in)
                     action = pi.sample(seed=_rng)
                     env_act = unbatchify(action, eval_env.agents, BATCH_SIZE, eval_env.num_agents)
@@ -928,11 +909,24 @@ def make_train(config):
 
             metric |= eval_metric
 
-            def callback(metric):
-                wandb.log(metric)
+            def callback(metric, init_rng, update_steps):
+                seed = jax.random.key_data(init_rng)[-1].item()
+                metric_plus_seed = {
+                    f"{k}_seed{seed}" if isinstance(config["SEED"], tuple) else k: v
+                    for k, v in metric.items()
+                }
+                metric_plus_seed[
+                    f"update_steps_seed{seed}"
+                    if isinstance(config["SEED"], tuple)
+                    else "update_steps"
+                ] = update_steps
+                metric_plus_seed[
+                    f"env_step_seed{seed}" if isinstance(config["SEED"], tuple) else "env_step"
+                ] = update_steps * config["NUM_ENVS"] * config["NUM_STEPS"]
+                wandb.log(metric_plus_seed)
 
             update_steps = update_steps + 1
-            jax.experimental.io_callback(callback, None, metric)
+            jax.experimental.io_callback(callback, None, metric, init_rng, update_steps)
             runner_state = (train_states, sample_state, env_state, rng)
             return (runner_state, update_steps), metric
 
@@ -948,22 +942,37 @@ def make_train(config):
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
+    config_dict = dataclass_to_dict(config)
+    config_json = json.dumps(config_dict, sort_keys=True)
+    config_hash = hashlib.md5(config_json.encode()).hexdigest()[:8]
+    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME, config_hash)
+    os.makedirs(save_path, exist_ok=True)
+
+    # Save config to logs directory
+    with open(os.path.join(save_path, "config.json"), "w") as f:
+        json.dump(config_dict, f, indent=2)
+
     if config.SCENARIO in CHALLENGES:
         raise ValueError(f"{config.SCENARIO} is not supported in the UED setting.")
 
-    wandb.init(project=config.PROJECT_NAME, mode="online", config=config)
+    if config.USE_ACCEL:
+        config.ALGORITHM = "accel_mappo"
+    elif config.EXPLORATORY_GRAD_UPDATES:
+        config.ALGORITHM = "plr_mappo"
+
+    wandb.init(
+        project=config.PROJECT_NAME, mode="online", config=config_dict | {"HASH": config_hash}
+    )
     train_fn = make_train(config.__dict__)
     with jax.disable_jit(False):
-        result = train_fn(jax.random.key(config.SEED))
+        if isinstance(config.SEED, int):
+            result = train_fn(jax.random.key(config.SEED))
+        else:
+            result = jax.vmap(train_fn)(jax.vmap(jax.random.key)(jnp.array(config.SEED)))
 
     # Save trained model
-    save_path = os.path.join(config.SAVE_PATH, config.PROJECT_NAME)
-    os.makedirs(save_path, exist_ok=True)
     runner_state = result["runner_state"][0]
     save_params(
         runner_state[0][0].params,
-        os.path.join(
-            save_path,
-            f"{config.SCENARIO}_seed{config.SEED}_actor.safetensors",
-        ),
+        os.path.join(save_path, f"{config.SCENARIO}_seed{config.SEED}_actor.safetensors"),
     )

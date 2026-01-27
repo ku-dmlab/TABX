@@ -1,8 +1,8 @@
 from itertools import product
 from typing import List
 
-from src.tabs.heuristic_policy.constants import HEURISTIC_PARAMS
-from src.tabs.scenarios.constants import CHALLENGES, EVAL_UNIT_SCENARIOS, EVAL_ZONE_SCENARIOS
+from src.tabx.heuristic_policy.constants import HEURISTIC_PARAMS
+from src.tabx.scenarios.constants import CHALLENGES, EVAL_UNIT_SCENARIOS, EVAL_ZONE_SCENARIOS
 
 
 def get_evaluation_scenarios(scenario_name: str, free_param_type: List) -> List:
@@ -37,7 +37,7 @@ def get_evaluation_scenarios(scenario_name: str, free_param_type: List) -> List:
         return [scenario_name] + [
             (s1 + "_" + s2).replace("_void", "")
             for s1, s2 in product(EVAL_UNIT_SCENARIOS, [zone_name])
-            if enemy_comp in s1
+            if enemy_comp in s1.split("vs")[-1]
         ]
     else:  # heuristic config
         return [scenario_name]

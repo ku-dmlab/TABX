@@ -4,12 +4,12 @@ from typing import Dict as Level
 import jax
 import jax.numpy as jnp
 
-from src.tabs.wrappers import BaseWrapper
+from src.tabx.wrappers import BaseWrapper
 
 
 class LevelAutoResetWrapper(BaseWrapper):
     """
-    Wrapper for TABS that adds automatic reset by level functionality.
+    Wrapper for TABX that adds automatic reset by level functionality.
     """
 
     def __init__(self, env, sample_level: Callable):
