@@ -1,12 +1,18 @@
 # Totally Accelerated Battle Simulator in JAX (TABX)
+<p align="center">
+<img src="imgs/tabx_logo.png" style="width:500px" />
+</p>
+
 **Totally Accelerated Battle Simulator in JAX (TABX)** is a rapid, flexible, and easily configurable sandbox for MARL. It allows researchers to generate various scenarios tailored to specific research questions by offering a diverse set of environmental parameters.
 
+<p align="center">
 <img src="imgs/clover.gif" style="width:300px"> </img>
 <img src="imgs/crossfire.gif" style="width:300px"> </img>
 <img src="imgs/ribbon.gif" style="width:300px"> </img>
 <img src="imgs/superking.gif" style="width:300px"> </img>
 <img src="imgs/grid.gif" style="width:300px"> </img>
 <img src="imgs/bypass.gif" style="width:300px"> </img>
+</p>
 
 We recommend using the provided `Docker devcontainer` and `uv` Python package to ensure a consistent development environment.
 ```
