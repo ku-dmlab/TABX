@@ -38,17 +38,17 @@ from src.tabx.wrappers.wrappers import (
 class Config:
     LR: float = 0.004
     NUM_ENVS: int = 128
-    NUM_STEPS: int = 128
+    NUM_STEPS: int = 512
     GRU_HIDDEN_DIM: int = 128
     FC_DIM_SIZE: int = 128
-    TOTAL_TIMESTEPS: int = 1e7
+    TOTAL_TIMESTEPS: int = 3e7
     UPDATE_EPOCHS: int = 4
     NUM_MINIBATCHES: int = 4
     GAMMA: float = 0.99
     GAE_LAMBDA: float = 0.95
     CLIP_EPS: float = 0.05
     SCALE_CLIP_EPS: bool = False
-    ENT_COEF: float = 0.01
+    ENT_COEF: float = 0.001
     VF_COEF: float = 0.5
     MAX_GRAD_NORM: float = 0.25
     ACTIVATION: str = "relu"
@@ -59,7 +59,7 @@ class Config:
     RND_OUTPUT_DIM: int = 256
     RND_NUM_LAYERS: int = 3
     RND_LR: float = 3e-4
-    RND_REWARD_COEF: float = 1.0
+    RND_REWARD_COEF: float = 0.5
     RND_LOSS_COEF: float = 0.01
     RND_GAE_COEF: float = 0.01
     RND_IS_EPISODIC: bool = False
@@ -67,12 +67,12 @@ class Config:
     # Env
     SCENARIO: str = "elbow"
     PHYSICS: str = "default"
-    HEURISTIC: str = "easy"
+    HEURISTIC: str = "medium"
     WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # Misc.
     SEED: int | Tuple[int, ...] = 0
     ALGORITHM: str = "mappo_rnd"  # for distinguishing wandb runs
-    PROJECT_NAME: str = "mappo_rnn"  # wandb project name
+    PROJECT_NAME: str = "mappo_rnd"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
     VALUE_EVAL_NUM_ENVS: int | None = 128

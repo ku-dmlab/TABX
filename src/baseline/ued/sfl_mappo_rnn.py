@@ -40,10 +40,10 @@ from src.tabx.wrappers import TABXAutoResetWrapper, TABXEnemyHeuristicWrapper, T
 class Config:
     LR: float = 0.004
     NUM_ENVS: int = 128
-    NUM_STEPS: int = 256
+    NUM_STEPS: int = 512
     GRU_HIDDEN_DIM: int = 128
     FC_DIM_SIZE: int = 128
-    TOTAL_TIMESTEPS: int = 5e7  # NOTE
+    TOTAL_TIMESTEPS: int = 5e7
     UPDATE_EPOCHS: int = 4
     NUM_MINIBATCHES: int = 4
     GAMMA: float = 0.99
@@ -59,7 +59,7 @@ class Config:
     # Env
     SCENARIO: str = "1F1M3A1Hvs2F1S1K1A1H_2L"
     PHYSICS: str = "default"
-    HEURISTIC: str = "easy"
+    HEURISTIC: str = "novice"
     FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
     WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # SFL
