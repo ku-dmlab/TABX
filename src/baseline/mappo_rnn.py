@@ -248,10 +248,8 @@ def make_train(config):
             # CALCULATE ADVANTAGE
             train_states, env_state, last_obs, last_done, hstates, rng = runner_state
 
-            last_world_state = last_obs["world_state"]  # (NUM_ENVS, 280)
-            last_world_state = jnp.repeat(
-                last_world_state, env.num_agents, axis=0
-            )  # (NUM_ACTORS, 280)
+            last_world_state = last_obs["world_state"]
+            last_world_state = jnp.repeat(last_world_state, env.num_agents, axis=0)
 
             cr_in = (
                 last_world_state[None, :],

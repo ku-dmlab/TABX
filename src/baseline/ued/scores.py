@@ -16,7 +16,6 @@ def accumulate_rollout_stats(dones, metrics, *, time_average):
         step_count += 1
 
         if time_average:
-            # val = jax.tree_util.tree_map(lambda x, b: jax.lax.select(b, x / step_count, x), accum_val, time_average)
             val = jax.tree_util.tree_map(lambda x: x / step_count, accum_val)
         else:
             val = accum_val

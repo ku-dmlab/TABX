@@ -1,11 +1,5 @@
 from dataclasses import dataclass
 
-import chex
-import jax.numpy as jnp
-from flax import struct
-
-from src.tabx.constants import ALL_UNIT_NAMES
-
 
 @dataclass(frozen=True)
 class TABXConfig:
