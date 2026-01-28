@@ -35,7 +35,7 @@ from src.tabx.wrappers.wrappers import (
 
 @dataclass
 class Config:
-    TOTAL_TIMESTEPS: int = 1e7
+    TOTAL_TIMESTEPS: int = 2e7
     NUM_ENVS: int = 16
     NUM_STEPS: int = 512
     BUFFER_SIZE: int = 5000
@@ -66,7 +66,7 @@ class Config:
     # Env
     SCENARIO: str = "elbow"
     PHYSICS: str = "default"
-    HEURISTIC: str = "easy"
+    HEURISTIC: str = "medium"
     WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # Misc.
     SEED: int | Tuple[int, ...] = 0

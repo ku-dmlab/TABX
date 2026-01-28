@@ -39,10 +39,10 @@ from src.tabx.wrappers.wrappers import (
 class Config:
     LR: float = 0.004
     NUM_ENVS: int = 128
-    NUM_STEPS: int = 128
+    NUM_STEPS: int = 512
     GRU_HIDDEN_DIM: int = 128
     FC_DIM_SIZE: int = 128
-    TOTAL_TIMESTEPS: int = 1e7
+    TOTAL_TIMESTEPS: int = 2e7
     UPDATE_EPOCHS: int = 4
     NUM_MINIBATCHES: int = 4
     GAMMA: float = 0.99
@@ -58,7 +58,7 @@ class Config:
     # Env
     SCENARIO: str = "elbow"
     PHYSICS: str = "default"
-    HEURISTIC: str = "easy"
+    HEURISTIC: str = "medium"
     WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # Misc.
     SEED: int | Tuple[int, ...] = 0
