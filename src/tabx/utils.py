@@ -35,7 +35,7 @@ EnvParameters = Dict[str, chex.Array]
 def build_batched_env_params_and_config(
     scenario_names: List[str] | str = "default",
     physics_param_names: List[str] | str = "default",
-    heuristic_param_names: List[str] | str = "easy",
+    heuristic_param_names: List[str] | str = "novice",
     n_repeat: int = 1,
     squeeze_when_single_scenario: bool = True,
     max_n_ally: Optional[int] = None,

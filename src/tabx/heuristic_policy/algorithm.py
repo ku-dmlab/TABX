@@ -345,73 +345,50 @@ def heuristic_policy(
     physics_params: PhysicsParams,
 ) -> Tuple[Action, LastVisibleTarget]:
     """
-    Heuristic policy for different unit types in TABX battle simulator.
+    Role-appropriate heuristic policy for TABX units.
 
-    Basic behavior for all units:
-    - If no target is visible, rotate by 0.1π radians to search for enemies
-    - If there exists attackable target and not on cooldown, execute attack and rotate toward the target
+    This policy implements a priority-based decision structure that leverages unit-specific
+    statistical advantages through three orthogonal role classes: ranger, assassin, and healer.
+    These roles are determined by intrinsic unit attributes (attack range, movement speed, and
+    attack damage polarity) and are non-mutually exclusive.
+
+    The policy operates through three hierarchical stages:
+    1. Target Selection: Role-specific heuristics prioritize entities within the agent's field of view.
+       - Healers prioritize the proximal injured ally, defaulting to the nearest allied unit.
+       - Assassins target visible enemies by prioritizing the lowest maximum health.
+       - Other agents follow a nearest-neighbor heuristic.
+
+    2. Spatial Positioning: Agents calculate target coordinates based on role-specific objectives.
+       - Assassins prioritize posterior positioning relative to the target's orientation.
+       - Healers minimize Euclidean distance to maximize healing coverage.
+       - Other units seek frontal engagement to maintain direct line of sight.
+
+    3. Threat Mitigation: Rangers implement distance-maintenance protocols.
+       - Rangers retreat when opponents breach a critical threshold of their attack range.
+       - In the absence of targets, rangers bias toward environmental 'bush zones'.
+
+    The final action follows a priority hierarchy:
+    1. Attack if a target is within effective engagement region and cooldown has lapsed.
+    2. Rotate to align heading with a visible target if rotation would enable engagement.
+    3. Execute kiting protocol for rangers under threat to maintain standoff advantage.
+    4. Navigate toward visible role-dependent targets.
+    5. Pursue last known coordinates when targets are occluded (memory-based pursuit).
+    6. Default to search rotation (rangers first navigate to bush zones, then rotate).
+    7. Apply ε-greedy override for limited stochasticity.
 
     Args:
-        key: JAX random key for stochastic decisions
-        obs: i'th unit's Observation array
-        num_agents: Total number of agents in the environment (including self)
-        epsilon: Probability of taking random action
-        aggressive_threshold: Threshold for aggressive behavior (0.0-1.0)
+        key: JAX random key for stochastic action selection
+        obs: Observation array containing unit and environment state
+        last_visible_target: Memory of the last observed target position
+        num_agents: Number of agents in the environment
+        num_zones: Number of zones in the environment
+        heuristic_config: Configuration parameters for heuristic behavior
+        physics_params: Physics parameters of the environment
 
     Returns:
-        i'th unit's action (rotate_action, discrete_action)
-
-    Special Unit Logic:
-    - Healer: Units with negative attack damage
-      - If all visible allies are at full health: move to closest ally and heal if possible
-      - If any visible ally has less than 100% health: move to and heal the closest injured ally
-      - Does not consider obstructions from other units during movement
-
-    - Archer: Units with attack range above a certain threshold
-      - If enemies are within 100 * aggressive_threshold% of attack range and unit is on cooldown or has no target:
-        move away from the closest enemy in the fastest escape direction
-      - Does not consider map boundaries or unit obstructions
-
-    - Assassin: Units with speed >= assasin_speed
-      - Target the closest enemy among those with the lowest maximum health
-      - Move to the target's back (opposite to target's facing direction)
-
-    """
-    """
-    Observation Features Indices:
-    own features:
-    0 : health
-    1 : max_health / max_health
-    2 : absolute_x
-    3 : absolute_y
-    4 : rotation / 2pi
-    5 : attack_range
-    6 : attack_damage
-    7 : cooldown
-    8 : cooldown / attack_cooldown
-    9 : body_radius
-    10 : body_weight
-    11 : sight_angle
-    12 : is_alive
-    13 : speed
-
-    other features (per visible unit):
-    0 : health
-    1 : health / max_health
-    2 : relative_x
-    3 : relative_y
-    4 : rotation / 2pi
-    5 : attack_range
-    6 : attack_damage
-    7 : cooldown
-    8 : cooldown / attack_cooldown
-    9 : body_radius
-    10 : body_weight
-    11 : sight_angle
-    12 : is_alive
-    13 : is_ally
-    14 : is_attackable
-    15 : speed
+        Tuple containing:
+        - Action: Selected discrete action (with ε-greedy override applied)
+        - LastVisibleTarget: Updated memory of last visible target
     """
     parsed_obs = ParsedObservation.from_obs(obs, num_agents, num_zones)
 
@@ -442,12 +419,6 @@ def heuristic_policy(
             ]
         ),
     )
-
-    # Priority
-    # 1. If attackable target exists, attack
-    # 2. If there exists aggressive target, move away from the target
-    # 3. If there exists visible target, rotate to the target
-    # 4. If there exists no target, turn left to find target
 
     is_random = jax.random.bernoulli(key, heuristic_config.epsilon)
     return (

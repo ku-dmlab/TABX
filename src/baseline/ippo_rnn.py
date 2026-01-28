@@ -189,7 +189,6 @@ def make_train(config):
                 obsv, next_env_state, reward, done, info = jax.vmap(env.step, in_axes=(0, 0, 0, 0))(
                     rng_step, env_state, env_act, env_params
                 )
-                # info = jax.tree.map(lambda x: x.reshape((config["NUM_ACTORS"])), info)
                 done_batch = batchify(done, env.agents, config["NUM_ACTORS"]).squeeze()
                 transition = Transition(
                     jnp.tile(done["__all__"], env.num_agents),
@@ -304,7 +303,6 @@ def make_train(config):
                     obsv, next_env_state, reward, done, info = jax.vmap(
                         eval_env.step, in_axes=(0, 0, 0)
                     )(rng_step, env_state, env_act)
-                    # info = jax.tree.map(lambda x: x.reshape((config["NUM_ACTORS"])), info)
                     done_batch = batchify(done, eval_env.agents, config["NUM_ACTORS"]).squeeze()
 
                     runner_state = (
