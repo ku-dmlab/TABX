@@ -230,6 +230,7 @@ class TABXEnemyAllyFlipWrapper(BaseWrapper):
         super().__init__(env)
         self.ally_keys = env.enemy_keys
         self.enemy_keys = env.ally_keys
+        self.agents = self.ally_keys + self.enemy_keys
 
     def step(self, key, state, action):
         obs, next_state, reward, done, info = self.env.step(key, state, action)
