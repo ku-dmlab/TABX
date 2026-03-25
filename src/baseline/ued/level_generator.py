@@ -23,7 +23,7 @@ zone_ranges = {
 effect_value_coef = jnp.array([1.0, 1.0, 1.0, 0.05])
 
 
-def randomize_zone(env_params: Level, rng: chex.PRNGKey) -> Level:
+def randomize_zone(env_params: Level, _: int, rng: chex.PRNGKey) -> Level:
     def _randomize_zone(zone_scenario: ZoneScenario, rng: chex.PRNGKey) -> ZoneScenario:
         n_zones = zone_scenario.zone_type.shape[0]
         # Randomly set zone specifications (zone_type, ellipse, damage)
@@ -91,7 +91,7 @@ def randomize_zone(env_params: Level, rng: chex.PRNGKey) -> Level:
 unit_spec_ranges = {"healths": [25, 685], "speeds": [0.5, 1.4], "attack_damages": [-7, 80]}
 
 
-def randomize_unit_specs(env_params: Level, rng: chex.PRNGKey) -> Level:
+def randomize_unit_specs(env_params: Level, env_param_type: int, rng: chex.PRNGKey) -> Level:
     def _randomize_unit_specs(
         scenario: VectorizedScenario, rng: chex.PRNGKey
     ) -> VectorizedScenario:
@@ -99,24 +99,36 @@ def randomize_unit_specs(env_params: Level, rng: chex.PRNGKey) -> Level:
         # Randomly set unit specifications (health, speed, attack_damage)
         rngs = jax.random.split(rng, 3)
         scenario = scenario.replace(
-            healths=jax.random.uniform(
-                rngs[0],
-                shape=(n_units, 1),
-                minval=unit_spec_ranges["healths"][0],
-                maxval=unit_spec_ranges["healths"][1],
-            ).astype(jnp.float32),
-            speeds=jax.random.uniform(
-                rngs[1],
-                shape=(n_units, 1),
-                minval=unit_spec_ranges["speeds"][0],
-                maxval=unit_spec_ranges["speeds"][1],
-            ).astype(jnp.float32),
-            attack_damages=jax.random.uniform(
-                rngs[2],
-                shape=(n_units, 1),
-                minval=unit_spec_ranges["attack_damages"][0],
-                maxval=unit_spec_ranges["attack_damages"][1],
-            ).astype(jnp.float32),
+            healths=jnp.where(
+                env_param_type == 0,
+                jax.random.uniform(
+                    rngs[0],
+                    shape=(n_units, 1),
+                    minval=unit_spec_ranges["healths"][0],
+                    maxval=unit_spec_ranges["healths"][1],
+                ).astype(jnp.float32),
+                scenario.healths,
+            ),
+            speeds=jnp.where(
+                env_param_type == 1,
+                jax.random.uniform(
+                    rngs[1],
+                    shape=(n_units, 1),
+                    minval=unit_spec_ranges["speeds"][0],
+                    maxval=unit_spec_ranges["speeds"][1],
+                ).astype(jnp.float32),
+                scenario.speeds,
+            ),
+            attack_damages=jnp.where(
+                env_param_type == 2,
+                jax.random.uniform(
+                    rngs[2],
+                    shape=(n_units, 1),
+                    minval=unit_spec_ranges["attack_damages"][0],
+                    maxval=unit_spec_ranges["attack_damages"][1],
+                ).astype(jnp.float32),
+                scenario.attack_damages,
+            ),
         )
 
         return scenario
@@ -136,7 +148,7 @@ def randomize_unit_specs(env_params: Level, rng: chex.PRNGKey) -> Level:
 heuristic_config_ranges = {"epsilon": [0.0, 1.0], "aggressive_threshold": [0.0, 1.0]}
 
 
-def randomize_heuristic_config(env_params: Level, rng: chex.PRNGKey) -> Level:
+def randomize_heuristic_config(env_params: Level, _: int, rng: chex.PRNGKey) -> Level:
     def _randomize_heuristic_config(
         config: TABXHeuristicParam, rng: chex.PRNGKey
     ) -> TABXHeuristicParam:
@@ -169,7 +181,7 @@ def randomize_heuristic_config(env_params: Level, rng: chex.PRNGKey) -> Level:
     return env_params
 
 
-def level_generator(free_param_types: Tuple) -> Callable:
+def level_generator(free_param_types: Tuple, env_param_type: int) -> Callable:
     def generate_level(env_params: Level, rng: chex.PRNGKey) -> Level:
         def _generate_level(carry, free_param_type: int):
             env_params, rng = carry
@@ -179,6 +191,7 @@ def level_generator(free_param_types: Tuple) -> Callable:
                 free_param_type,
                 [randomize_zone, randomize_unit_specs, randomize_heuristic_config],
                 env_params,
+                env_param_type,
                 _rng,
             )
 
@@ -195,7 +208,7 @@ def level_generator(free_param_types: Tuple) -> Callable:
     return generate_level
 
 
-def mutate_zone(env_params: Level, rng: chex.PRNGKey, num_edits=3) -> Level:
+def mutate_zone(env_params: Level, _, rng: chex.PRNGKey, num_edits=3) -> Level:
     class Mutations(IntEnum):
         NO_OP = 0
         ADD_NOISE = 1
@@ -321,25 +334,37 @@ def mutate_zone(env_params: Level, rng: chex.PRNGKey, num_edits=3) -> Level:
     return env_params
 
 
-def mutate_unit_spec(env_params: Level, rng: chex.PRNGKey) -> Level:
+def mutate_unit_spec(env_params: Level, env_param_type: int, rng: chex.PRNGKey) -> Level:
     def _mutate_unit_spec(scenario: VectorizedScenario, rng: chex.PRNGKey) -> VectorizedScenario:
         # Add noise
         rngs = jax.random.split(rng, 3)
         scenario = scenario.replace(
-            healths=jnp.clip(
-                scenario.healths + jax.random.uniform(rngs[0], minval=-0.1, maxval=0.1),
-                min=unit_spec_ranges["healths"][0],
-                max=unit_spec_ranges["healths"][1],
+            healths=jnp.where(
+                env_param_type == 0,
+                jnp.clip(
+                    scenario.healths + jax.random.uniform(rngs[0], minval=-0.1, maxval=0.1),
+                    min=unit_spec_ranges["healths"][0],
+                    max=unit_spec_ranges["healths"][1],
+                ),
+                scenario.healths,
             ),
-            speeds=jnp.clip(
-                scenario.speeds + jax.random.uniform(rngs[1], minval=-0.1, maxval=0.1),
-                min=unit_spec_ranges["speeds"][0],
-                max=unit_spec_ranges["speeds"][1],
+            speeds=jnp.where(
+                env_param_type == 1,
+                jnp.clip(
+                    scenario.speeds + jax.random.uniform(rngs[1], minval=-0.1, maxval=0.1),
+                    min=unit_spec_ranges["speeds"][0],
+                    max=unit_spec_ranges["speeds"][1],
+                ),
+                scenario.speeds,
             ),
-            attack_damages=jnp.clip(
-                scenario.attack_damages + jax.random.uniform(rngs[2], minval=-0.1, maxval=0.1),
-                min=unit_spec_ranges["attack_damages"][0],
-                max=unit_spec_ranges["attack_damages"][1],
+            attack_damages=jnp.where(
+                env_param_type == 2,
+                jnp.clip(
+                    scenario.attack_damages + jax.random.uniform(rngs[2], minval=-0.1, maxval=0.1),
+                    min=unit_spec_ranges["attack_damages"][0],
+                    max=unit_spec_ranges["attack_damages"][1],
+                ),
+                scenario.attack_damages,
             ),
         )
         return scenario
@@ -354,7 +379,7 @@ def mutate_unit_spec(env_params: Level, rng: chex.PRNGKey) -> Level:
     return env_params
 
 
-def mutate_heuristic_config(env_params: Level, rng: chex.PRNGKey) -> Level:
+def mutate_heuristic_config(env_params: Level, _, rng: chex.PRNGKey) -> Level:
     def _mutate_heuristic_config(
         config: TABXHeuristicParam, rng: chex.PRNGKey
     ) -> TABXHeuristicParam:
@@ -385,7 +410,7 @@ def mutate_heuristic_config(env_params: Level, rng: chex.PRNGKey) -> Level:
     return env_params
 
 
-def mutate_level_generator(free_param_types: Tuple) -> Callable:
+def mutate_level_generator(free_param_types: Tuple, env_param_type: int) -> Callable:
     def mutate_level(env_params: Level, rng: chex.PRNGKey) -> Level:
         def _mutate_level(carry, free_param_type: int):
             env_params, rng = carry
@@ -395,6 +420,7 @@ def mutate_level_generator(free_param_types: Tuple) -> Callable:
                 free_param_type,
                 [mutate_zone, mutate_unit_spec, mutate_heuristic_config],
                 env_params,
+                env_param_type,
                 _rng,
             )
 

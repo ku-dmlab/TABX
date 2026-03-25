@@ -68,6 +68,7 @@ class Config:
     PHYSICS: str = "default"
     HEURISTIC: str = "novice"
     FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
+    ENV_PARAM_TYPE: int = 0
     WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # PLR
     SCORE_FUNC: str = "MaxMC"  # MaxMC, pvl
@@ -211,8 +212,8 @@ def make_train(config):
         )
 
         rng, _rng = jax.random.split(rng)
-        sample_random_level = level_generator(config["FREE_PARAM_TYPE"])
-        mutate_level = mutate_level_generator(config["FREE_PARAM_TYPE"])
+        sample_random_level = level_generator(config["FREE_PARAM_TYPE"], config["ENV_PARAM_TYPE"])
+        mutate_level = mutate_level_generator(config["FREE_PARAM_TYPE"], config["ENV_PARAM_TYPE"])
         pholder_level = sample_random_level(init_env_params, _rng)
         pholder_level_batch = jax.tree.map(
             lambda x: jnp.repeat(x[None], config["NUM_ENVS"], axis=0), pholder_level

@@ -61,6 +61,7 @@ class Config:
     PHYSICS: str = "default"
     HEURISTIC: str = "novice"
     FREE_PARAM_TYPE: tuple[Literal["zone", "unit_spec", "heuristic_config"], ...] = ("zone",)
+    ENV_PARAM_TYPE: int = 0
     WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # SFL
     ROLLOUT_STEPS: int = 2000
@@ -91,7 +92,7 @@ def make_train(config):
     env = TABXEnemyHeuristicWrapper(env)
     env = TABXAutoResetWrapper(env)
 
-    sample_random_level = level_generator(config["FREE_PARAM_TYPE"])
+    sample_random_level = level_generator(config["FREE_PARAM_TYPE"], config["ENV_PARAM_TYPE"])
 
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
     config["NUM_UPDATES"] = math.ceil(
