@@ -172,12 +172,14 @@ def make_train(config):
         heuristic_params = get_evaluation_heuristic_params(
             config["HEURISTIC"], list(config["FREE_PARAM_TYPE"])
         )
+        n_eval_scenarios = len(eval_scenarios) * len(heuristic_params)
         eval_levels, tabx_config = build_batched_env_params_and_config(
-            scenario_names=eval_scenarios,
+            scenario_names=eval_scenarios * len(heuristic_params),
             physics_param_names=[config["PHYSICS"]] * n_eval_scenarios,
-            heuristic_param_names=heuristic_params * n_eval_scenarios,
+            heuristic_param_names=heuristic_params * len(eval_scenarios),
             n_repeat=config["NUM_EVAL"],
         )
+        eval_scenarios = eval_scenarios * len(heuristic_params)
         eval_env = TABX(cfg=tabx_config)
         eval_env = TABXLogWrapper(eval_env)
         eval_env = TABXEnemyHeuristicWrapper(eval_env)
