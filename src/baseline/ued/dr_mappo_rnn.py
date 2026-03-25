@@ -3,6 +3,7 @@ Based on JaxMARL Implementation of MAPPO
 """
 
 import hashlib
+import itertools
 import json
 import os
 from dataclasses import dataclass
@@ -179,7 +180,9 @@ def make_train(config):
             heuristic_param_names=heuristic_params * len(eval_scenarios),
             n_repeat=config["NUM_EVAL"],
         )
-        eval_scenarios = eval_scenarios * len(heuristic_params)
+        eval_scenarios = [
+            f"{x}_{y}" for x, y in itertools.product(eval_scenarios, heuristic_params)
+        ]
         eval_env = TABX(cfg=tabx_config)
         eval_env = TABXLogWrapper(eval_env)
         eval_env = TABXEnemyHeuristicWrapper(eval_env)
