@@ -5,6 +5,7 @@ Based on JaxMARL Implementation of MAPPO and sampling-for-learnability Implement
 import hashlib
 import json
 import os
+import itertools
 from dataclasses import dataclass
 from typing import Literal, Tuple
 
@@ -72,7 +73,7 @@ class Config:
     UPDATE_FREQ: int = 64
     # Eval.
     EVAL_STEPS: int = 256
-    NUM_EVAL: int = 10  # The number of episodes to evaluate
+    NUM_EVAL: int = 128  # The number of episodes to evaluate
     # Misc.
     SEED: int | Tuple[int, ...] = 0
     ALGORITHM: str = "sfl_mappo"  # for distinguishing wandb runs
@@ -196,7 +197,10 @@ def make_train(config):
             heuristic_param_names=heuristic_params * len(eval_scenarios),
             n_repeat=config["NUM_EVAL"],
         )
-        eval_scenarios = eval_scenarios * len(heuristic_params)
+        eval_scenarios = [
+            f"{x}_{y}_t{config['ENV_PARAM_TYPE']}"
+            for x, y in itertools.product(eval_scenarios, heuristic_params)
+        ]
         eval_env = TABX(cfg=tabx_config)
         eval_env = TABXLogWrapper(eval_env)
         eval_env = TABXEnemyHeuristicWrapper(eval_env)

@@ -6,6 +6,7 @@ import hashlib
 import itertools
 import json
 import os
+import itertools
 from dataclasses import dataclass
 from typing import Literal, Tuple
 
@@ -65,7 +66,7 @@ class Config:
     WORLD_STATE_TYPE: Literal["concat", "global"] = "global"
     # Eval.
     EVAL_STEPS: int = 256
-    NUM_EVAL: int = 10  # The number of episodes to evaluate
+    NUM_EVAL: int = 128  # The number of episodes to evaluate
     # Misc.
     SEED: int | Tuple[int, ...] = 0
     ALGORITHM: str = "dr_mappo"  # for distinguishing wandb runs

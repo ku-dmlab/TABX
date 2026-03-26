@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from dataclasses import dataclass
+import itertools
 from enum import IntEnum
 from typing import Literal, Tuple
 
@@ -86,7 +87,7 @@ class Config:
     NUM_EDITS: int = 5
     # Eval.
     EVAL_STEPS: int = 256
-    NUM_EVAL: int = 10  # The number of episodes to evaluate
+    NUM_EVAL: int = 128  # The number of episodes to evaluate
     # Misc.
     SEED: int | Tuple[int, ...] = 0
     ALGORITHM: str = "robust_plr_mappo"  # for distinguishing wandb runs
@@ -253,7 +254,10 @@ def make_train(config):
             heuristic_param_names=heuristic_params * len(eval_scenarios),
             n_repeat=config["NUM_EVAL"],
         )
-        eval_scenarios = eval_scenarios * len(heuristic_params)
+        eval_scenarios = [
+            f"{x}_{y}_t{config['ENV_PARAM_TYPE']}"
+            for x, y in itertools.product(eval_scenarios, heuristic_params)
+        ]
         eval_env = TABX(cfg=tabx_config)
         eval_env = TABXLogWrapper(eval_env)
         eval_env = TABXEnemyHeuristicWrapper(eval_env)
@@ -945,6 +949,12 @@ def make_train(config):
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
+    
+    if config.USE_ACCEL:
+        config.ALGORITHM = "accel_mappo"
+    elif config.EXPLORATORY_GRAD_UPDATES:
+        config.ALGORITHM = "plr_mappo"
+
     config_dict = dataclass_to_dict(config)
     config_json = json.dumps(config_dict, sort_keys=True)
     config_hash = hashlib.md5(config_json.encode()).hexdigest()[:8]
@@ -957,11 +967,6 @@ if __name__ == "__main__":
 
     if config.SCENARIO in CHALLENGES:
         raise ValueError(f"{config.SCENARIO} is not supported in the UED setting.")
-
-    if config.USE_ACCEL:
-        config.ALGORITHM = "accel_mappo"
-    elif config.EXPLORATORY_GRAD_UPDATES:
-        config.ALGORITHM = "plr_mappo"
 
     wandb.init(
         project=config.PROJECT_NAME, mode="online", config=config_dict | {"HASH": config_hash}
