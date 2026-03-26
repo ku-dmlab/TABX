@@ -45,5 +45,5 @@ def get_evaluation_scenarios(scenario_name: str, free_param_type: List) -> List:
 
 def get_evaluation_heuristic_params(heuristic_param_name: str, free_param_type: List) -> List:
     if "heuristic_config" in free_param_type:
-        return list(set(HEURISTIC_PARAMS) - set(list(heuristic_param_name)))
+        return HEURISTIC_PARAMS
     return [heuristic_param_name]
