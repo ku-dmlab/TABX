@@ -74,7 +74,7 @@ class Config:
     PROJECT_NAME: str = "qmix_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
-    VALUE_EVAL_NUM_ENVS: int | None = 128
+    VALUE_EVAL_NUM_ENVS: int | None = None
     POSITION_PERMUTATION: bool = False
 
 
@@ -509,88 +509,95 @@ def make_train(config, env, eval_env, env_params, test_env_params):
             )
             metrics = get_battle_metric(env, step_state[1])
 
-            estimated_q = mixer.apply(
-                train_state.params["mixer"],
-                jnp.permute_dims(
-                    stacked_q_vals.max(axis=-1), (1, 0, 2)
-                ),  # (n_agents, time_steps, batch_size)
-                timestep.obs["world_state"],
-            )
-
-            def timestep_sample(array, idx, axis=1):
-                return jax.vmap(lambda idx, num: jnp.take(array[idx], num, axis=axis), in_axes=0)(
-                    idx, jnp.arange(config["TEST_NUM_ENVS"])
+            if config["VALUE_EVAL_NUM_ENVS"] is not None:
+                estimated_q = mixer.apply(
+                    train_state.params["mixer"],
+                    jnp.permute_dims(
+                        stacked_q_vals.max(axis=-1), (1, 0, 2)
+                    ),  # (n_agents, time_steps, batch_size)
+                    timestep.obs["world_state"],
                 )
 
-            rng, _rng = jax.random.split(rng, 2)
-            timestep_idx = jax.random.randint(
-                _rng, (config["TEST_NUM_ENVS"],), 0, config["TEST_NUM_STEPS"]
-            )
-            value_eval_env_params = jax.tree.map(
-                partial(timestep_sample, idx=timestep_idx, axis=0), stacked_env_state
-            )
+                def timestep_sample(array, idx, axis=1):
+                    return jax.vmap(
+                        lambda idx, num: jnp.take(array[idx], num, axis=axis), in_axes=0
+                    )(idx, jnp.arange(config["TEST_NUM_ENVS"]))
 
-            eval_hstate = timestep_sample(stacked_hstate, timestep_idx, axis=1).swapaxes(0, 1)
-            estimated_q = timestep_sample(estimated_q, timestep_idx, axis=0)
+                rng, _rng = jax.random.split(rng, 2)
+                timestep_idx = jax.random.randint(
+                    _rng, (config["TEST_NUM_ENVS"],), 0, config["TEST_NUM_STEPS"]
+                )
+                value_eval_env_params = jax.tree.map(
+                    partial(timestep_sample, idx=timestep_idx, axis=0), stacked_env_state
+                )
 
-            eval_obsv = jax.vmap(env.get_obs)(value_eval_env_params["state"])
-            eval_obsv = env.filter_obs(eval_obsv)
+                eval_hstate = timestep_sample(stacked_hstate, timestep_idx, axis=1).swapaxes(0, 1)
+                estimated_q = timestep_sample(estimated_q, timestep_idx, axis=0)
 
-            def _eval_step(step_state, unused):
-                params, env_state, last_obs, last_dones, hstate, rng, all_done, returns = step_state
-                rng, key_s = jax.random.split(rng)
-                _obs = batchify(last_obs)[:, np.newaxis]
-                _dones = batchify(last_dones)[:, np.newaxis]
-                hstate, q_vals = jax.vmap(network.apply, in_axes=(None, 0, 0, 0))(
-                    params,
-                    hstate,
-                    _obs,
-                    _dones,
-                )
-                q_vals = q_vals.squeeze(axis=1)
-                valid_actions = jax.vmap(eval_env.get_avail_actions)(env_state)
-                actions = get_greedy_actions(q_vals, batchify(valid_actions))
-                actions = unbatchify(actions)
-                obs, env_state, rewards, dones, infos = jax.vmap(eval_env.step, in_axes=(0, 0, 0))(
-                    jax.random.split(key_s, config["TEST_NUM_ENVS"]),
-                    env_state,
-                    actions,
-                )
-                step_state = (
-                    params,
-                    env_state,
-                    obs,
-                    dones,
-                    hstate,
-                    rng,
-                    dones["__all__"],
-                    jnp.where(all_done, returns, returns * config["GAMMA"] + rewards["__all__"]),
-                )
-                return step_state, None
+                eval_obsv = jax.vmap(env.get_obs)(value_eval_env_params["state"])
+                eval_obsv = env.filter_obs(eval_obsv)
 
-            def mc_value_estimate(rng):
-                eval_runner_state = (
-                    train_state.params["agent"],
-                    value_eval_env_params,
-                    eval_obsv,
-                    init_dones,
-                    eval_hstate,
-                    rng,
-                    jnp.zeros((config["TEST_NUM_ENVS"]), dtype=bool),
-                    jnp.zeros((config["TEST_NUM_ENVS"]), dtype=float),
-                )
-                eval_runner_state, _ = jax.lax.scan(
-                    _eval_step, eval_runner_state, None, env.max_episode_steps
-                )
-                return eval_runner_state[-1]
+                def _eval_step(step_state, unused):
+                    params, env_state, last_obs, last_dones, hstate, rng, all_done, returns = (
+                        step_state
+                    )
+                    rng, key_s = jax.random.split(rng)
+                    _obs = batchify(last_obs)[:, np.newaxis]
+                    _dones = batchify(last_dones)[:, np.newaxis]
+                    hstate, q_vals = jax.vmap(network.apply, in_axes=(None, 0, 0, 0))(
+                        params,
+                        hstate,
+                        _obs,
+                        _dones,
+                    )
+                    q_vals = q_vals.squeeze(axis=1)
+                    valid_actions = jax.vmap(eval_env.get_avail_actions)(env_state)
+                    actions = get_greedy_actions(q_vals, batchify(valid_actions))
+                    actions = unbatchify(actions)
+                    obs, env_state, rewards, dones, infos = jax.vmap(
+                        eval_env.step, in_axes=(0, 0, 0)
+                    )(
+                        jax.random.split(key_s, config["TEST_NUM_ENVS"]),
+                        env_state,
+                        actions,
+                    )
+                    step_state = (
+                        params,
+                        env_state,
+                        obs,
+                        dones,
+                        hstate,
+                        rng,
+                        dones["__all__"],
+                        jnp.where(
+                            all_done, returns, returns * config["GAMMA"] + rewards["__all__"]
+                        ),
+                    )
+                    return step_state, None
 
-            mc_returns = jax.vmap(mc_value_estimate)(
-                jax.random.split(rng, config["VALUE_EVAL_NUM_ENVS"])
-            ).mean(axis=0)
-            value_error = jnp.abs(estimated_q - mc_returns).mean()
-            metrics["value_error"] = value_error
-            metrics["mc_returns"] = mc_returns.mean()
-            metrics["estimated_q"] = estimated_q.mean()
+                def mc_value_estimate(rng):
+                    eval_runner_state = (
+                        train_state.params["agent"],
+                        value_eval_env_params,
+                        eval_obsv,
+                        init_dones,
+                        eval_hstate,
+                        rng,
+                        jnp.zeros((config["TEST_NUM_ENVS"]), dtype=bool),
+                        jnp.zeros((config["TEST_NUM_ENVS"]), dtype=float),
+                    )
+                    eval_runner_state, _ = jax.lax.scan(
+                        _eval_step, eval_runner_state, None, env.max_episode_steps
+                    )
+                    return eval_runner_state[-1]
+
+                mc_returns = jax.vmap(mc_value_estimate)(
+                    jax.random.split(rng, config["VALUE_EVAL_NUM_ENVS"])
+                ).mean(axis=0)
+                value_error = jnp.abs(estimated_q - mc_returns).mean()
+                metrics["value_error"] = value_error
+                metrics["mc_returns"] = mc_returns.mean()
+                metrics["estimated_q"] = estimated_q.mean()
 
             return metrics
 
