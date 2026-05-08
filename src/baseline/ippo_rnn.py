@@ -30,6 +30,7 @@ from src.tabx import TABX, build_batched_env_params_and_config
 from src.tabx.utils import Transition
 from src.tabx.wrappers.wrappers import (
     TABXAutoResetWrapper,
+    TABXEnemyAllyFlipWrapper,
     TABXEnemyHeuristicWrapper,
     TABXLogWrapper,
 )
@@ -78,8 +79,9 @@ class Config:
     PROJECT_NAME: str = "ippo_rnn"  # wandb project name
     SAVE_PATH: str = "./ckpt"
     SAVE_VIDEO: bool = False
-    VALUE_EVAL_NUM_ENVS: int | None = 128
+    VALUE_EVAL_NUM_ENVS: int | None = None
     POSITION_PERMUTATION: bool = False
+    FLIP: bool = False
 
 
 @struct.dataclass
@@ -102,6 +104,8 @@ def make_train(config):
         world_state_type=config["WORLD_STATE_TYPE"],
         position_permutation=config["POSITION_PERMUTATION"],
     )
+    if config["FLIP"]:
+        env = TABXEnemyAllyFlipWrapper(env)
     env = TABXLogWrapper(env)
     env = TABXEnemyHeuristicWrapper(env)
     env = TABXAutoResetWrapper(env)
@@ -111,6 +115,8 @@ def make_train(config):
         world_state_type=config["WORLD_STATE_TYPE"],
         position_permutation=config["POSITION_PERMUTATION"],
     )
+    if config["FLIP"]:
+        eval_env = TABXEnemyAllyFlipWrapper(eval_env)
     eval_env = TABXLogWrapper(eval_env, reset_when_done=False)
     eval_env = TABXEnemyHeuristicWrapper(eval_env)
     config["NUM_ACTORS"] = env.num_agents * config["NUM_ENVS"]
@@ -555,6 +561,8 @@ if __name__ == "__main__":
             scenario_names=config.SCENARIO
         )
         env = TABX(cfg=tabx_config)
+        if config["FLIP"]:
+            env = TABXEnemyAllyFlipWrapper(env)
         env = TABXEnemyHeuristicWrapper(env)
         num_steps = env.max_episode_steps
 

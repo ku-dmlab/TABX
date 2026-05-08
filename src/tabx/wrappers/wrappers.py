@@ -225,6 +225,38 @@ class LogEnvState:
     returned_cumulative_attack_success: chex.Array
 
 
+class TABXEnemyAllyFlipWrapper(BaseWrapper):
+    def __init__(self, env: TABX):
+        super().__init__(env)
+        self.ally_keys = env.enemy_keys
+        self.enemy_keys = env.ally_keys
+        self.max_n_ally = env.max_n_enemy
+        self.max_n_enemy = env.max_n_ally
+
+    def step(self, key, state, action):
+        obs, next_state, reward, done, info = self.env.step(key, state, action)
+
+        fliped_reward = reward[::-1]
+
+        n_ally = len(self.env.ally_keys)
+
+        def get_fliped_info(info: jnp.ndarray):
+            return jnp.concatenate([info[n_ally:], info[:n_ally]])
+
+        fliped_info = {
+            "damage_dealt": get_fliped_info(info["damage_dealt"]),
+            "disabled_units": get_fliped_info(info["disabled_units"]),
+            "done_reward": info["done_reward"][::-1],
+            "is_attacking": get_fliped_info(info["is_attacking"]),
+            "is_win": info["is_win"][::-1],
+            "team_dead_units": info["team_dead_units"][::-1],
+            "timestep": info["timestep"],
+            "truncation": info["truncation"],
+        }
+
+        return obs, next_state, fliped_reward, done, fliped_info
+
+
 # ref : https://github.com/FLAIROx/JaxMARL/blob/main/jaxmarl/wrappers/baselines.py
 class TABXLogWrapper(BaseWrapper):
     """
