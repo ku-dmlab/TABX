@@ -3,7 +3,7 @@
 <img src="imgs/tabx_logo.png" style="width:500px" />
 </p>
 
-**Totally Accelerated Battle Simulator in JAX (TABX)** is a rapid, flexible, and easily configurable sandbox for MARL. It allows researchers to generate various scenarios tailored to specific research questions by offering a diverse set of environmental parameters.
+This repository contains the official implementation of [TABX: A High-Throughput Sandbox Battle Simulator for Multi-Agent Reinforcement Learning, ICML 2026](https://icml.cc/virtual/2026/poster/62035). **Totally Accelerated Battle Simulator in JAX (TABX)** is a rapid, flexible, and easily configurable sandbox for MARL. It allows researchers to generate various scenarios tailored to specific research questions by offering a diverse set of environmental parameters.
 
 <p align="center">
 <img src="imgs/clover.gif" style="width:300px"> </img>
@@ -87,3 +87,14 @@ We provide implementations of five MARL algorithms and five UED algorithms, avai
 | | SFL | Rutherford et al. (2024a) |
 
 Configuration files are managed using Tyro. Every files include `wandb` logging by default. Logging can be disabled through the configuration file.
+
+# Citing TABX
+If you use TABX in your work, please cite us as follows:
+```
+@article{lee2026tabx,
+  title={TABX: A High-Throughput Sandbox Battle Simulator for Multi-Agent Reinforcement Learning},
+  author={Lee, Hayeong and Oh, JunHyeok and Lee, Byung-Jun},
+  journal={arXiv preprint arXiv:2602.01665},
+  year={2026}
+}
+```
